@@ -1,6 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _MSC_VER
+#define _USE_MATH_DEFINES
+#endif
+#include <math.h>
 
 #include "raylib.h"
 #include "mavlink_receiver.h"
@@ -8,26 +12,64 @@
 #include "scene.h"
 #include "hud.h"
 
+#define MAX_VEHICLES 16
+
+static const Color vehicle_colors[MAX_VEHICLES] = {
+    {230, 230, 230, 255}, // 0: white (default single)
+    {230,  41,  55, 255}, // 1: red
+    {  0, 228,  48, 255}, // 2: green
+    {  0, 121, 241, 255}, // 3: blue
+    {253, 249,   0, 255}, // 4: yellow
+    {255,   0, 255, 255}, // 5: magenta
+    {  0, 255, 255, 255}, // 6: cyan
+    {255, 161,   0, 255}, // 7: orange
+    {200, 122, 255, 255}, // 8: purple
+    {127, 106,  79, 255}, // 9: brown
+    {255, 109, 194, 255}, // 10: pink
+    {  0, 182, 172, 255}, // 11: teal
+    {135, 206, 235, 255}, // 12: sky blue
+    {255, 203, 164, 255}, // 13: peach
+    {170, 255, 128, 255}, // 14: lime
+    {200, 200, 200, 255}, // 15: silver
+};
+
 static void print_usage(const char *prog) {
     printf("Usage: %s [options]\n", prog);
-    printf("  -udp <port>    UDP listen port (default: 19410)\n");
+    printf("  -udp <port>    UDP base port (default: 19410)\n");
+    printf("  -n <count>     Number of vehicles (default: 1, max: %d)\n", MAX_VEHICLES);
     printf("  -mc            Multicopter model (default)\n");
     printf("  -fw            Fixed-wing model\n");
     printf("  -ts            Tailsitter model\n");
+    printf("  -origin <lat> <lon> <alt>  NED origin in degrees/meters (default: PX4 SIH)\n");
     printf("  -w <width>     Window width (default: 1280)\n");
     printf("  -h <height>    Window height (default: 720)\n");
 }
 
 int main(int argc, char *argv[]) {
-    uint16_t port = 19410;
+    uint16_t base_port = 19410;
+    int vehicle_count = 1;
     vehicle_type_t vtype = VEHICLE_MULTICOPTER;
     int win_w = 1280;
     int win_h = 720;
     bool debug = false;
+    // PX4 SIH default spawn position
+    double origin_lat = 47.397742;
+    double origin_lon = 8.545594;
+    double origin_alt = 489.4;
+    bool origin_specified = false;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-udp") == 0 && i + 1 < argc) {
-            port = (uint16_t)atoi(argv[++i]);
+            base_port = (uint16_t)atoi(argv[++i]);
+        } else if (strcmp(argv[i], "-n") == 0 && i + 1 < argc) {
+            vehicle_count = atoi(argv[++i]);
+            if (vehicle_count < 1) vehicle_count = 1;
+            if (vehicle_count > MAX_VEHICLES) vehicle_count = MAX_VEHICLES;
+        } else if (strcmp(argv[i], "-origin") == 0 && i + 3 < argc) {
+            origin_lat = atof(argv[++i]);
+            origin_lon = atof(argv[++i]);
+            origin_alt = atof(argv[++i]);
+            origin_specified = true;
         } else if (strcmp(argv[i], "-mc") == 0) {
             vtype = VEHICLE_MULTICOPTER;
         } else if (strcmp(argv[i], "-fw") == 0) {
@@ -51,18 +93,36 @@ int main(int argc, char *argv[]) {
     InitWindow(win_w, win_h, "MAVSim Viewer");
     SetTargetFPS(60);
 
-    // Init MAVLink receiver
-    mavlink_receiver_t recv;
-    recv.debug = debug;
-    if (mavlink_receiver_init(&recv, port) != 0) {
-        fprintf(stderr, "Failed to init MAVLink receiver on port %u\n", port);
-        CloseWindow();
-        return 1;
+    // Init MAVLink receivers
+    mavlink_receiver_t receivers[MAX_VEHICLES];
+    for (int i = 0; i < vehicle_count; i++) {
+        receivers[i].debug = debug;
+        if (mavlink_receiver_init(&receivers[i], base_port + i, (uint8_t)i) != 0) {
+            fprintf(stderr, "Failed to init MAVLink receiver on port %u\n", base_port + i);
+            CloseWindow();
+            return 1;
+        }
     }
 
-    // Init vehicle and scene
-    vehicle_t vehicle;
-    vehicle_init(&vehicle, vtype);
+    // Init vehicles
+    vehicle_t vehicles[MAX_VEHICLES];
+    for (int i = 0; i < vehicle_count; i++) {
+        vehicle_init(&vehicles[i], vtype);
+        vehicles[i].color = vehicle_colors[i];
+    }
+
+    // For multi-vehicle or explicit origin: pre-set the NED origin on all vehicles
+    if (vehicle_count > 1 || origin_specified) {
+        double lat0_rad = origin_lat * (M_PI / 180.0);
+        double lon0_rad = origin_lon * (M_PI / 180.0);
+        for (int i = 0; i < vehicle_count; i++) {
+            vehicles[i].lat0 = lat0_rad;
+            vehicles[i].lon0 = lon0_rad;
+            vehicles[i].alt0 = origin_alt;
+            vehicles[i].origin_set = true;
+        }
+        printf("NED origin: lat=%.6f lon=%.6f alt=%.1f\n", origin_lat, origin_lon, origin_alt);
+    }
 
     scene_t scene;
     scene_init(&scene);
@@ -70,22 +130,61 @@ int main(int argc, char *argv[]) {
     hud_t hud;
     hud_init(&hud);
 
+    int selected = 0;
+
     // Main loop
     while (!WindowShouldClose()) {
-        // Poll MAVLink
-        mavlink_receiver_poll(&recv);
+        // Poll all MAVLink receivers and update vehicles
+        for (int i = 0; i < vehicle_count; i++) {
+            mavlink_receiver_poll(&receivers[i]);
+            vehicle_update(&vehicles[i], &receivers[i].state);
+            vehicles[i].sysid = receivers[i].sysid;
+        }
 
-        // Update vehicle from latest MAVLink state
-        vehicle_update(&vehicle, &recv.state);
+        // Check if any receiver is connected (for HUD)
+        bool any_connected = false;
+        for (int i = 0; i < vehicle_count; i++) {
+            if (receivers[i].connected) { any_connected = true; break; }
+        }
 
         // Update HUD timer
-        hud_update(&hud, GetFrameTime(), recv.connected);
+        hud_update(&hud, GetFrameTime(), any_connected);
 
         // Handle input
         scene_handle_input(&scene);
 
-        // Update camera
-        scene_update_camera(&scene, vehicle.position, vehicle.rotation);
+        // Vehicle selection input
+        if (vehicle_count > 1) {
+            if (IsKeyPressed(KEY_TAB)) {
+                // Cycle to next connected vehicle
+                for (int j = 1; j <= vehicle_count; j++) {
+                    int next = (selected + j) % vehicle_count;
+                    if (receivers[next].connected) { selected = next; break; }
+                }
+            }
+            if (IsKeyPressed(KEY_LEFT_BRACKET)) {
+                for (int j = 1; j <= vehicle_count; j++) {
+                    int prev = (selected - j + vehicle_count) % vehicle_count;
+                    if (receivers[prev].connected) { selected = prev; break; }
+                }
+            }
+            if (IsKeyPressed(KEY_RIGHT_BRACKET)) {
+                for (int j = 1; j <= vehicle_count; j++) {
+                    int next = (selected + j) % vehicle_count;
+                    if (receivers[next].connected) { selected = next; break; }
+                }
+            }
+            // Number keys 1-9 for direct selection
+            for (int k = KEY_ONE; k <= KEY_NINE; k++) {
+                if (IsKeyPressed(k)) {
+                    int idx = k - KEY_ONE;
+                    if (idx < vehicle_count) selected = idx;
+                }
+            }
+        }
+
+        // Update camera to follow selected vehicle
+        scene_update_camera(&scene, vehicles[selected].position, vehicles[selected].rotation);
 
         // Render
         BeginDrawing();
@@ -95,20 +194,28 @@ int main(int argc, char *argv[]) {
 
             BeginMode3D(scene.camera);
                 scene_draw(&scene);
-                vehicle_draw(&vehicle, scene.view_mode);
+                for (int i = 0; i < vehicle_count; i++) {
+                    if (vehicles[i].active || vehicle_count == 1) {
+                        vehicle_draw(&vehicles[i], scene.view_mode, i == selected);
+                    }
+                }
             EndMode3D();
 
             // HUD
-            hud_draw(&hud, &vehicle, recv.connected, GetScreenWidth(), GetScreenHeight());
+            hud_draw(&hud, &vehicles[selected], any_connected,
+                     GetScreenWidth(), GetScreenHeight(),
+                     selected, vehicle_count, vehicles[selected].sysid);
 
         EndDrawing();
     }
 
     // Cleanup
     hud_cleanup(&hud);
-    vehicle_cleanup(&vehicle);
+    for (int i = 0; i < vehicle_count; i++) {
+        vehicle_cleanup(&vehicles[i]);
+        mavlink_receiver_close(&receivers[i]);
+    }
     scene_cleanup(&scene);
-    mavlink_receiver_close(&recv);
     CloseWindow();
 
     return 0;

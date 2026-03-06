@@ -26,14 +26,15 @@ typedef struct {
 typedef struct {
     sock_t sockfd;
     uint16_t port;
+    uint8_t channel;
     bool connected;
     bool debug;
     uint8_t sysid;
     hil_state_t state;
 } mavlink_receiver_t;
 
-// Initialize UDP socket on given port. Returns 0 on success.
-int mavlink_receiver_init(mavlink_receiver_t *recv, uint16_t port);
+// Initialize UDP socket on given port with MAVLink parse channel. Returns 0 on success.
+int mavlink_receiver_init(mavlink_receiver_t *recv, uint16_t port, uint8_t channel);
 
 // Poll for new messages (non-blocking). Call once per frame.
 void mavlink_receiver_poll(mavlink_receiver_t *recv);

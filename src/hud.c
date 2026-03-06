@@ -68,8 +68,25 @@ static void draw_compass(float cx, float cy, float radius, float heading_deg) {
     DrawText(hdg_buf, (int)(cx - tw / 2), (int)(cy + radius * 0.6f), 12, WHITE);
 }
 
-void hud_draw(const hud_t *h, const vehicle_t *v, bool connected, int screen_w, int screen_h) {
+void hud_draw(const hud_t *h, const vehicle_t *v, bool connected, int screen_w, int screen_h,
+              int vehicle_idx, int vehicle_total, uint8_t sysid) {
     (void)connected; // handled in second row below
+
+    // Vehicle tab header (above the bottom bar, only for multi-vehicle)
+    int tab_h = 0;
+    if (vehicle_total > 1) {
+        tab_h = 30;
+        int tab_y = screen_h - BAR_HEIGHT - tab_h;
+        DrawRectangle(0, tab_y, screen_w, tab_h, (Color){15, 15, 15, 200});
+        DrawLineEx((Vector2){0, (float)tab_y}, (Vector2){(float)screen_w, (float)tab_y},
+                   1.0f, (Color){80, 80, 80, 200});
+
+        char tab_buf[32];
+        snprintf(tab_buf, sizeof(tab_buf), "Vehicle %d/%d  [SYS %u]",
+                 vehicle_idx + 1, vehicle_total, sysid);
+        int tab_tw = MeasureText(tab_buf, 18);
+        DrawText(tab_buf, (screen_w - tab_tw) / 2, tab_y + 6, 18, (Color){240, 240, 100, 255});
+    }
 
     // Bottom bar
     int bar_y = screen_h - BAR_HEIGHT;
@@ -173,12 +190,15 @@ void hud_draw(const hud_t *h, const vehicle_t *v, bool connected, int screen_w, 
 
     // Second row
     int row2_y = bar_y + 65;
+    float row2_x = att_cx + INSTRUMENT_RADIUS + 35;
     {
         char b[48];
         snprintf(b, sizeof(b), "Pos: %.1f, %.1f, %.1f",
                  v->position.x, v->position.y, v->position.z);
-        DrawText(b, (int)(att_cx + INSTRUMENT_RADIUS + 35), row2_y, 11, (Color){120, 120, 120, 255});
+        DrawText(b, (int)row2_x, row2_y, 11, (Color){120, 120, 120, 255});
+        row2_x += (float)MeasureText(b, 11) + 20;
     }
+
     {
         char b[16];
         snprintf(b, sizeof(b), "FPS: %d", GetFPS());

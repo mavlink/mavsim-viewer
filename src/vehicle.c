@@ -27,8 +27,10 @@ void vehicle_init(vehicle_t *v, vehicle_type_t type) {
     v->position = (Vector3){0};
     v->rotation = QuaternionIdentity();
     v->origin_set = false;
+    v->active = false;
     v->model_scale = model_scales[type];
     v->red_material_idx = -1;
+    v->color = WHITE;
 
     v->model = LoadModel(model_paths[type]);
     if (v->model.meshCount == 0) {
@@ -70,28 +72,24 @@ void vehicle_update(vehicle_t *v, const hil_state_t *state) {
         v->origin_set = true;
     }
 
-    // jMAVSim local position: X=North, Y=East, Z=Up (same as MAVLinkDisplayOnly.java)
-    double jmav_x = EARTH_RADIUS * (lat - v->lat0);               // North
-    double jmav_y = EARTH_RADIUS * (lon - v->lon0) * cos(v->lat0); // East
-    double jmav_z = alt - v->alt0;                                  // Up
+    v->active = true;
 
-    // jMAVSim frame (X=North,Y=East,Z=Up) → Raylib (X=right,Y=up,Z=back)
-    // jMAVSim X (North) → Raylib -Z
-    // jMAVSim Y (East)  → Raylib +X
-    // jMAVSim Z (Up)    → Raylib +Y
+    // Local NED position relative to origin
+    double jmav_x = EARTH_RADIUS * (lat - v->lat0);                // North
+    double jmav_y = EARTH_RADIUS * (lon - v->lon0) * cos(v->lat0); // East
+    double jmav_z = alt - v->alt0;                                   // Up
+
+    // NED frame → Raylib (X=right, Y=up, Z=back)
     v->position.x = (float)jmav_y;
     v->position.y = (float)jmav_z;
     if (v->position.y < 0.0f) v->position.y = 0.0f;
     v->position.z = (float)(-jmav_x);
 
-    // MAVLink quaternion: w,x,y,z in NED frame
-    // NED rotation axes: X=North, Y=East, Z=Down
-    // Raylib rotation axes: X=East, Y=Up, Z=South
-    // Mapping: NED_X→-Ray_Z, NED_Y→Ray_X, NED_Z→-Ray_Y
+    // MAVLink quaternion: w,x,y,z in NED frame → Raylib
     float qw = state->quaternion[0];
-    float qx = state->quaternion[1]; // NED X (North) → -Raylib Z
-    float qy = state->quaternion[2]; // NED Y (East)  → +Raylib X
-    float qz = state->quaternion[3]; // NED Z (Down)  → -Raylib Y
+    float qx = state->quaternion[1];
+    float qy = state->quaternion[2];
+    float qz = state->quaternion[3];
 
     v->rotation.w = qw;
     v->rotation.x = qy;
@@ -99,7 +97,6 @@ void vehicle_update(vehicle_t *v, const hil_state_t *state) {
     v->rotation.z = -qx;
 
     // Derived telemetry from NED quaternion
-    // Normalize quaternion sign so qw >= 0 (avoids flipped Euler angles)
     float nw = qw, nx = qx, ny = qy, nz = qz;
     if (nw < 0.0f) { nw = -nw; nx = -nx; ny = -ny; nz = -nz; }
 
@@ -120,10 +117,10 @@ void vehicle_update(vehicle_t *v, const hil_state_t *state) {
                             (float)state->vy * state->vy) * 0.01f;
     v->vertical_speed = -state->vz * 0.01f;
     v->airspeed = state->ind_airspeed * 0.01f;
-    v->altitude_rel = (float)((state->alt * 1e-3) - v->alt0);
+    v->altitude_rel = (float)(alt - v->alt0);
 }
 
-void vehicle_draw(vehicle_t *v, view_mode_t view_mode) {
+void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected) {
     // In Rez mode, swap red arms to orange
     Color saved_red = {0};
     if (view_mode == VIEW_REZ && v->red_material_idx >= 0) {

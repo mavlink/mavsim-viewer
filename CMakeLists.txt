@@ -30,6 +30,9 @@ target_include_directories(mavsim-viewer PRIVATE
     ${MAVLINK_DIR}/common
 )
 
+# Need 16 MAVLink parse channels for multi-vehicle support
+target_compile_definitions(mavsim-viewer PRIVATE MAVLINK_COMM_NUM_BUFFERS=16)
+
 target_link_libraries(mavsim-viewer PRIVATE raylib)
 
 if(APPLE)

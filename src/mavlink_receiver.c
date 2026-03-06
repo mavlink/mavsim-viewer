@@ -17,6 +17,7 @@
 #endif
 
 // MAVLink config: use common message set
+// MAVLINK_COMM_NUM_BUFFERS=16 set via CMake for multi-vehicle support
 #include <mavlink.h>
 
 static int set_nonblocking(sock_t s) {
@@ -29,11 +30,12 @@ static int set_nonblocking(sock_t s) {
 #endif
 }
 
-int mavlink_receiver_init(mavlink_receiver_t *recv, uint16_t port) {
+int mavlink_receiver_init(mavlink_receiver_t *recv, uint16_t port, uint8_t channel) {
     bool debug = recv->debug;
     memset(recv, 0, sizeof(*recv));
     recv->debug = debug;
     recv->port = port;
+    recv->channel = channel;
     recv->sockfd = SOCK_INVALID;
 
 #ifdef _WIN32
@@ -83,7 +85,7 @@ void mavlink_receiver_poll(mavlink_receiver_t *recv) {
         mavlink_status_t status;
 
         for (int i = 0; i < n; i++) {
-            if (mavlink_parse_char(MAVLINK_COMM_0, buf[i], &msg, &status)) {
+            if (mavlink_parse_char(recv->channel, buf[i], &msg, &status)) {
                 if (recv->debug) {
                     printf("[MAVLink] msgid=%u sysid=%u compid=%u seq=%u len=%u\n",
                            msg.msgid, msg.sysid, msg.compid, msg.seq, msg.len);

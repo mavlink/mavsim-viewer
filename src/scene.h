@@ -14,7 +14,8 @@ typedef enum {
     VIEW_GRID = 0,
     VIEW_JMAVSIM,
     VIEW_REZ,
-    VIEW_COUNT,
+    VIEW_COUNT,     // public modes end here
+    VIEW_1988,      // hidden mode (not in V cycle)
 } view_mode_t;
 
 typedef struct {
@@ -28,6 +29,19 @@ typedef struct {
     float chase_distance;
     float chase_yaw;    // horizontal orbit angle (radians)
     float chase_pitch;  // vertical orbit angle (radians)
+    // Grid shader
+    Shader grid_shader;
+    int loc_colGround;
+    int loc_colMinor;
+    int loc_colMajor;
+    int loc_colAxisX;
+    int loc_colAxisZ;
+    int loc_spacing;
+    int loc_majorEvery;
+    int loc_axisWidth;
+    int loc_matModel;
+    Model grid_plane;    // separate ground plane for grid modes
+    int seq_1988;        // key sequence tracker
 } scene_t;
 
 // Initialize scene (ground plane, sky, camera, lighting).

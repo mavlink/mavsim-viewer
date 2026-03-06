@@ -129,12 +129,15 @@ void vehicle_update(vehicle_t *v, const hil_state_t *state) {
 }
 
 void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected) {
-    // In Rez mode, swap red arms to orange
+    // In Rez/1988 mode, swap red arm color
     Color saved_red = {0};
-    if (view_mode == VIEW_REZ && v->red_material_idx >= 0) {
+    if ((view_mode == VIEW_REZ || view_mode == VIEW_1988) && v->red_material_idx >= 0) {
         Color *c = &v->model.materials[v->red_material_idx].maps[MATERIAL_MAP_DIFFUSE].color;
         saved_red = *c;
-        *c = (Color){ 255, 106, 0, 255 }; // #ff6a00 orange
+        if (view_mode == VIEW_1988)
+            *c = (Color){ 255, 20, 100, 255 }; // hot pink
+        else
+            *c = (Color){ 255, 106, 0, 255 }; // #ff6a00 orange
     }
     // OBJ model: flat in XY, thin in Z (Z is model's up).
     // Raylib: Y is up. Rotate +90° around X so model Z → Raylib Y,
@@ -152,7 +155,7 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected) {
     DrawModel(v->model, (Vector3){0}, 1.0f, WHITE);
 
     // Restore original color
-    if (view_mode == VIEW_REZ && v->red_material_idx >= 0) {
+    if ((view_mode == VIEW_REZ || view_mode == VIEW_1988) && v->red_material_idx >= 0) {
         v->model.materials[v->red_material_idx].maps[MATERIAL_MAP_DIFFUSE].color = saved_red;
     }
 }

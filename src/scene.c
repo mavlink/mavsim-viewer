@@ -9,8 +9,8 @@
 #define SKY_RADIUS 6000.0f    // sky sphere radius (larger than ground diagonal)
 
 // Grid shared settings
-#define GRID_EXTENT      250.0f
-#define GRID_SPACING     5.0f
+#define GRID_EXTENT      500.0f
+#define GRID_SPACING     10.0f
 #define GRID_MAJOR_EVERY 5
 
 // Grid mode colors
@@ -29,6 +29,14 @@
 #define REZ_AXIS_X     (Color){ 0,  204, 218, 220 }  // teal, full
 #define REZ_AXIS_Z     (Color){ 0,  204, 218, 220 }  // teal, full
 
+// 1988 mode colors (synthwave)
+#define SYNTH_SKY      (Color){ 8,   8,  20, 255 }
+#define SYNTH_GROUND   (Color){ 5,   5,  16, 255 }
+#define SYNTH_MINOR    (Color){ 255, 20, 100, 50 }   // hot pink, subtle
+#define SYNTH_MAJOR    (Color){ 255, 20, 100, 160 }   // hot pink, bright
+#define SYNTH_AXIS_X   (Color){ 255, 20, 100, 220 }   // hot pink, full
+#define SYNTH_AXIS_Z   (Color){ 255, 20, 100, 220 }   // hot pink, full
+
 void scene_init(scene_t *s) {
     s->cam_mode = CAM_MODE_CHASE;
     s->view_mode = VIEW_GRID;
@@ -45,8 +53,8 @@ void scene_init(scene_t *s) {
         .projection = CAMERA_PERSPECTIVE,
     };
 
-    // Ground plane mesh
-    Mesh ground_mesh = GenMeshPlane(GROUND_SIZE * 2, GROUND_SIZE * 2, 1, 1);
+    // Ground plane mesh (10x10 subdivisions to avoid diagonal tearing)
+    Mesh ground_mesh = GenMeshPlane(GROUND_SIZE * 2, GROUND_SIZE * 2, 10, 10);
     s->ground = LoadModelFromMesh(ground_mesh);
 
     // Ground texture
@@ -81,6 +89,22 @@ void scene_init(scene_t *s) {
 
         s->sky_sphere.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = s->sky_tex;
     }
+
+    // Grid shader and plane (100x100 subdivisions for fwidth() precision)
+    s->grid_shader = LoadShader("shaders/grid.vs", "shaders/grid.fs");
+    s->loc_colGround  = GetShaderLocation(s->grid_shader, "colGround");
+    s->loc_colMinor   = GetShaderLocation(s->grid_shader, "colMinor");
+    s->loc_colMajor   = GetShaderLocation(s->grid_shader, "colMajor");
+    s->loc_colAxisX   = GetShaderLocation(s->grid_shader, "colAxisX");
+    s->loc_colAxisZ   = GetShaderLocation(s->grid_shader, "colAxisZ");
+    s->loc_spacing    = GetShaderLocation(s->grid_shader, "spacing");
+    s->loc_majorEvery = GetShaderLocation(s->grid_shader, "majorEvery");
+    s->loc_axisWidth  = GetShaderLocation(s->grid_shader, "axisWidth");
+    s->loc_matModel   = GetShaderLocation(s->grid_shader, "matModel");
+
+    Mesh grid_mesh = GenMeshPlane(GROUND_SIZE * 2, GROUND_SIZE * 2, 100, 100);
+    s->grid_plane = LoadModelFromMesh(grid_mesh);
+    s->grid_plane.materials[0].shader = s->grid_shader;
 }
 
 static void update_chase_camera(scene_t *s, Vector3 pos) {
@@ -127,9 +151,32 @@ void scene_handle_input(scene_t *s) {
     }
 
     if (IsKeyPressed(KEY_V)) {
-        s->view_mode = (s->view_mode + 1) % VIEW_COUNT;
+        // If in hidden mode, return to Grid; otherwise cycle public modes
+        if (s->view_mode >= VIEW_COUNT)
+            s->view_mode = VIEW_GRID;
+        else
+            s->view_mode = (s->view_mode + 1) % VIEW_COUNT;
         const char *names[] = {"Grid", "jMAVSim", "Rez"};
         printf("View: %s\n", names[s->view_mode]);
+    }
+
+    // Ctrl+1988 sequence detection for hidden mode
+    if (IsKeyDown(KEY_LEFT_CONTROL)) {
+        int expected[] = { KEY_ONE, KEY_NINE, KEY_EIGHT, KEY_EIGHT };
+        if (s->seq_1988 < 4 && IsKeyPressed(expected[s->seq_1988])) {
+            s->seq_1988++;
+            if (s->seq_1988 == 4) {
+                s->view_mode = (s->view_mode == VIEW_1988) ? VIEW_GRID : VIEW_1988;
+                s->seq_1988 = 0;
+            }
+        } else if (IsKeyPressed(KEY_ONE) || IsKeyPressed(KEY_TWO) || IsKeyPressed(KEY_THREE) ||
+                   IsKeyPressed(KEY_FOUR) || IsKeyPressed(KEY_FIVE) || IsKeyPressed(KEY_SIX) ||
+                   IsKeyPressed(KEY_SEVEN) || IsKeyPressed(KEY_EIGHT) || IsKeyPressed(KEY_NINE) ||
+                   IsKeyPressed(KEY_ZERO)) {
+            s->seq_1988 = IsKeyPressed(KEY_ONE) ? 1 : 0;
+        }
+    } else {
+        s->seq_1988 = 0;
     }
 
     // Mouse drag to orbit (left button)
@@ -152,35 +199,44 @@ void scene_handle_input(scene_t *s) {
     }
 }
 
-static void draw_grid(Color minor, Color major, Color axis_x, Color axis_z, Color ground) {
-    // Dark ground volume — top face below Y=0 to avoid z-fighting
-    DrawCube((Vector3){0, -5000.05f, 0}, GROUND_SIZE * 2, 10000.0f, GROUND_SIZE * 2, ground);
+static void color_to_vec4(Color c, float out[4]) {
+    out[0] = c.r / 255.0f;
+    out[1] = c.g / 255.0f;
+    out[2] = c.b / 255.0f;
+    out[3] = c.a / 255.0f;
+}
 
-    float extent = GRID_EXTENT;
+static void draw_shader_grid(const scene_t *s,
+    Color ground, Color minor, Color major, Color axis_x, Color axis_z)
+{
+    float v[4];
+    color_to_vec4(ground, v); SetShaderValue(s->grid_shader, s->loc_colGround, v, SHADER_UNIFORM_VEC4);
+    color_to_vec4(minor, v);  SetShaderValue(s->grid_shader, s->loc_colMinor, v, SHADER_UNIFORM_VEC4);
+    color_to_vec4(major, v);  SetShaderValue(s->grid_shader, s->loc_colMajor, v, SHADER_UNIFORM_VEC4);
+    color_to_vec4(axis_x, v); SetShaderValue(s->grid_shader, s->loc_colAxisX, v, SHADER_UNIFORM_VEC4);
+    color_to_vec4(axis_z, v); SetShaderValue(s->grid_shader, s->loc_colAxisZ, v, SHADER_UNIFORM_VEC4);
+
     float spacing = GRID_SPACING;
-    int lines = (int)(extent / spacing);
+    float majorEvery = (float)GRID_MAJOR_EVERY;
+    float axisWidth = 1.5f;
+    SetShaderValue(s->grid_shader, s->loc_spacing, &spacing, SHADER_UNIFORM_FLOAT);
+    SetShaderValue(s->grid_shader, s->loc_majorEvery, &majorEvery, SHADER_UNIFORM_FLOAT);
+    SetShaderValue(s->grid_shader, s->loc_axisWidth, &axisWidth, SHADER_UNIFORM_FLOAT);
 
-    for (int i = -lines; i <= lines; i++) {
-        bool is_major = (i % GRID_MAJOR_EVERY == 0);
-        bool is_origin = (i == 0);
-        float pos = i * spacing;
+    // Pass identity model matrix (plane is at origin)
+    Matrix model = MatrixIdentity();
+    SetShaderValueMatrix(s->grid_shader, s->loc_matModel, model);
 
-        if (is_origin) {
-            DrawLine3D((Vector3){-extent, 0, 0}, (Vector3){extent, 0, 0}, axis_x);
-            DrawLine3D((Vector3){0, 0, -extent}, (Vector3){0, 0, extent}, axis_z);
-        } else {
-            Color col = is_major ? major : minor;
-            DrawLine3D((Vector3){-extent, 0, pos}, (Vector3){extent, 0, pos}, col);
-            DrawLine3D((Vector3){pos, 0, -extent}, (Vector3){pos, 0, extent}, col);
-        }
-    }
+    DrawModel(s->grid_plane, (Vector3){0, 0, 0}, 1.0f, WHITE);
 }
 
 void scene_draw(const scene_t *s) {
     if (s->view_mode == VIEW_GRID) {
-        draw_grid(GRID_MINOR, GRID_MAJOR, GRID_AXIS_X, GRID_AXIS_Z, GRID_GROUND);
+        draw_shader_grid(s, GRID_GROUND, GRID_MINOR, GRID_MAJOR, GRID_AXIS_X, GRID_AXIS_Z);
     } else if (s->view_mode == VIEW_REZ) {
-        draw_grid(REZ_MINOR, REZ_MAJOR, REZ_AXIS_X, REZ_AXIS_Z, REZ_GROUND);
+        draw_shader_grid(s, REZ_GROUND, REZ_MINOR, REZ_MAJOR, REZ_AXIS_X, REZ_AXIS_Z);
+    } else if (s->view_mode == VIEW_1988) {
+        draw_shader_grid(s, SYNTH_GROUND, SYNTH_MINOR, SYNTH_MAJOR, SYNTH_AXIS_X, SYNTH_AXIS_Z);
     } else {
         // Sky sphere centered on camera — disable culling so we see it from inside
         rlDisableBackfaceCulling();
@@ -197,7 +253,8 @@ void scene_draw(const scene_t *s) {
 void scene_draw_sky(const scene_t *s) {
     switch (s->view_mode) {
         case VIEW_GRID: ClearBackground(GRID_SKY); break;
-        case VIEW_REZ:  ClearBackground(REZ_SKY);  break;
+        case VIEW_REZ:  ClearBackground(REZ_SKY);   break;
+        case VIEW_1988: ClearBackground(SYNTH_SKY); break;
         default:        ClearBackground((Color){135, 206, 235, 255}); break;
     }
 }
@@ -205,6 +262,8 @@ void scene_draw_sky(const scene_t *s) {
 void scene_cleanup(scene_t *s) {
     UnloadModel(s->ground);
     UnloadModel(s->sky_sphere);
+    UnloadModel(s->grid_plane);
+    UnloadShader(s->grid_shader);
     if (s->ground_tex.id > 0) UnloadTexture(s->ground_tex);
     if (s->sky_tex.id > 0) UnloadTexture(s->sky_tex);
 }

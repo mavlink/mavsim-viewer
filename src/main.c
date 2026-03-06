@@ -204,7 +204,8 @@ int main(int argc, char *argv[]) {
             // HUD
             hud_draw(&hud, &vehicles[selected], any_connected,
                      GetScreenWidth(), GetScreenHeight(),
-                     selected, vehicle_count, vehicles[selected].sysid);
+                     selected, vehicle_count, vehicles[selected].sysid,
+                     scene.view_mode);
 
         EndDrawing();
     }

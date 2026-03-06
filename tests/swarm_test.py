@@ -210,6 +210,10 @@ async def run_swarm_mission(n_vehicles, spacing, altitude, base_udp_port, grpc_b
         for i, d in enumerate(drones)
     ])
 
+    # Compute East offsets so vehicles maintain formation spacing in offboard mode
+    # (offboard NED is relative to home, which doesn't update with SIH spawn params)
+    east_offsets = [(i - (n_vehicles - 1) / 2.0) * spacing for i in range(n_vehicles)]
+
     # 4. Arm and takeoff (parallel)
     print("\n=== Arming and taking off ===")
     await asyncio.gather(*[
@@ -220,14 +224,14 @@ async def run_swarm_mission(n_vehicles, spacing, altitude, base_udp_port, grpc_b
     # 5. Start offboard mode on all vehicles
     print("\n=== Starting offboard mode ===")
     await asyncio.gather(*[
-        start_offboard(d, i, PositionNedYaw(0.0, 0.0, -altitude, 0.0))
+        start_offboard(d, i, PositionNedYaw(0.0, east_offsets[i], -altitude, 0.0))
         for i, d in enumerate(drones)
     ])
 
     # 6. Fly 20m North maintaining formation
     print("\n=== Flying 20m North ===")
     await asyncio.gather(*[
-        fly_to_ned(d, i, PositionNedYaw(20.0, 0.0, -altitude, 0.0))
+        fly_to_ned(d, i, PositionNedYaw(20.0, east_offsets[i], -altitude, 0.0))
         for i, d in enumerate(drones)
     ])
 
@@ -238,7 +242,7 @@ async def run_swarm_mission(n_vehicles, spacing, altitude, base_udp_port, grpc_b
     # 8. Return to above spawn positions
     print("\n=== Returning to spawn positions ===")
     await asyncio.gather(*[
-        fly_to_ned(d, i, PositionNedYaw(0.0, 0.0, -altitude, 0.0))
+        fly_to_ned(d, i, PositionNedYaw(0.0, east_offsets[i], -altitude, 0.0))
         for i, d in enumerate(drones)
     ])
 

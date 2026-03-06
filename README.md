@@ -110,8 +110,7 @@ The test script accepts these options:
 | Key/Input | Action |
 |---|---|
 | `C` | Toggle camera mode (Chase / FPV) |
-| `G` | Toggle Grid view mode |
-| `Ctrl+R` | Toggle Rez view mode |
+| `V` | Cycle view mode (Grid / jMAVSim / Rez) |
 | `TAB` | Cycle to next vehicle |
 | `[` / `]` | Previous / next vehicle |
 | `1`-`9` | Select vehicle directly |
@@ -120,8 +119,8 @@ The test script accepts these options:
 
 ### View Modes
 
-- **Texture** (default) — Panoramic sky with ground texture
-- **Grid** — Debug grid with minor/major lines and colored axes
+- **Grid** (default) — Debug grid with minor/major lines and colored axes
+- **jMAVSim** — Panoramic sky with ground texture
 - **Rez** — Teal grid on black ground with dark sky
 
 ## Acknowledgments

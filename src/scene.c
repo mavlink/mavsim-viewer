@@ -9,8 +9,8 @@
 #define SKY_RADIUS 6000.0f    // sky sphere radius (larger than ground diagonal)
 
 // Grid shared settings
-#define GRID_EXTENT      500.0f
-#define GRID_SPACING     10.0f
+#define GRID_EXTENT      250.0f
+#define GRID_SPACING     5.0f
 #define GRID_MAJOR_EVERY 5
 
 // Grid mode colors
@@ -31,7 +31,7 @@
 
 void scene_init(scene_t *s) {
     s->cam_mode = CAM_MODE_CHASE;
-    s->view_mode = VIEW_TEXTURE;
+    s->view_mode = VIEW_GRID;
     s->chase_distance = 3.0f;
     s->chase_yaw = 0.0f;
     s->chase_pitch = 0.4f;  // ~23° above horizontal
@@ -126,14 +126,10 @@ void scene_handle_input(scene_t *s) {
         s->camera.up = (Vector3){0, 1, 0};
     }
 
-    if (IsKeyPressed(KEY_G)) {
-        s->view_mode = (s->view_mode == VIEW_GRID) ? VIEW_TEXTURE : VIEW_GRID;
-        printf("View: %s\n", s->view_mode == VIEW_GRID ? "Grid" : "Texture");
-    }
-
-    if (IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_R)) {
-        s->view_mode = (s->view_mode == VIEW_REZ) ? VIEW_TEXTURE : VIEW_REZ;
-        printf("View: %s\n", s->view_mode == VIEW_REZ ? "Rez" : "Texture");
+    if (IsKeyPressed(KEY_V)) {
+        s->view_mode = (s->view_mode + 1) % VIEW_COUNT;
+        const char *names[] = {"Grid", "jMAVSim", "Rez"};
+        printf("View: %s\n", names[s->view_mode]);
     }
 
     // Mouse drag to orbit (left button)
@@ -194,8 +190,7 @@ void scene_draw(const scene_t *s) {
         // Ground
         DrawModel(s->ground, (Vector3){0, 0, 0}, 1.0f, WHITE);
 
-        // Reference grid
-        DrawGrid(100, 10.0f);
+
     }
 }
 

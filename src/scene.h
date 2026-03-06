@@ -11,9 +11,10 @@ typedef enum {
 } camera_mode_t;
 
 typedef enum {
-    VIEW_TEXTURE = 0,
-    VIEW_GRID,
+    VIEW_GRID = 0,
+    VIEW_JMAVSIM,
     VIEW_REZ,
+    VIEW_COUNT,
 } view_mode_t;
 
 typedef struct {

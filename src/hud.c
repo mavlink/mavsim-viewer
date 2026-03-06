@@ -68,6 +68,122 @@ static void draw_compass(float cx, float cy, float radius, float heading_deg) {
     DrawText(hdg_buf, (int)(cx - tw / 2), (int)(cy + radius * 0.6f), 12, WHITE);
 }
 
+static void draw_attitude(float cx, float cy, float radius, float roll_deg, float pitch_deg) {
+    Color bg = (Color){30, 30, 30, 220};
+    Color border = (Color){100, 100, 100, 255};
+    Color horizon_color = WHITE;
+    Color pitch_bar_color = (Color){200, 200, 200, 160};
+    Color wing_color = YELLOW;
+    Color roll_tri_color = WHITE;
+    Color sky_color = (Color){ 80, 140, 200, 200 };
+    Color gnd_color = (Color){ 120, 85, 50, 200 };
+
+    DrawCircle((int)cx, (int)cy, radius, bg);
+
+    float pitch_clamped = pitch_deg;
+    if (pitch_clamped > 40.0f) pitch_clamped = 40.0f;
+    if (pitch_clamped < -40.0f) pitch_clamped = -40.0f;
+
+    // Pitch offset in pixels (positive pitch = nose up = horizon moves down)
+    float pitch_px = pitch_clamped * (radius * 0.6f / 40.0f);
+
+    float roll_rad = -roll_deg * DEG2RAD;
+    float cos_r = cosf(roll_rad);
+    float sin_r = sinf(roll_rad);
+
+    // Horizon line endpoints (rotated)
+    float hw = radius * 1.5f;
+    float hx1 = cx + (-hw) * cos_r - pitch_px * sin_r;
+    float hy1 = cy + (-hw) * sin_r + pitch_px * cos_r;
+    float hx2 = cx + ( hw) * cos_r - pitch_px * sin_r;
+    float hy2 = cy + ( hw) * sin_r + pitch_px * cos_r;
+
+    // Sky/ground fill using triangle fan clipped to circle
+    // Draw ground half (below horizon)
+    BeginScissorMode((int)(cx - radius), (int)(cy - radius),
+                     (int)(radius * 2), (int)(radius * 2));
+    {
+        // Large triangle fan for ground (below horizon line)
+        Vector2 mid_gnd = {cx - pitch_px * sin_r, cy + pitch_px * cos_r};
+        float gnd_offset = radius * 2.0f;
+        Vector2 gnd_center = {mid_gnd.x + gnd_offset * sin_r,
+                              mid_gnd.y - gnd_offset * (-cos_r)};
+        // Use 4 corners + center for a filled quad below horizon
+        float big = radius * 3.0f;
+        Vector2 corners[4] = {
+            {cx - big, cy - big}, {cx + big, cy - big},
+            {cx + big, cy + big}, {cx - big, cy + big}
+        };
+        // Fill entire circle with sky first
+        DrawCircle((int)cx, (int)cy, radius - 1, sky_color);
+        // Then fill ground below horizon
+        // Ground is the half-plane on the "down" side of the horizon line
+        // Normal direction: (sin_r, -cos_r) points toward sky
+        for (int i = 0; i < 4; i++) {
+            int j = (i + 1) % 4;
+            Vector2 a = corners[i], b = corners[j];
+            // Check which corners are below horizon
+            float da = (a.x - hx1) * (hy2 - hy1) - (a.y - hy1) * (hx2 - hx1);
+            float db = (b.x - hx1) * (hy2 - hy1) - (b.y - hy1) * (hx2 - hx1);
+            (void)da; (void)db;
+        }
+        // Simpler approach: draw ground as a large rect on the ground side
+        Vector2 gnd_pts[4];
+        float down_x = -sin_r;
+        float down_y = cos_r;
+        gnd_pts[0] = (Vector2){hx1, hy1};
+        gnd_pts[1] = (Vector2){hx2, hy2};
+        gnd_pts[2] = (Vector2){hx2 + down_x * big, hy2 + down_y * big};
+        gnd_pts[3] = (Vector2){hx1 + down_x * big, hy1 + down_y * big};
+        DrawTriangle(gnd_pts[0], gnd_pts[2], gnd_pts[1], gnd_color);
+        DrawTriangle(gnd_pts[0], gnd_pts[3], gnd_pts[2], gnd_color);
+    }
+    EndScissorMode();
+
+    // Horizon line
+    DrawLineEx((Vector2){hx1, hy1}, (Vector2){hx2, hy2}, 2.0f, horizon_color);
+
+    // Pitch bars at +/-10, +/-20 degrees
+    int pitch_marks[] = {-20, -10, 10, 20};
+    for (int p = 0; p < 4; p++) {
+        float py = pitch_marks[p] * (radius * 0.6f / 40.0f);
+        float bar_w = (abs(pitch_marks[p]) == 20) ? radius * 0.3f : radius * 0.2f;
+        float bx1 = cx + (-bar_w) * cos_r - (pitch_px - py) * sin_r;
+        float by1 = cy + (-bar_w) * sin_r + (pitch_px - py) * cos_r;
+        float bx2 = cx + ( bar_w) * cos_r - (pitch_px - py) * sin_r;
+        float by2 = cy + ( bar_w) * sin_r + (pitch_px - py) * cos_r;
+        float dx = bx2 - bx1, dy = by2 - by1;
+        float len = sqrtf(dx*dx + dy*dy);
+        if (len > 0) {
+            float dist_from_center = sqrtf(
+                powf((bx1+bx2)/2 - cx, 2) + powf((by1+by2)/2 - cy, 2));
+            if (dist_from_center < radius * 0.85f) {
+                DrawLineEx((Vector2){bx1, by1}, (Vector2){bx2, by2}, 1.0f, pitch_bar_color);
+            }
+        }
+    }
+
+    // Center wings (yellow reference)
+    float wing_w = radius * 0.25f;
+    float wing_gap = radius * 0.08f;
+    DrawLineEx((Vector2){cx - wing_gap - wing_w, cy},
+               (Vector2){cx - wing_gap, cy}, 3.0f, wing_color);
+    DrawLineEx((Vector2){cx + wing_gap, cy},
+               (Vector2){cx + wing_gap + wing_w, cy}, 3.0f, wing_color);
+    DrawCircle((int)cx, (int)cy, 3, wing_color);
+
+    // Roll indicator triangle at top
+    float tri_r = radius - 3;
+    DrawTriangle(
+        (Vector2){cx, cy - tri_r},
+        (Vector2){cx + 4, cy - tri_r + 7},
+        (Vector2){cx - 4, cy - tri_r + 7},
+        roll_tri_color);
+
+    // Border circle
+    DrawCircleLines((int)cx, (int)cy, radius, border);
+}
+
 void hud_draw(const hud_t *h, const vehicle_t *v, bool connected, int screen_w, int screen_h,
               int vehicle_idx, int vehicle_total, uint8_t sysid) {
 
@@ -99,8 +215,12 @@ void hud_draw(const hud_t *h, const vehicle_t *v, bool connected, int screen_w, 
 
     draw_compass(att_cx, inst_y, INSTRUMENT_RADIUS, v->heading_deg);
 
+    // Attitude indicator — right of compass
+    float adi_cx = att_cx + INSTRUMENT_RADIUS * 2 + INSTRUMENT_PADDING + 8;
+    draw_attitude(adi_cx, inst_y, INSTRUMENT_RADIUS, v->roll_deg, v->pitch_deg);
+
     // Telemetry columns — each with its own buffer
-    float tel_x = att_cx + INSTRUMENT_RADIUS + 35;
+    float tel_x = adi_cx + INSTRUMENT_RADIUS + 35;
     int label_y = bar_y + 15;
     int value_y = bar_y + 38;
     float col_w = 70.0f;

@@ -21,6 +21,14 @@ static const float model_scales[] = {
     [VEHICLE_TAILSITTER]  = 1.0f,
 };
 
+// Per-model yaw correction (degrees) applied after the Z-up → Y-up base rotation.
+// Aligns each model's nose with the -Z (forward/North) direction in Raylib space.
+static const float model_yaw_offset_deg[] = {
+    [VEHICLE_MULTICOPTER] = 0.0f,
+    [VEHICLE_FIXEDWING]   = 90.0f,
+    [VEHICLE_TAILSITTER]  = 0.0f,
+};
+
 void vehicle_init(vehicle_t *v, vehicle_type_t type) {
     memset(v, 0, sizeof(*v));
     v->type = type;
@@ -129,8 +137,11 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected) {
         *c = (Color){ 255, 106, 0, 255 }; // #ff6a00 orange
     }
     // OBJ model: flat in XY, thin in Z (Z is model's up).
-    // Raylib: Y is up. Rotate +90° around X so model Z → Raylib Y.
-    Matrix base_rot = MatrixRotateX(90.0f * DEG2RAD);
+    // Raylib: Y is up. Rotate +90° around X so model Z → Raylib Y,
+    // then apply per-model yaw correction to align nose with -Z (forward).
+    Matrix base_rot = MatrixMultiply(
+        MatrixRotateX(90.0f * DEG2RAD),
+        MatrixRotateY(model_yaw_offset_deg[v->type] * DEG2RAD));
     Matrix rot = QuaternionToMatrix(v->rotation);
     Matrix scale = MatrixScale(v->model_scale, v->model_scale, v->model_scale);
     Matrix trans = MatrixTranslate(v->position.x, v->position.y, v->position.z);

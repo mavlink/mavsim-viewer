@@ -28,6 +28,18 @@ typedef struct {
     float chase_distance;
     float chase_yaw;    // horizontal orbit angle (radians)
     float chase_pitch;  // vertical orbit angle (radians)
+    // Grid shader
+    Shader grid_shader;
+    int loc_colGround;
+    int loc_colMinor;
+    int loc_colMajor;
+    int loc_colAxisX;
+    int loc_colAxisZ;
+    int loc_spacing;
+    int loc_majorEvery;
+    int loc_axisWidth;
+    int loc_matModel;
+    Model grid_plane;    // separate ground plane for grid modes
 } scene_t;
 
 // Initialize scene (ground plane, sky, camera, lighting).

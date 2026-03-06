@@ -95,7 +95,7 @@ int main(int argc, char *argv[]) {
 
             BeginMode3D(scene.camera);
                 scene_draw(&scene);
-                vehicle_draw(&vehicle);
+                vehicle_draw(&vehicle, scene.view_mode);
             EndMode3D();
 
             // HUD

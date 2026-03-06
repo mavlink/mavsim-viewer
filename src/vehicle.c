@@ -28,10 +28,31 @@ void vehicle_init(vehicle_t *v, vehicle_type_t type) {
     v->rotation = QuaternionIdentity();
     v->origin_set = false;
     v->model_scale = model_scales[type];
+    v->red_material_idx = -1;
 
     v->model = LoadModel(model_paths[type]);
     if (v->model.meshCount == 0) {
         printf("Warning: failed to load model %s\n", model_paths[type]);
+    }
+
+    // Remap material colors
+    // MTL order: 0=default, 1=Blue_Metal, 2=Gray_Plastic, 3=Red_Metal, 4=Textolite
+    for (int i = 0; i < v->model.materialCount; i++) {
+        Color *c = &v->model.materials[i].maps[MATERIAL_MAP_DIFFUSE].color;
+        // Blue_Metal → #272fc5
+        if (c->b > 100 && c->r < 50)
+            *c = (Color){ 39, 47, 197, 255 };
+        // Red_Metal → #ff2f2b
+        else if (c->r > 100 && c->g < 50 && c->b < 50) {
+            *c = (Color){ 255, 47, 43, 255 };
+            v->red_material_idx = i;
+        }
+        // Gray_Plastic (props) → #5075a2
+        else if (c->r > 60 && c->r < 140 && c->g > 60 && c->g < 140)
+            *c = (Color){ 80, 117, 162, 255 };
+        // Textolite (body, near-black) → #0e1f2f
+        else if (c->r < 20 && c->g < 20 && c->b < 20)
+            *c = (Color){ 14, 31, 47, 255 };
     }
 }
 
@@ -102,7 +123,14 @@ void vehicle_update(vehicle_t *v, const hil_state_t *state) {
     v->altitude_rel = (float)((state->alt * 1e-3) - v->alt0);
 }
 
-void vehicle_draw(vehicle_t *v) {
+void vehicle_draw(vehicle_t *v, view_mode_t view_mode) {
+    // In Rez mode, swap red arms to orange
+    Color saved_red = {0};
+    if (view_mode == VIEW_REZ && v->red_material_idx >= 0) {
+        Color *c = &v->model.materials[v->red_material_idx].maps[MATERIAL_MAP_DIFFUSE].color;
+        saved_red = *c;
+        *c = (Color){ 255, 106, 0, 255 }; // #ff6a00 orange
+    }
     // OBJ model: flat in XY, thin in Z (Z is model's up).
     // Raylib: Y is up. Rotate +90° around X so model Z → Raylib Y.
     Matrix base_rot = MatrixRotateX(90.0f * DEG2RAD);
@@ -114,6 +142,11 @@ void vehicle_draw(vehicle_t *v) {
     v->model.transform = MatrixMultiply(MatrixMultiply(MatrixMultiply(scale, base_rot), rot), trans);
 
     DrawModel(v->model, (Vector3){0}, 1.0f, WHITE);
+
+    // Restore original color
+    if (view_mode == VIEW_REZ && v->red_material_idx >= 0) {
+        v->model.materials[v->red_material_idx].maps[MATERIAL_MAP_DIFFUSE].color = saved_red;
+    }
 }
 
 void vehicle_cleanup(vehicle_t *v) {

@@ -8,8 +8,30 @@
 #define GROUND_TILES 100.0f   // texture repeat count
 #define SKY_RADIUS 6000.0f    // sky sphere radius (larger than ground diagonal)
 
+// Grid shared settings
+#define GRID_EXTENT      500.0f
+#define GRID_SPACING     10.0f
+#define GRID_MAJOR_EVERY 5
+
+// Grid mode colors
+#define GRID_SKY       (Color){ 56,  56,  60, 255 }
+#define GRID_GROUND    (Color){ 32,  32,  34, 255 }
+#define GRID_MINOR     (Color){ 97,  97,  97, 128 }
+#define GRID_MAJOR     (Color){ 143, 143, 143, 128 }
+#define GRID_AXIS_X    (Color){ 200,  60,  60, 180 }
+#define GRID_AXIS_Z    (Color){ 60,   60, 200, 180 }
+
+// Rez mode colors
+#define REZ_SKY        (Color){ 12,  12,  18, 255 }  // near-black
+#define REZ_GROUND     (Color){ 2,    2,   4, 255 }  // black
+#define REZ_MINOR      (Color){ 0,  204, 218, 50 }   // teal, subtle
+#define REZ_MAJOR      (Color){ 0,  204, 218, 140 }  // teal, bright
+#define REZ_AXIS_X     (Color){ 0,  204, 218, 220 }  // teal, full
+#define REZ_AXIS_Z     (Color){ 0,  204, 218, 220 }  // teal, full
+
 void scene_init(scene_t *s) {
     s->cam_mode = CAM_MODE_CHASE;
+    s->view_mode = VIEW_TEXTURE;
     s->chase_distance = 3.0f;
     s->chase_yaw = 0.0f;
     s->chase_pitch = 0.4f;  // ~23° above horizontal
@@ -104,6 +126,16 @@ void scene_handle_input(scene_t *s) {
         s->camera.up = (Vector3){0, 1, 0};
     }
 
+    if (IsKeyPressed(KEY_G)) {
+        s->view_mode = (s->view_mode == VIEW_GRID) ? VIEW_TEXTURE : VIEW_GRID;
+        printf("View: %s\n", s->view_mode == VIEW_GRID ? "Grid" : "Texture");
+    }
+
+    if (IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_R)) {
+        s->view_mode = (s->view_mode == VIEW_REZ) ? VIEW_TEXTURE : VIEW_REZ;
+        printf("View: %s\n", s->view_mode == VIEW_REZ ? "Rez" : "Texture");
+    }
+
     // Mouse drag to orbit (left button)
     if (s->cam_mode == CAM_MODE_CHASE && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
         Vector2 delta = GetMouseDelta();
@@ -124,21 +156,55 @@ void scene_handle_input(scene_t *s) {
     }
 }
 
+static void draw_grid(Color minor, Color major, Color axis_x, Color axis_z, Color ground) {
+    // Dark ground volume — top face below Y=0 to avoid z-fighting
+    DrawCube((Vector3){0, -5000.05f, 0}, GROUND_SIZE * 2, 10000.0f, GROUND_SIZE * 2, ground);
+
+    float extent = GRID_EXTENT;
+    float spacing = GRID_SPACING;
+    int lines = (int)(extent / spacing);
+
+    for (int i = -lines; i <= lines; i++) {
+        bool is_major = (i % GRID_MAJOR_EVERY == 0);
+        bool is_origin = (i == 0);
+        float pos = i * spacing;
+
+        if (is_origin) {
+            DrawLine3D((Vector3){-extent, 0, 0}, (Vector3){extent, 0, 0}, axis_x);
+            DrawLine3D((Vector3){0, 0, -extent}, (Vector3){0, 0, extent}, axis_z);
+        } else {
+            Color col = is_major ? major : minor;
+            DrawLine3D((Vector3){-extent, 0, pos}, (Vector3){extent, 0, pos}, col);
+            DrawLine3D((Vector3){pos, 0, -extent}, (Vector3){pos, 0, extent}, col);
+        }
+    }
+}
+
 void scene_draw(const scene_t *s) {
-    // Sky sphere centered on camera — disable culling so we see it from inside
-    rlDisableBackfaceCulling();
-    DrawModel(s->sky_sphere, s->camera.position, 1.0f, WHITE);
-    rlEnableBackfaceCulling();
+    if (s->view_mode == VIEW_GRID) {
+        draw_grid(GRID_MINOR, GRID_MAJOR, GRID_AXIS_X, GRID_AXIS_Z, GRID_GROUND);
+    } else if (s->view_mode == VIEW_REZ) {
+        draw_grid(REZ_MINOR, REZ_MAJOR, REZ_AXIS_X, REZ_AXIS_Z, REZ_GROUND);
+    } else {
+        // Sky sphere centered on camera — disable culling so we see it from inside
+        rlDisableBackfaceCulling();
+        DrawModel(s->sky_sphere, s->camera.position, 1.0f, WHITE);
+        rlEnableBackfaceCulling();
 
-    // Ground
-    DrawModel(s->ground, (Vector3){0, 0, 0}, 1.0f, WHITE);
+        // Ground
+        DrawModel(s->ground, (Vector3){0, 0, 0}, 1.0f, WHITE);
 
-    // Reference grid
-    DrawGrid(100, 10.0f);
+        // Reference grid
+        DrawGrid(100, 10.0f);
+    }
 }
 
 void scene_draw_sky(const scene_t *s) {
-    ClearBackground((Color){135, 206, 235, 255});
+    switch (s->view_mode) {
+        case VIEW_GRID: ClearBackground(GRID_SKY); break;
+        case VIEW_REZ:  ClearBackground(REZ_SKY);  break;
+        default:        ClearBackground((Color){135, 206, 235, 255}); break;
+    }
 }
 
 void scene_cleanup(scene_t *s) {

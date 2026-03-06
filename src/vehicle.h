@@ -3,6 +3,7 @@
 
 #include "raylib.h"
 #include "mavlink_receiver.h"
+#include "scene.h"
 
 typedef enum {
     VEHICLE_MULTICOPTER = 0,
@@ -28,6 +29,7 @@ typedef struct {
     float vertical_speed;    // m/s (positive = climbing)
     float airspeed;          // m/s
     float altitude_rel;      // meters above origin
+    int red_material_idx;    // material index for red arms (-1 if not found)
 } vehicle_t;
 
 // Load vehicle model. type selects which OBJ to load.
@@ -36,8 +38,8 @@ void vehicle_init(vehicle_t *v, vehicle_type_t type);
 // Update position/rotation from HIL_STATE_QUATERNION data.
 void vehicle_update(vehicle_t *v, const hil_state_t *state);
 
-// Draw the vehicle model.
-void vehicle_draw(vehicle_t *v);
+// Draw the vehicle model. Pass current view mode for per-mode coloring.
+void vehicle_draw(vehicle_t *v, view_mode_t view_mode);
 
 // Unload model resources.
 void vehicle_cleanup(vehicle_t *v);

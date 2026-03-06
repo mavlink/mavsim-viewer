@@ -63,8 +63,16 @@ make px4_sitl sihsim_quadx
 | Key/Input | Action |
 |---|---|
 | `C` | Toggle camera mode (Chase / FPV) |
+| `G` | Toggle Grid view mode |
+| `Ctrl+R` | Toggle Rez view mode |
 | Left-drag | Orbit camera (chase mode) |
 | Scroll wheel | Zoom FOV |
+
+### View Modes
+
+- **Texture** (default) — Panoramic sky with ground texture
+- **Grid** — Debug grid with minor/major lines and colored axes
+- **Rez** — Teal grid on black ground with dark sky
 
 ## Acknowledgments
 

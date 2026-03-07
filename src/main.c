@@ -143,8 +143,8 @@ int main(int argc, char *argv[]) {
         for (int i = 0; i < vehicle_count; i++) {
             mavlink_receiver_poll(&receivers[i]);
 
-            // Reset trail on reconnect
-            if (receivers[i].connected && !was_connected[i]) {
+            // Reset trail on disconnect (so it's clean for next connection)
+            if (!receivers[i].connected && was_connected[i]) {
                 vehicle_reset_trail(&vehicles[i]);
             }
             was_connected[i] = receivers[i].connected;

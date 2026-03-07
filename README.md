@@ -111,10 +111,10 @@ The test script accepts these options:
 |---|---|
 | `C` | Toggle camera mode (Chase / FPV) |
 | `V` | Cycle view mode (Grid / jMAVSim / Rez) |
-| `T` | Toggle path trail |
 | `TAB` | Cycle to next vehicle |
 | `[` / `]` | Previous / next vehicle |
 | `1`-`9` | Select vehicle directly |
+| `Shift+1`-`9` | Toggle pin/unpin vehicle to HUD |
 | Left-drag | Orbit camera (chase mode) |
 | Scroll wheel | Zoom FOV |
 

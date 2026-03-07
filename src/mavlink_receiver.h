@@ -20,6 +20,7 @@ typedef struct {
     int16_t vx, vy, vz;          // cm/s, NED
     uint16_t ind_airspeed;       // cm/s
     uint16_t true_airspeed;      // cm/s
+    uint64_t time_usec;          // timestamp (time since boot), microseconds
     bool valid;
 } hil_state_t;
 
@@ -30,6 +31,7 @@ typedef struct {
     bool connected;
     bool debug;
     uint8_t sysid;
+    double last_msg_time;        // wall-clock time of last received message
     hil_state_t state;
 } mavlink_receiver_t;
 

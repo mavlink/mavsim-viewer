@@ -4,9 +4,7 @@
 #include <stdio.h>
 #include <math.h>
 
-#define GROUND_SIZE 5000.0f   // half-size in meters (10km total, matching jMAVSim)
-#define GROUND_TILES 100.0f   // texture repeat count
-#define SKY_RADIUS 6000.0f    // sky sphere radius (larger than ground diagonal)
+#define GROUND_SIZE 5000.0f   // half-size in meters (10km total)
 
 // Grid shared settings
 #define GRID_EXTENT      500.0f
@@ -52,43 +50,6 @@ void scene_init(scene_t *s) {
         .fovy     = 60.0f,
         .projection = CAMERA_PERSPECTIVE,
     };
-
-    // Ground plane mesh (10x10 subdivisions to avoid diagonal tearing)
-    Mesh ground_mesh = GenMeshPlane(GROUND_SIZE * 2, GROUND_SIZE * 2, 10, 10);
-    s->ground = LoadModelFromMesh(ground_mesh);
-
-    // Ground texture
-    Image grass_img = LoadImage("textures/grass3.jpg");
-    if (grass_img.data != NULL) {
-        s->ground_tex = LoadTextureFromImage(grass_img);
-        SetTextureFilter(s->ground_tex, TEXTURE_FILTER_TRILINEAR);
-        SetTextureWrap(s->ground_tex, TEXTURE_WRAP_REPEAT);
-        UnloadImage(grass_img);
-
-        s->ground.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = s->ground_tex;
-
-        // Scale UVs for tiling
-        Mesh *m = &s->ground.meshes[0];
-        for (int i = 0; i < m->vertexCount; i++) {
-            m->texcoords[i * 2 + 0] *= GROUND_TILES;
-            m->texcoords[i * 2 + 1] *= GROUND_TILES;
-        }
-        UpdateMeshBuffer(*m, 1, m->texcoords, m->vertexCount * 2 * sizeof(float), 0);
-    }
-
-    // Sky sphere — we draw from inside with backface culling disabled
-    Mesh sky_mesh = GenMeshSphere(SKY_RADIUS, 36, 36);
-    s->sky_sphere = LoadModelFromMesh(sky_mesh);
-
-    // Sky texture
-    Image sky_img = LoadImage("textures/HDR_040_Field_Bg.jpg");
-    if (sky_img.data != NULL) {
-        s->sky_tex = LoadTextureFromImage(sky_img);
-        SetTextureFilter(s->sky_tex, TEXTURE_FILTER_BILINEAR);
-        UnloadImage(sky_img);
-
-        s->sky_sphere.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = s->sky_tex;
-    }
 
     // Grid shader and plane (100x100 subdivisions for fwidth() precision)
     s->grid_shader = LoadShader("shaders/grid.vs", "shaders/grid.fs");
@@ -156,7 +117,7 @@ void scene_handle_input(scene_t *s) {
             s->view_mode = VIEW_GRID;
         else
             s->view_mode = (s->view_mode + 1) % VIEW_COUNT;
-        const char *names[] = {"Grid", "jMAVSim", "Rez"};
+        const char *names[] = {"Grid", "Rez"};
         printf("View: %s\n", names[s->view_mode]);
     }
 
@@ -237,16 +198,6 @@ void scene_draw(const scene_t *s) {
         draw_shader_grid(s, REZ_GROUND, REZ_MINOR, REZ_MAJOR, REZ_AXIS_X, REZ_AXIS_Z);
     } else if (s->view_mode == VIEW_1988) {
         draw_shader_grid(s, SYNTH_GROUND, SYNTH_MINOR, SYNTH_MAJOR, SYNTH_AXIS_X, SYNTH_AXIS_Z);
-    } else {
-        // Sky sphere centered on camera — disable culling so we see it from inside
-        rlDisableBackfaceCulling();
-        DrawModel(s->sky_sphere, s->camera.position, 1.0f, WHITE);
-        rlEnableBackfaceCulling();
-
-        // Ground
-        DrawModel(s->ground, (Vector3){0, 0, 0}, 1.0f, WHITE);
-
-
     }
 }
 
@@ -255,15 +206,11 @@ void scene_draw_sky(const scene_t *s) {
         case VIEW_GRID: ClearBackground(GRID_SKY); break;
         case VIEW_REZ:  ClearBackground(REZ_SKY);   break;
         case VIEW_1988: ClearBackground(SYNTH_SKY); break;
-        default:        ClearBackground((Color){135, 206, 235, 255}); break;
+        default:        ClearBackground(GRID_SKY); break;
     }
 }
 
 void scene_cleanup(scene_t *s) {
-    UnloadModel(s->ground);
-    UnloadModel(s->sky_sphere);
     UnloadModel(s->grid_plane);
     UnloadShader(s->grid_shader);
-    if (s->ground_tex.id > 0) UnloadTexture(s->ground_tex);
-    if (s->sky_tex.id > 0) UnloadTexture(s->sky_tex);
 }

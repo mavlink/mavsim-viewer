@@ -112,7 +112,7 @@ The test script accepts these options:
 | Key/Input | Action |
 |---|---|
 | `C` | Toggle camera mode (Chase / FPV) |
-| `V` | Cycle view mode (Grid / jMAVSim / Rez) |
+| `V` | Cycle view mode (Grid / Rez) |
 | `H` | Toggle HUD visibility |
 | `TAB` | Cycle to next vehicle |
 | `[` / `]` | Previous / next vehicle |
@@ -124,12 +124,11 @@ The test script accepts these options:
 ### View Modes
 
 - **Grid** (default) — Debug grid with minor/major lines and colored axes
-- **jMAVSim** — Panoramic sky with ground texture
 - **Rez** — Teal grid on black ground with dark sky
 
 ## Acknowledgments
 
-This project was inspired by [jMAVSim](https://github.com/PX4/jMAVSim), the Java-based MAVLink simulator and viewer. Vehicle 3D models and sky/ground textures are derived from jMAVSim's assets.
+This project was inspired by [jMAVSim](https://github.com/PX4/jMAVSim), the Java-based MAVLink simulator and viewer. Vehicle 3D models are derived from jMAVSim's assets.
 
 ## License
 

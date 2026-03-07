@@ -111,6 +111,7 @@ The test script accepts these options:
 |---|---|
 | `C` | Toggle camera mode (Chase / FPV) |
 | `V` | Cycle view mode (Grid / jMAVSim / Rez) |
+| `T` | Toggle path trail |
 | `TAB` | Cycle to next vehicle |
 | `[` / `]` | Previous / next vehicle |
 | `1`-`9` | Select vehicle directly |

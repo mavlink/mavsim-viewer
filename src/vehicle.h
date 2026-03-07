@@ -34,10 +34,14 @@ typedef struct {
     uint8_t sysid;
     Color color;
     Vector3 *trail;
+    float *trail_roll;           // roll angle at each trail sample
+    float *trail_pitch;          // pitch angle at each trail sample
+    float *trail_vert;           // vertical speed at each trail sample
     int trail_count;
     int trail_head;
     int trail_capacity;
     float trail_timer;
+    bool show_trail;
 } vehicle_t;
 
 // Load vehicle model. type selects which OBJ to load.

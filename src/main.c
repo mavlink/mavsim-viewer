@@ -183,6 +183,13 @@ int main(int argc, char *argv[]) {
             }
         }
 
+        // Toggle path trail
+        if (IsKeyPressed(KEY_T)) {
+            for (int i = 0; i < vehicle_count; i++)
+                vehicles[i].show_trail = !vehicles[i].show_trail;
+            printf("Trail: %s\n", vehicles[0].show_trail ? "ON" : "OFF");
+        }
+
         // Update camera to follow selected vehicle
         scene_update_camera(&scene, vehicles[selected].position, vehicles[selected].rotation);
 

@@ -612,7 +612,7 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
         typedef struct { const char *key; const char *action; } shortcut_entry_t;
         shortcut_entry_t entries[] = {
             {"C",           "Toggle camera mode (Chase / FPV)"},
-            {"V",           "Cycle view mode (Grid / jMAVSim / Rez)"},
+            {"V",           "Cycle view mode (Grid / Rez)"},
             {"TAB",         "Cycle to next vehicle"},
             {"[ / ]",       "Previous / next vehicle"},
             {"1-9",         "Select vehicle directly"},

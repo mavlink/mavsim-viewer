@@ -12,17 +12,12 @@ typedef enum {
 
 typedef enum {
     VIEW_GRID = 0,
-    VIEW_JMAVSIM,
     VIEW_REZ,
     VIEW_COUNT,     // public modes end here
     VIEW_1988,      // hidden mode (not in V cycle)
 } view_mode_t;
 
 typedef struct {
-    Model ground;
-    Texture2D ground_tex;
-    Model sky_sphere;
-    Texture2D sky_tex;
     Camera3D camera;
     camera_mode_t cam_mode;
     view_mode_t view_mode;

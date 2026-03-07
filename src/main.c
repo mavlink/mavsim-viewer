@@ -135,6 +135,8 @@ int main(int argc, char *argv[]) {
     int selected = 0;
     bool was_connected[MAX_VEHICLES];
     memset(was_connected, 0, sizeof(was_connected));
+    Vector3 last_pos[MAX_VEHICLES];
+    memset(last_pos, 0, sizeof(last_pos));
     bool show_hud = true;
 
     // Main loop
@@ -143,14 +145,26 @@ int main(int argc, char *argv[]) {
         for (int i = 0; i < vehicle_count; i++) {
             mavlink_receiver_poll(&receivers[i]);
 
-            // Reset trail on reconnect
+            // Reset trail and origin on reconnect
             if (receivers[i].connected && !was_connected[i]) {
                 vehicle_reset_trail(&vehicles[i]);
+                if (!origin_specified && vehicle_count == 1) {
+                    vehicles[i].origin_set = false;
+                }
             }
             was_connected[i] = receivers[i].connected;
 
             vehicle_update(&vehicles[i], &receivers[i].state);
             vehicles[i].sysid = receivers[i].sysid;
+
+            // Detect position jump (new SITL connecting before disconnect timeout)
+            if (vehicles[i].active && vehicles[i].trail_count > 0) {
+                Vector3 delta = Vector3Subtract(vehicles[i].position, last_pos[i]);
+                if (Vector3Length(delta) > 50.0f) {
+                    vehicle_reset_trail(&vehicles[i]);
+                }
+            }
+            last_pos[i] = vehicles[i].position;
         }
 
         // Check if any receiver is connected (for HUD)

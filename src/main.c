@@ -107,9 +107,13 @@ int main(int argc, char *argv[]) {
     }
 
     // Init vehicles
+    // Init scene first (provides lighting shader for vehicles)
+    scene_t scene;
+    scene_init(&scene);
+
     vehicle_t vehicles[MAX_VEHICLES];
     for (int i = 0; i < vehicle_count; i++) {
-        vehicle_init(&vehicles[i], model_idx);
+        vehicle_init(&vehicles[i], model_idx, scene.lighting_shader);
         vehicles[i].color = vehicle_colors[i];
     }
 
@@ -125,9 +129,6 @@ int main(int argc, char *argv[]) {
         }
         printf("NED origin: lat=%.6f lon=%.6f alt=%.1f\n", origin_lat, origin_lon, origin_alt);
     }
-
-    scene_t scene;
-    scene_init(&scene);
 
     hud_t hud;
     hud_init(&hud);

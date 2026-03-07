@@ -53,10 +53,12 @@ typedef struct {
     int trail_head;
     int trail_capacity;
     float trail_timer;
+    Shader lighting_shader;  // shared lighting shader (id=0 if none)
+    int loc_matNormal;       // shader uniform for normal matrix
 } vehicle_t;
 
-// Initialize vehicle state and load the model at model_idx.
-void vehicle_init(vehicle_t *v, int model_idx);
+// Initialize vehicle state and load the model at model_idx. shader is optional lighting shader (id=0 to skip).
+void vehicle_init(vehicle_t *v, int model_idx, Shader lighting_shader);
 
 // Swap to a different model at runtime (unloads old, loads new).
 void vehicle_load_model(vehicle_t *v, int model_idx);

@@ -150,7 +150,8 @@ int main(int argc, char *argv[]) {
         }
 
         // Update HUD sim time from selected vehicle
-        hud_update(&hud, receivers[selected].state.time_usec);
+        hud_update(&hud, receivers[selected].state.time_usec,
+                   receivers[selected].connected, GetFrameTime());
 
         // Handle input
         scene_handle_input(&scene);

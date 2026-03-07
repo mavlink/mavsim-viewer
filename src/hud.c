@@ -48,8 +48,14 @@ void hud_init(hud_t *h) {
         printf("Warning: could not load fonts/Inter-Medium.ttf, using default font\n");
 }
 
-void hud_update(hud_t *h, uint64_t time_usec) {
-    h->sim_time_s = (float)(time_usec / 1000000.0);
+void hud_update(hud_t *h, uint64_t time_usec, bool connected, float dt) {
+    if (time_usec > 0) {
+        // Use sim timestamp directly when available
+        h->sim_time_s = (float)(time_usec / 1000000.0);
+    } else if (connected) {
+        // Accumulate wall time while connected (fallback when sim doesn't send timestamps)
+        h->sim_time_s += dt;
+    }
 }
 
 static void draw_compass(float cx, float cy, float radius, float heading_deg, view_mode_t vm, Font font_value) {

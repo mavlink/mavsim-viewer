@@ -33,6 +33,7 @@
 void hud_init(hud_t *h) {
     h->sim_time_s = 0.0f;
     h->pinned_count = 0;
+    h->show_help = false;
     for (int i = 0; i < HUD_MAX_PINNED; i++)
         h->pinned[i] = -1;
 
@@ -596,6 +597,70 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
                            nav_start, nav_step, energy_start, energy_step,
                            h->font_label, h->font_value,
                            dim_color, value_color, warn, secondary_h, s);
+    }
+
+    // Help overlay
+    if (h->show_help) {
+        // Dim the background
+        DrawRectangle(0, 0, screen_w, screen_h, (Color){0, 0, 0, 160});
+
+        float help_fs_title = 22 * s;
+        float help_fs = 16 * s;
+        float line_h = 24 * s;
+        float col_gap = 24 * s;
+
+        typedef struct { const char *key; const char *action; } shortcut_entry_t;
+        shortcut_entry_t entries[] = {
+            {"C",           "Toggle camera mode (Chase / FPV)"},
+            {"V",           "Cycle view mode (Grid / jMAVSim / Rez)"},
+            {"TAB",         "Cycle to next vehicle"},
+            {"[ / ]",       "Previous / next vehicle"},
+            {"1-9",         "Select vehicle directly"},
+            {"Shift+1-9",   "Toggle pin/unpin vehicle to HUD"},
+            {"Left-drag",   "Orbit camera (chase mode)"},
+            {"Scroll",      "Zoom FOV"},
+            {"?",           "Toggle this help"},
+        };
+        int entry_count = sizeof(entries) / sizeof(entries[0]);
+
+        // Measure widths for alignment
+        float max_key_w = 0;
+        for (int i = 0; i < entry_count; i++) {
+            Vector2 kw = MeasureTextEx(h->font_value, entries[i].key, help_fs, 0.5f);
+            if (kw.x > max_key_w) max_key_w = kw.x;
+        }
+
+        float panel_w = max_key_w + col_gap + 320 * s;
+        float panel_h = 40 * s + entry_count * line_h + 20 * s;
+        float panel_x = (screen_w - panel_w) / 2.0f;
+        float panel_y = (screen_h - panel_h) / 2.0f;
+
+        // Panel background
+        DrawRectangleRounded(
+            (Rectangle){panel_x, panel_y, panel_w, panel_h},
+            0.02f, 8, (Color){10, 14, 20, 230});
+        DrawRectangleRoundedLinesEx(
+            (Rectangle){panel_x, panel_y, panel_w, panel_h},
+            0.02f, 8, 1.0f, border);
+
+        // Title
+        const char *title = "Keyboard Shortcuts";
+        Vector2 tw = MeasureTextEx(h->font_label, title, help_fs_title, 0.5f);
+        DrawTextEx(h->font_label, title,
+                   (Vector2){panel_x + (panel_w - tw.x) / 2, panel_y + 12 * s},
+                   help_fs_title, 0.5f, accent);
+
+        // Entries
+        float ey = panel_y + 40 * s;
+        float key_x = panel_x + 20 * s;
+        float action_x = key_x + max_key_w + col_gap;
+        for (int i = 0; i < entry_count; i++) {
+            DrawTextEx(h->font_value, entries[i].key,
+                       (Vector2){key_x, ey}, help_fs, 0.5f, accent);
+            DrawTextEx(h->font_label, entries[i].action,
+                       (Vector2){action_x, ey}, help_fs, 0.5f, value_color);
+            ey += line_h;
+        }
     }
 }
 

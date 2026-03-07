@@ -156,6 +156,11 @@ int main(int argc, char *argv[]) {
         // Handle input
         scene_handle_input(&scene);
 
+        // Help overlay toggle (? key = Shift+/)
+        if (IsKeyPressed(KEY_SLASH) && (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT))) {
+            hud.show_help = !hud.show_help;
+        }
+
         // Vehicle selection input
         if (vehicle_count > 1) {
             if (IsKeyPressed(KEY_TAB)) {

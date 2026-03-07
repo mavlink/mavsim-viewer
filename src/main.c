@@ -133,6 +133,7 @@ int main(int argc, char *argv[]) {
     hud_init(&hud);
 
     int selected = 0;
+    bool show_hud = true;
 
     // Main loop
     while (!WindowShouldClose()) {
@@ -159,6 +160,11 @@ int main(int argc, char *argv[]) {
         // Help overlay toggle (? key = Shift+/)
         if (IsKeyPressed(KEY_SLASH) && (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT))) {
             hud.show_help = !hud.show_help;
+        }
+
+        // Toggle HUD visibility
+        if (IsKeyPressed(KEY_H)) {
+            show_hud = !show_hud;
         }
 
         // Vehicle selection input
@@ -243,9 +249,11 @@ int main(int argc, char *argv[]) {
             EndMode3D();
 
             // HUD
-            hud_draw(&hud, vehicles, receivers, vehicle_count,
-                     selected, GetScreenWidth(), GetScreenHeight(),
-                     scene.view_mode);
+            if (show_hud) {
+                hud_draw(&hud, vehicles, receivers, vehicle_count,
+                         selected, GetScreenWidth(), GetScreenHeight(),
+                         scene.view_mode);
+            }
 
         EndDrawing();
     }

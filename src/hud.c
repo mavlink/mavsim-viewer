@@ -120,24 +120,58 @@ static void draw_attitude(float cx, float cy, float radius, float roll_deg, floa
     float hx2 = cx + ( hw) * cos_r - pitch_px * sin_r;
     float hy2 = cy + ( hw) * sin_r + pitch_px * cos_r;
 
-    BeginScissorMode((int)(cx - radius), (int)(cy - radius),
-                     (int)(radius * 2), (int)(radius * 2));
-    {
-        float big = radius * 3.0f;
-        DrawCircle((int)cx, (int)cy, radius - 1, sky_color);
-        Vector2 gnd_pts[4];
-        float down_x = -sin_r;
-        float down_y = cos_r;
-        gnd_pts[0] = (Vector2){hx1, hy1};
-        gnd_pts[1] = (Vector2){hx2, hy2};
-        gnd_pts[2] = (Vector2){hx2 + down_x * big, hy2 + down_y * big};
-        gnd_pts[3] = (Vector2){hx1 + down_x * big, hy1 + down_y * big};
-        DrawTriangle(gnd_pts[0], gnd_pts[2], gnd_pts[1], gnd_color);
-        DrawTriangle(gnd_pts[0], gnd_pts[3], gnd_pts[2], gnd_color);
-    }
-    EndScissorMode();
+    // Draw sky/ground clipped to circle (no scissor — avoids rectangular corner leak)
+    float r = radius - 1;
+    DrawCircle((int)cx, (int)cy, r, sky_color);
 
-    DrawLineEx((Vector2){hx1, hy1}, (Vector2){hx2, hy2}, 2.0f, horizon_color);
+    // Compute where horizon line intersects the circle
+    float pp = pitch_px;
+    if (pp > r) pp = r;
+    if (pp < -r) pp = -r;
+    float half_chord = sqrtf(r * r - pp * pp);
+
+    // Intersection points in screen coords
+    float ix1 = cx + (-half_chord) * cos_r + pp * sin_r;
+    float iy1 = cy + (-half_chord) * sin_r + pp * cos_r;
+    float ix2 = cx + ( half_chord) * cos_r + pp * sin_r;
+    float iy2 = cy + ( half_chord) * sin_r + pp * cos_r;
+
+    // Angles of intersection points on the circle
+    float a1 = atan2f(iy1 - cy, ix1 - cx);
+    float a2 = atan2f(iy2 - cy, ix2 - cx);
+
+    // Ground center angle (roll-down direction)
+    float gnd_center = atan2f(cos_r, -sin_r);
+
+    // Normalize angles relative to ground center
+    float da1 = a1 - gnd_center;
+    float da2 = a2 - gnd_center;
+    while (da1 > PI) da1 -= 2*PI;
+    while (da1 < -PI) da1 += 2*PI;
+    while (da2 > PI) da2 -= 2*PI;
+    while (da2 < -PI) da2 += 2*PI;
+
+    float a_start = (da1 < da2) ? a1 : a2;
+    float a_end   = (da1 < da2) ? a2 : a1;
+
+    // Draw ground as arc-polygon (triangle fan along circle edge)
+    {
+        int arc_segs = 32;
+        float sweep = a_end - a_start;
+        if (sweep < 0) sweep += 2*PI;
+        float fan_cx = (ix1 + ix2) * 0.5f;
+        float fan_cy = (iy1 + iy2) * 0.5f;
+        Vector2 prev = { cx + cosf(a_start) * r, cy + sinf(a_start) * r };
+        for (int i = 1; i <= arc_segs; i++) {
+            float a = a_start + sweep * (float)i / arc_segs;
+            Vector2 cur = { cx + cosf(a) * r, cy + sinf(a) * r };
+            DrawTriangle(prev, (Vector2){fan_cx, fan_cy}, cur, gnd_color);
+            prev = cur;
+        }
+    }
+
+    // Horizon line clipped to circle
+    DrawLineEx((Vector2){ix1, iy1}, (Vector2){ix2, iy2}, 2.0f, horizon_color);
 
     int pitch_marks[] = {-20, -10, 10, 20};
     for (int p = 0; p < 4; p++) {

@@ -6,8 +6,11 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 #define EARTH_RADIUS 6371000.0
+#define TRAIL_MAX 2000
+#define TRAIL_INTERVAL 0.05f
 
 static const char *model_paths[] = {
     [VEHICLE_MULTICOPTER] = "models/3dr_arducopter_quad_x.obj",
@@ -39,6 +42,11 @@ void vehicle_init(vehicle_t *v, vehicle_type_t type) {
     v->model_scale = model_scales[type];
     v->red_material_idx = -1;
     v->color = WHITE;
+    v->trail = (Vector3 *)calloc(TRAIL_MAX, sizeof(Vector3));
+    v->trail_capacity = TRAIL_MAX;
+    v->trail_count = 0;
+    v->trail_head = 0;
+    v->trail_timer = 0.0f;
 
     v->model = LoadModel(model_paths[type]);
     if (v->model.meshCount == 0) {
@@ -126,6 +134,15 @@ void vehicle_update(vehicle_t *v, const hil_state_t *state) {
     v->vertical_speed = -state->vz * 0.01f;
     v->airspeed = state->ind_airspeed * 0.01f;
     v->altitude_rel = (float)(alt - v->alt0);
+
+    // Sample trail position at fixed interval
+    v->trail_timer += GetFrameTime();
+    if (v->trail_timer >= TRAIL_INTERVAL) {
+        v->trail_timer = 0.0f;
+        v->trail[v->trail_head] = v->position;
+        v->trail_head = (v->trail_head + 1) % v->trail_capacity;
+        if (v->trail_count < v->trail_capacity) v->trail_count++;
+    }
 }
 
 void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected) {
@@ -154,6 +171,28 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected) {
 
     DrawModel(v->model, (Vector3){0}, 1.0f, WHITE);
 
+    // Draw path trail
+    if (v->trail_count > 1) {
+        int start = (v->trail_count < v->trail_capacity)
+            ? 0
+            : v->trail_head;
+        Color trail_color;
+        if (view_mode == VIEW_1988)
+            trail_color = (Color){ 21, 190, 254, 160 };   // teal
+        else if (view_mode == VIEW_REZ)
+            trail_color = (Color){ 255, 106, 0, 160 };    // orange
+        else
+            trail_color = (Color){ 255, 200, 50, 180 };   // yellow
+        for (int i = 1; i < v->trail_count; i++) {
+            int idx0 = (start + i - 1) % v->trail_capacity;
+            int idx1 = (start + i) % v->trail_capacity;
+            float t = (float)i / (float)v->trail_count;
+            Color c = trail_color;
+            c.a = (unsigned char)(t * trail_color.a);
+            DrawLine3D(v->trail[idx0], v->trail[idx1], c);
+        }
+    }
+
     // Restore original color
     if ((view_mode == VIEW_REZ || view_mode == VIEW_1988) && v->red_material_idx >= 0) {
         v->model.materials[v->red_material_idx].maps[MATERIAL_MAP_DIFFUSE].color = saved_red;
@@ -162,4 +201,6 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected) {
 
 void vehicle_cleanup(vehicle_t *v) {
     UnloadModel(v->model);
+    free(v->trail);
+    v->trail = NULL;
 }

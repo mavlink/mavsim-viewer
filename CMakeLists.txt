@@ -53,4 +53,6 @@ add_custom_command(TARGET mavsim-viewer POST_BUILD
         ${CMAKE_SOURCE_DIR}/models $<TARGET_FILE_DIR:mavsim-viewer>/models
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${CMAKE_SOURCE_DIR}/textures $<TARGET_FILE_DIR:mavsim-viewer>/textures
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/fonts $<TARGET_FILE_DIR:mavsim-viewer>/fonts
 )

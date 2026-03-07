@@ -7,6 +7,7 @@
 #include <math.h>
 
 #include "raylib.h"
+#include "raymath.h"
 #include "mavlink_receiver.h"
 #include "vehicle.h"
 #include "scene.h"
@@ -95,6 +96,7 @@ int main(int argc, char *argv[]) {
 
     // Init MAVLink receivers
     mavlink_receiver_t receivers[MAX_VEHICLES];
+    memset(receivers, 0, sizeof(receivers));
     for (int i = 0; i < vehicle_count; i++) {
         receivers[i].debug = debug;
         if (mavlink_receiver_init(&receivers[i], base_port + i, (uint8_t)i) != 0) {
@@ -156,29 +158,62 @@ int main(int argc, char *argv[]) {
         // Vehicle selection input
         if (vehicle_count > 1) {
             if (IsKeyPressed(KEY_TAB)) {
-                // Cycle to next connected vehicle
+                // Cycle to next connected vehicle, clear pins
                 for (int j = 1; j <= vehicle_count; j++) {
                     int next = (selected + j) % vehicle_count;
                     if (receivers[next].connected) { selected = next; break; }
                 }
+                hud.pinned_count = 0;
+                memset(hud.pinned, -1, sizeof(hud.pinned));
             }
             if (IsKeyPressed(KEY_LEFT_BRACKET)) {
                 for (int j = 1; j <= vehicle_count; j++) {
                     int prev = (selected - j + vehicle_count) % vehicle_count;
                     if (receivers[prev].connected) { selected = prev; break; }
                 }
+                hud.pinned_count = 0;
+                memset(hud.pinned, -1, sizeof(hud.pinned));
             }
             if (IsKeyPressed(KEY_RIGHT_BRACKET)) {
                 for (int j = 1; j <= vehicle_count; j++) {
                     int next = (selected + j) % vehicle_count;
                     if (receivers[next].connected) { selected = next; break; }
                 }
+                hud.pinned_count = 0;
+                memset(hud.pinned, -1, sizeof(hud.pinned));
             }
-            // Number keys 1-9 for direct selection
+            // Number keys 1-9: plain = select + clear pins, SHIFT = toggle pin
             for (int k = KEY_ONE; k <= KEY_NINE; k++) {
                 if (IsKeyPressed(k)) {
                     int idx = k - KEY_ONE;
-                    if (idx < vehicle_count) selected = idx;
+                    if (idx >= vehicle_count) continue;
+
+                    if (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT)) {
+                        // SHIFT+number: toggle pin
+                        if (idx == selected) continue;  // can't pin the primary
+
+                        // Check if already pinned
+                        int found = -1;
+                        for (int p = 0; p < hud.pinned_count; p++) {
+                            if (hud.pinned[p] == idx) { found = p; break; }
+                        }
+
+                        if (found >= 0) {
+                            // Unpin: shift remaining
+                            for (int p = found; p < hud.pinned_count - 1; p++)
+                                hud.pinned[p] = hud.pinned[p + 1];
+                            hud.pinned_count--;
+                            hud.pinned[hud.pinned_count] = -1;
+                        } else if (hud.pinned_count < HUD_MAX_PINNED && hud.pinned_count < vehicle_count - 1) {
+                            hud.pinned[hud.pinned_count++] = idx;
+                        }
+                    } else if (!IsKeyDown(KEY_LEFT_CONTROL) && !IsKeyDown(KEY_RIGHT_CONTROL)) {
+                        // Plain number: switch primary, clear pins
+                        selected = idx;
+                        hud.pinned_count = 0;
+                        memset(hud.pinned, -1, sizeof(hud.pinned));
+                    }
+                    // Note: Ctrl+number is reserved for 1988 easter egg
                 }
             }
         }
@@ -202,9 +237,8 @@ int main(int argc, char *argv[]) {
             EndMode3D();
 
             // HUD
-            hud_draw(&hud, &vehicles[selected], any_connected,
-                     GetScreenWidth(), GetScreenHeight(),
-                     selected, vehicle_count, vehicles[selected].sysid,
+            hud_draw(&hud, vehicles, receivers, vehicle_count,
+                     selected, GetScreenWidth(), GetScreenHeight(),
                      scene.view_mode);
 
         EndDrawing();

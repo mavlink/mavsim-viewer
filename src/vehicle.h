@@ -33,6 +33,14 @@ typedef struct {
     int red_material_idx;    // material index for red arms (-1 if not found)
     uint8_t sysid;
     Color color;
+    Vector3 *trail;
+    float *trail_roll;           // roll angle at each trail sample
+    float *trail_pitch;          // pitch angle at each trail sample
+    float *trail_vert;           // vertical speed at each trail sample
+    int trail_count;
+    int trail_head;
+    int trail_capacity;
+    float trail_timer;
 } vehicle_t;
 
 // Load vehicle model. type selects which OBJ to load.

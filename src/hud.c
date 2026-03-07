@@ -29,17 +29,11 @@
 #define SYNTH_BORDER (Color){ 255, 20, 100, 100 }
 
 void hud_init(hud_t *h) {
-    h->flight_time_s = 0.0f;
-    h->timing_active = false;
+    h->sim_time_s = 0.0f;
 }
 
-void hud_update(hud_t *h, float dt, bool connected) {
-    if (connected && !h->timing_active) {
-        h->timing_active = true;
-    }
-    if (h->timing_active) {
-        h->flight_time_s += dt;
-    }
+void hud_update(hud_t *h, uint64_t time_usec) {
+    h->sim_time_s = (float)(time_usec / 1000000.0);
 }
 
 static void draw_compass(float cx, float cy, float radius, float heading_deg, view_mode_t vm) {
@@ -249,8 +243,6 @@ void hud_draw(const hud_t *h, const vehicle_t *v, bool connected, int screen_w, 
     // Themed text colors
     Color label_color = rez ? REZ_ACCENT_DIM : synth ? (Color){ 10, 120, 160, 255 } : (Color){150, 150, 150, 255};
     Color value_color = rez ? REZ_ACCENT : synth ? SYNTH_HIGHLIGHT : WHITE;
-    Color dim_color = rez ? (Color){0, 100, 110, 255} : synth ? (Color){ 8, 80, 110, 255 } : (Color){100, 100, 100, 255};
-    Color dim2_color = rez ? (Color){0, 80, 88, 255} : synth ? (Color){ 6, 60, 85, 255 } : (Color){120, 120, 120, 255};
     Color warn_color = rez ? REZ_ORANGE : synth ? SYNTH_ACCENT : RED;
 
     // Telemetry columns — each with its own buffer
@@ -326,49 +318,40 @@ void hud_draw(const hud_t *h, const vehicle_t *v, bool connected, int screen_w, 
             snprintf(b, sizeof(b), "%.1f", v->airspeed);
             DrawText(b, (int)tel_x, value_y, 14, value_color);
         } else {
-            DrawText("--", (int)tel_x, value_y, 14, dim_color);
+            DrawText("--", (int)tel_x, value_y, 14, label_color);
         }
         tel_x += col_w - 10;
     }
 
-    // TIME
+    // TIME (sim time from HIL_STATE_QUATERNION)
     {
-        char b[8];
+        char b[16];
         DrawText("TIME", (int)tel_x, label_y, 11, label_color);
-        int mins = (int)(h->flight_time_s / 60.0f);
-        int secs = (int)h->flight_time_s % 60;
-        snprintf(b, sizeof(b), "%02d:%02d", mins, secs);
+        int total_secs = (int)h->sim_time_s;
+        int mins = total_secs / 60;
+        int secs = total_secs % 60;
+        if (mins >= 60) {
+            int hrs = mins / 60;
+            mins = mins % 60;
+            snprintf(b, sizeof(b), "%d:%02d:%02d", hrs, mins, secs);
+        } else {
+            snprintf(b, sizeof(b), "%02d:%02d", mins, secs);
+        }
         DrawText(b, (int)tel_x, value_y, 14, value_color);
     }
 
-    // Second row
+    // Second row — MAVLink status
     int row2_y = bar_y + 65;
-    float row2_x = att_cx + INSTRUMENT_RADIUS + 35;
     {
-        char b[48];
-        snprintf(b, sizeof(b), "Pos: %.1f, %.1f, %.1f",
-                 v->position.x, v->position.y, v->position.z);
-        DrawText(b, (int)row2_x, row2_y, 11, dim2_color);
-        row2_x += (float)MeasureText(b, 11) + 20;
-    }
-
-    {
-        char b[16];
-        snprintf(b, sizeof(b), "FPS: %d", GetFPS());
-        int fps_x = screen_w - 70;
-        DrawText(b, fps_x, row2_y, 11, dim_color);
-
-        {
-            char status_buf[32];
-            if (connected) {
-                snprintf(status_buf, sizeof(status_buf), "MAVLink SYS %u", sysid);
-            } else {
-                snprintf(status_buf, sizeof(status_buf), "Waiting for MAVLink...");
-            }
-            Color status_color = connected ? (Color){100, 200, 100, 255} : value_color;
-            int msg_w = MeasureText(status_buf, 11);
-            DrawText(status_buf, fps_x - msg_w - 15, row2_y, 11, status_color);
+        char status_buf[32];
+        if (connected) {
+            snprintf(status_buf, sizeof(status_buf), "MAVLink SYS %u", sysid);
+        } else {
+            snprintf(status_buf, sizeof(status_buf), "Waiting for MAVLink...");
         }
+        Color status_color = connected ? (Color){100, 200, 100, 255} : warn_color;
+        int msg_w = MeasureText(status_buf, 11);
+        DrawText(status_buf, screen_w - msg_w - 15, row2_y, 11, status_color);
     }
 }
 

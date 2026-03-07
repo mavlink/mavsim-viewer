@@ -147,8 +147,8 @@ int main(int argc, char *argv[]) {
             if (receivers[i].connected) { any_connected = true; break; }
         }
 
-        // Update HUD timer
-        hud_update(&hud, GetFrameTime(), any_connected);
+        // Update HUD sim time from selected vehicle
+        hud_update(&hud, receivers[selected].state.time_usec);
 
         // Handle input
         scene_handle_input(&scene);

@@ -66,6 +66,8 @@ make px4_sitl sihsim_quadx
 
 ### Multi-vehicle swarm
 
+<video src="https://github.com/user-attachments/assets/eb14ef60-4447-4d14-99b1-aacbaa0fc29f" autoplay loop muted playsinline></video>
+
 PX4 SIH supports multi-instance SITL where each instance sends `HIL_STATE_QUATERNION` on port `19410+N`. The viewer simply opens N sockets and renders all vehicles — all formation/spawn logic is handled externally (e.g. by setting `SIH_LOC_LAT0`/`SIH_LOC_LON0` params per instance).
 
 A MAVSDK Python test script is included that orchestrates a complete swarm mission: sets spawn offsets for line formation, arms all vehicles, takes off in parallel, flies a waypoint, and lands.

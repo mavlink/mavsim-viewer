@@ -133,6 +133,8 @@ int main(int argc, char *argv[]) {
     hud_init(&hud);
 
     int selected = 0;
+    bool was_connected[MAX_VEHICLES];
+    memset(was_connected, 0, sizeof(was_connected));
     bool show_hud = true;
 
     // Main loop
@@ -140,6 +142,13 @@ int main(int argc, char *argv[]) {
         // Poll all MAVLink receivers and update vehicles
         for (int i = 0; i < vehicle_count; i++) {
             mavlink_receiver_poll(&receivers[i]);
+
+            // Reset trail on reconnect
+            if (receivers[i].connected && !was_connected[i]) {
+                vehicle_reset_trail(&vehicles[i]);
+            }
+            was_connected[i] = receivers[i].connected;
+
             vehicle_update(&vehicles[i], &receivers[i].state);
             vehicles[i].sysid = receivers[i].sysid;
         }

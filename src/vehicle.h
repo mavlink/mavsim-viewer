@@ -52,6 +52,9 @@ void vehicle_update(vehicle_t *v, const hil_state_t *state);
 // Draw the vehicle model. Pass view mode for per-mode coloring and selected state.
 void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected);
 
+// Reset the path trail.
+void vehicle_reset_trail(vehicle_t *v);
+
 // Unload model resources.
 void vehicle_cleanup(vehicle_t *v);
 

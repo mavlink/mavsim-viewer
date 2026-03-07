@@ -278,6 +278,12 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected) {
     }
 }
 
+void vehicle_reset_trail(vehicle_t *v) {
+    v->trail_count = 0;
+    v->trail_head = 0;
+    v->trail_timer = 0.0f;
+}
+
 void vehicle_cleanup(vehicle_t *v) {
     UnloadModel(v->model);
     free(v->trail);

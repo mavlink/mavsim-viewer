@@ -43,6 +43,8 @@ void scene_init(scene_t *s) {
     s->chase_distance = 3.0f;
     s->chase_yaw = 0.0f;
     s->chase_pitch = 0.4f;  // ~23° above horizontal
+    s->fpv_yaw = 0.0f;
+    s->fpv_pitch = 0.0f;
 
     // Camera
     s->camera = (Camera3D){
@@ -122,9 +124,27 @@ static void update_chase_camera(scene_t *s, Vector3 pos) {
 
 static void update_fpv_camera(scene_t *s, Vector3 pos, Quaternion rot) {
     s->camera.position = pos;
+
+    // Start with vehicle forward and up
     Vector3 forward = Vector3RotateByQuaternion((Vector3){0, 0, -1}, rot);
-    s->camera.target = Vector3Add(pos, forward);
     Vector3 up = Vector3RotateByQuaternion((Vector3){0, 1, 0}, rot);
+    Vector3 right = Vector3CrossProduct(forward, up);
+
+    // Apply gimbal pitch offset (rotate around vehicle's right axis)
+    if (s->fpv_pitch != 0.0f) {
+        Quaternion pitch_q = QuaternionFromAxisAngle(right, s->fpv_pitch);
+        forward = Vector3RotateByQuaternion(forward, pitch_q);
+        up = Vector3RotateByQuaternion(up, pitch_q);
+    }
+
+    // Apply gimbal yaw offset (rotate around world up axis)
+    if (s->fpv_yaw != 0.0f) {
+        Quaternion yaw_q = QuaternionFromAxisAngle((Vector3){0, 1, 0}, -s->fpv_yaw);
+        forward = Vector3RotateByQuaternion(forward, yaw_q);
+        up = Vector3RotateByQuaternion(up, yaw_q);
+    }
+
+    s->camera.target = Vector3Add(pos, forward);
     s->camera.up = up;
 }
 
@@ -148,6 +168,8 @@ void scene_handle_input(scene_t *s) {
         printf("Camera: %s\n", names[s->cam_mode]);
 
         s->camera.up = (Vector3){0, 1, 0};
+        s->fpv_yaw = 0.0f;
+        s->fpv_pitch = 0.0f;
     }
 
     if (IsKeyPressed(KEY_V)) {
@@ -179,15 +201,21 @@ void scene_handle_input(scene_t *s) {
         s->seq_1988 = 0;
     }
 
-    // Mouse drag to orbit (left button)
-    if (s->cam_mode == CAM_MODE_CHASE && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
+    // Mouse drag to orbit/look (left button)
+    if (IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
         Vector2 delta = GetMouseDelta();
-        s->chase_yaw   -= delta.x * 0.005f;
-        s->chase_pitch += delta.y * 0.005f;
-
-        // Clamp pitch to avoid flipping
-        if (s->chase_pitch < -1.2f) s->chase_pitch = -1.2f;
-        if (s->chase_pitch > 1.4f) s->chase_pitch = 1.4f;
+        if (s->cam_mode == CAM_MODE_CHASE) {
+            s->chase_yaw   -= delta.x * 0.005f;
+            s->chase_pitch += delta.y * 0.005f;
+            if (s->chase_pitch < -1.2f) s->chase_pitch = -1.2f;
+            if (s->chase_pitch > 1.4f) s->chase_pitch = 1.4f;
+        } else if (s->cam_mode == CAM_MODE_FPV) {
+            s->fpv_yaw   -= delta.x * 0.005f;
+            s->fpv_pitch -= delta.y * 0.005f;
+            // Full yaw, pitch only downward (0 = forward, -PI/2 = straight down)
+            if (s->fpv_pitch < -1.57f) s->fpv_pitch = -1.57f;
+            if (s->fpv_pitch > 0.0f) s->fpv_pitch = 0.0f;
+        }
     }
 
     // Scroll wheel FOV zoom

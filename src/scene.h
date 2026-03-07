@@ -29,6 +29,8 @@ typedef struct {
     float chase_distance;
     float chase_yaw;    // horizontal orbit angle (radians)
     float chase_pitch;  // vertical orbit angle (radians)
+    float fpv_yaw;      // gimbal yaw offset (radians)
+    float fpv_pitch;    // gimbal pitch offset (radians, 0 = forward, negative = down)
     // Grid shader
     Shader grid_shader;
     int loc_colGround;

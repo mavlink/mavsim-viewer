@@ -145,9 +145,12 @@ int main(int argc, char *argv[]) {
         for (int i = 0; i < vehicle_count; i++) {
             mavlink_receiver_poll(&receivers[i]);
 
-            // Reset trail on reconnect or large position jump (new SITL instance)
+            // Reset trail and origin on reconnect
             if (receivers[i].connected && !was_connected[i]) {
                 vehicle_reset_trail(&vehicles[i]);
+                if (!origin_specified && vehicle_count == 1) {
+                    vehicles[i].origin_set = false;
+                }
             }
             was_connected[i] = receivers[i].connected;
 

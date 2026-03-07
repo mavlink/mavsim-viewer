@@ -11,6 +11,7 @@ typedef struct {
     float sim_time_s;
     int pinned[HUD_MAX_PINNED];   // indices of pinned vehicles (-1 = empty)
     int pinned_count;
+    bool show_help;
     Font font_value;    // JetBrains Mono for telemetry numbers
     Font font_label;    // Inter for labels and status text
 } hud_t;

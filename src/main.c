@@ -139,6 +139,8 @@ int main(int argc, char *argv[]) {
     Vector3 last_pos[MAX_VEHICLES];
     memset(last_pos, 0, sizeof(last_pos));
     bool show_hud = true;
+    int trail_mode = 1;              // 0=off, 1=directional trail, 2=speed ribbon
+    bool show_ground_track = false;  // ground projection off by default
 
     // Main loop
     while (!WindowShouldClose()) {
@@ -189,6 +191,16 @@ int main(int argc, char *argv[]) {
         // Toggle HUD visibility
         if (IsKeyPressed(KEY_H)) {
             show_hud = !show_hud;
+        }
+
+        // Cycle trail mode: off → trail → speed ribbon
+        if (IsKeyPressed(KEY_T)) {
+            trail_mode = (trail_mode + 1) % 3;
+        }
+
+        // Toggle ground track projection
+        if (IsKeyPressed(KEY_G)) {
+            show_ground_track = !show_ground_track;
         }
 
         // Cycle model for selected vehicle
@@ -272,7 +284,8 @@ int main(int argc, char *argv[]) {
                 scene_draw(&scene);
                 for (int i = 0; i < vehicle_count; i++) {
                     if (vehicles[i].active || vehicle_count == 1) {
-                        vehicle_draw(&vehicles[i], scene.view_mode, i == selected);
+                        vehicle_draw(&vehicles[i], scene.view_mode, i == selected,
+                                     trail_mode, show_ground_track, scene.camera.position);
                     }
                 }
             EndMode3D();

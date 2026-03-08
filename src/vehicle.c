@@ -10,8 +10,9 @@
 #include <stdlib.h>
 
 #define EARTH_RADIUS 6371000.0
-#define TRAIL_MAX 2000
+#define TRAIL_MAX 10000
 #define TRAIL_INTERVAL 0.05f
+#define TRAIL_DIST_INTERVAL 0.01f  // meters between ribbon samples
 
 // ── Model registry ──────────────────────────────────────────────────────────
 // To add a new model: append an entry here and increment nothing else.
@@ -86,6 +87,83 @@ void vehicle_cycle_model(vehicle_t *v) {
     vehicle_load_model(v, next);
 }
 
+// ── Thermal palette (per-theme) ─────────────────────────────────────────────
+static Color heat_to_color(float heat, unsigned char alpha, view_mode_t mode) {
+    float cr, cg, cb;
+
+    if (mode == VIEW_1988) {
+        // 1988: neon pink → hot magenta → red → orange → yellow → white
+        if (heat < 0.16f) {
+            float s = heat / 0.16f;
+            cr = 100 + 40 * s; cg = 10 * s; cb = 120 + 50 * s;
+        } else if (heat < 0.33f) {
+            float s = (heat - 0.16f) / 0.17f;
+            cr = 140 + 115 * s; cg = 10; cb = 170 - 70 * s;
+        } else if (heat < 0.5f) {
+            float s = (heat - 0.33f) / 0.17f;
+            cr = 255; cg = 10 + 30 * s; cb = 100 - 100 * s;
+        } else if (heat < 0.66f) {
+            float s = (heat - 0.5f) / 0.16f;
+            cr = 255; cg = 40 + 130 * s; cb = 0;
+        } else if (heat < 0.83f) {
+            float s = (heat - 0.66f) / 0.17f;
+            cr = 255; cg = 170 + 85 * s; cb = 50 * s;
+        } else {
+            float s = (heat - 0.83f) / 0.17f;
+            cr = 255; cg = 255; cb = 50 + 205 * s;
+        }
+    } else if (mode == VIEW_REZ) {
+        // Rez: indigo → teal-purple → cyan-red → orange → amber → white
+        if (heat < 0.16f) {
+            float s = heat / 0.16f;
+            cr = 50 + 20 * s; cg = 20 + 30 * s; cb = 140 + 40 * s;
+        } else if (heat < 0.33f) {
+            float s = (heat - 0.16f) / 0.17f;
+            cr = 70 + 100 * s; cg = 50 + 10 * s; cb = 180 - 60 * s;
+        } else if (heat < 0.5f) {
+            float s = (heat - 0.33f) / 0.17f;
+            cr = 170 + 85 * s; cg = 60 - 20 * s; cb = 120 - 120 * s;
+        } else if (heat < 0.66f) {
+            float s = (heat - 0.5f) / 0.16f;
+            cr = 255; cg = 40 + 120 * s; cb = 20 * s;
+        } else if (heat < 0.83f) {
+            float s = (heat - 0.66f) / 0.17f;
+            cr = 255; cg = 160 + 90 * s; cb = 20 + 40 * s;
+        } else {
+            float s = (heat - 0.83f) / 0.17f;
+            cr = 255; cg = 250 + 5 * s; cb = 60 + 195 * s;
+        }
+    } else {
+        // Grid (default): purple → magenta → red → orange → yellow → white
+        if (heat < 0.16f) {
+            float s = heat / 0.16f;
+            cr = 80 + 40 * s; cg = 20 * s; cb = 140 + 40 * s;
+        } else if (heat < 0.33f) {
+            float s = (heat - 0.16f) / 0.17f;
+            cr = 120 + 80 * s; cg = 20 - 20 * s; cb = 180 - 60 * s;
+        } else if (heat < 0.5f) {
+            float s = (heat - 0.33f) / 0.17f;
+            cr = 200 + 55 * s; cg = 20 * s; cb = 120 - 120 * s;
+        } else if (heat < 0.66f) {
+            float s = (heat - 0.5f) / 0.16f;
+            cr = 255; cg = 20 + 140 * s; cb = 0;
+        } else if (heat < 0.83f) {
+            float s = (heat - 0.66f) / 0.17f;
+            cr = 255; cg = 160 + 95 * s; cb = 40 * s;
+        } else {
+            float s = (heat - 0.83f) / 0.17f;
+            cr = 255; cg = 255; cb = 40 + 215 * s;
+        }
+    }
+
+    return (Color){
+        (unsigned char)(cr > 255 ? 255 : (cr < 0 ? 0 : cr)),
+        (unsigned char)(cg > 255 ? 255 : (cg < 0 ? 0 : cg)),
+        (unsigned char)(cb > 255 ? 255 : (cb < 0 ? 0 : cb)),
+        alpha
+    };
+}
+
 // ── Init / update / draw ────────────────────────────────────────────────────
 void vehicle_init(vehicle_t *v, int model_idx, Shader lighting_shader) {
     memset(v, 0, sizeof(*v));
@@ -99,6 +177,7 @@ void vehicle_init(vehicle_t *v, int model_idx, Shader lighting_shader) {
     v->trail_roll = (float *)calloc(TRAIL_MAX, sizeof(float));
     v->trail_pitch = (float *)calloc(TRAIL_MAX, sizeof(float));
     v->trail_vert = (float *)calloc(TRAIL_MAX, sizeof(float));
+    v->trail_speed = (float *)calloc(TRAIL_MAX, sizeof(float));
     v->trail_capacity = TRAIL_MAX;
     v->trail_count = 0;
     v->trail_head = 0;
@@ -174,20 +253,31 @@ void vehicle_update(vehicle_t *v, const hil_state_t *state) {
     v->airspeed = state->ind_airspeed * 0.01f;
     v->altitude_rel = (float)(alt - v->alt0);
 
-    // Sample trail position at fixed interval
+    // Sample trail by time OR distance (whichever triggers first)
+    float dist_since = 0.0f;
+    if (v->trail_count > 0) {
+        int last = (v->trail_head - 1 + v->trail_capacity) % v->trail_capacity;
+        float ddx = v->position.x - v->trail[last].x;
+        float ddy = v->position.y - v->trail[last].y;
+        float ddz = v->position.z - v->trail[last].z;
+        dist_since = sqrtf(ddx*ddx + ddy*ddy + ddz*ddz);
+    }
     v->trail_timer += GetFrameTime();
-    if (v->trail_timer >= TRAIL_INTERVAL) {
+    if (v->trail_timer >= TRAIL_INTERVAL || dist_since >= TRAIL_DIST_INTERVAL) {
         v->trail_timer = 0.0f;
         v->trail[v->trail_head] = v->position;
         v->trail_roll[v->trail_head] = v->roll_deg;
         v->trail_pitch[v->trail_head] = v->pitch_deg;
         v->trail_vert[v->trail_head] = v->vertical_speed;
+        v->trail_speed[v->trail_head] = sqrtf(v->ground_speed * v->ground_speed +
+                                               v->vertical_speed * v->vertical_speed);
         v->trail_head = (v->trail_head + 1) % v->trail_capacity;
         if (v->trail_count < v->trail_capacity) v->trail_count++;
     }
 }
 
-void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected) {
+void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
+                  int trail_mode, bool show_ground_track, Vector3 cam_pos) {
     // In Rez/1988 mode, swap red arm color
     Color saved_red = {0};
     if ((view_mode == VIEW_REZ || view_mode == VIEW_1988) && v->red_material_idx >= 0) {
@@ -221,14 +311,14 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected) {
 
     DrawModel(v->model, (Vector3){0}, 1.0f, WHITE);
 
-    // Draw path trail
-    rlSetLineWidth(2.0f);
-    if (v->trail_count > 1) {
+    // Draw path trail (mode 1) or speed ribbon (mode 2)
+    if (trail_mode > 0 && v->trail_count > 1) {
         int start = (v->trail_count < v->trail_capacity)
             ? 0
             : v->trail_head;
-        // Base forward color and directional palette per view mode
-        // Axes: vertical=cyan/orange, roll=green(starboard)/red(port), pitch=base/purple
+
+      if (trail_mode == 1) {
+        // ── Normal directional trail ──
         Color trail_color;
         Color col_back, col_up, col_down, col_roll_pos, col_roll_neg;
         if (view_mode == VIEW_1988) {
@@ -263,12 +353,10 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected) {
             float vert  = v->trail_vert[idx1];
             float roll  = v->trail_roll[idx1];
 
-            // Start with forward color as base
             float cr = (float)trail_color.r;
             float cg = (float)trail_color.g;
             float cb = (float)trail_color.b;
 
-            // Backward: pitch > 0 means nose up / moving backward
             float back_t = pitch / 15.0f;
             if (back_t < 0.0f) back_t = 0.0f;
             if (back_t > 1.0f) back_t = 1.0f;
@@ -276,8 +364,7 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected) {
             cg += (col_back.g - cg) * back_t;
             cb += (col_back.b - cb) * back_t;
 
-            // Vertical: ascending / descending
-            float vert_t = vert / 5.0f;  // ±5 m/s = full tint
+            float vert_t = vert / 5.0f;
             if (vert_t > 1.0f) vert_t = 1.0f;
             if (vert_t < -1.0f) vert_t = -1.0f;
             if (vert_t > 0.0f) {
@@ -291,7 +378,6 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected) {
                 cb += (col_down.b - cb) * dt2;
             }
 
-            // Roll tint on top
             float roll_t = roll / 15.0f;
             if (roll_t > 1.0f) roll_t = 1.0f;
             if (roll_t < -1.0f) roll_t = -1.0f;
@@ -313,6 +399,131 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected) {
             c.a = (unsigned char)(t * trail_color.a);
             DrawLine3D(v->trail[idx0], v->trail[idx1], c);
         }
+      } else {
+        // ── Speed ribbon trail (mode 2) ──
+        float max_speed = 27.78f;  // 100 km/h in m/s
+        float max_half_w = v->model_scale * 0.5f;
+        float min_half_w = 0.02f;
+
+        for (int i = 1; i < v->trail_count; i++) {
+            int idx0 = (start + i - 1) % v->trail_capacity;
+            int idx1 = (start + i) % v->trail_capacity;
+
+            Vector3 p0 = v->trail[idx0];
+            Vector3 p1 = v->trail[idx1];
+            float spd0 = v->trail_speed[idx0];
+            float spd1 = v->trail_speed[idx1];
+
+            Vector3 seg = { p1.x - p0.x, p1.y - p0.y, p1.z - p0.z };
+            float seg_len = sqrtf(seg.x*seg.x + seg.y*seg.y + seg.z*seg.z);
+            if (seg_len < 0.001f) continue;
+            Vector3 dir = { seg.x/seg_len, seg.y/seg_len, seg.z/seg_len };
+
+            Vector3 up = { 0, 1, 0 };
+            Vector3 perp = { dir.z * up.y - dir.y * up.z,
+                             dir.x * up.z - dir.z * up.x,
+                             dir.y * up.x - dir.x * up.y };
+            float plen = sqrtf(perp.x*perp.x + perp.y*perp.y + perp.z*perp.z);
+            if (plen < 0.001f) {
+                Vector3 to_cam = { cam_pos.x - p0.x, cam_pos.y - p0.y, cam_pos.z - p0.z };
+                perp = (Vector3){ dir.y * to_cam.z - dir.z * to_cam.y,
+                                  dir.z * to_cam.x - dir.x * to_cam.z,
+                                  dir.x * to_cam.y - dir.y * to_cam.x };
+                plen = sqrtf(perp.x*perp.x + perp.y*perp.y + perp.z*perp.z);
+                if (plen < 0.001f) continue;
+            }
+            perp.x /= plen; perp.y /= plen; perp.z /= plen;
+
+            // Power law width: stays thin longer, ramps at high speed
+            float s0 = spd0 / max_speed; if (s0 > 1.0f) s0 = 1.0f;
+            float s1 = spd1 / max_speed; if (s1 > 1.0f) s1 = 1.0f;
+            float hw0 = min_half_w + powf(s0, 2.0f) * max_half_w;
+            float hw1 = min_half_w + powf(s1, 2.0f) * max_half_w;
+
+            float spd_avg = (spd0 + spd1) * 0.5f;
+            float accel = (spd1 - spd0) / TRAIL_INTERVAL;
+            float accel_shift = accel / 40.0f;
+            if (accel_shift > 0.15f) accel_shift = 0.15f;
+            if (accel_shift < -0.15f) accel_shift = -0.15f;
+            float heat = spd_avg / max_speed + accel_shift;
+            if (heat > 1.0f) heat = 1.0f;
+            if (heat < 0.0f) heat = 0.0f;
+
+            float t = (float)i / (float)v->trail_count;
+            Color c = heat_to_color(heat, (unsigned char)(t * 200), view_mode);
+
+            Vector3 a = { p0.x + perp.x*hw0, p0.y + perp.y*hw0, p0.z + perp.z*hw0 };
+            Vector3 b = { p0.x - perp.x*hw0, p0.y - perp.y*hw0, p0.z - perp.z*hw0 };
+            Vector3 d = { p1.x + perp.x*hw1, p1.y + perp.y*hw1, p1.z + perp.z*hw1 };
+            Vector3 e = { p1.x - perp.x*hw1, p1.y - perp.y*hw1, p1.z - perp.z*hw1 };
+
+            DrawTriangle3D(a, b, d, c);
+            DrawTriangle3D(b, e, d, c);
+            DrawTriangle3D(d, b, a, c);
+            DrawTriangle3D(d, e, b, c);
+        }
+      }
+    }
+
+    // Ground projection (shadow / ring) at Y=0
+    if (show_ground_track && v->position.y > 0.1f) {
+        Vector3 ground = { v->position.x, 0.02f, v->position.z };
+        float radius = 0.3f + v->position.y * 0.02f;
+        if (radius > 1.5f) radius = 1.5f;
+
+        // Dotted vertical drop line
+        float dash = 0.08f;
+        float gap = 0.12f;
+        Color drop;
+
+        Color fill_col, edge_col;
+        if (view_mode == VIEW_GRID) {
+            fill_col = (Color){ 0, 0, 0, 50 };
+            edge_col = (Color){ 60, 60, 60, 80 };
+            drop = (Color){ 150, 150, 150, 40 };
+        } else if (view_mode == VIEW_1988) {
+            fill_col = (Color){ 255, 20, 100, 30 };
+            edge_col = (Color){ 255, 20, 100, 120 };
+            drop = (Color){ 255, 20, 100, 50 };
+        } else {
+            fill_col = (Color){ 0, 204, 218, 30 };
+            edge_col = (Color){ 0, 204, 218, 120 };
+            drop = (Color){ 0, 204, 218, 50 };
+        }
+
+        // Filled disc: concentric rings when close, cylinder when far
+        float dx = cam_pos.x - ground.x;
+        float dy = cam_pos.y - ground.y;
+        float dz = cam_pos.z - ground.z;
+        float cam_dist = sqrtf(dx*dx + dy*dy + dz*dz);
+        if (cam_dist < 40.0f) {
+            for (float r = 0.05f; r <= radius; r += 0.05f) {
+                DrawCircle3D(ground, r, (Vector3){1, 0, 0}, 90.0f, fill_col);
+            }
+        } else {
+            Vector3 cyl_pos = { ground.x, 0.01f, ground.z };
+            DrawCylinder(cyl_pos, radius, radius, 0.25f, 36, fill_col);
+        }
+        DrawCircle3D(ground, radius, (Vector3){1, 0, 0}, 90.0f, edge_col);
+
+        // Targeting cross
+        float cs = radius * 0.5f;
+        DrawLine3D((Vector3){ ground.x - cs, ground.y, ground.z },
+                   (Vector3){ ground.x + cs, ground.y, ground.z }, edge_col);
+        DrawLine3D((Vector3){ ground.x, ground.y, ground.z - cs },
+                   (Vector3){ ground.x, ground.y, ground.z + cs }, edge_col);
+
+        float y_top = v->position.y;
+        float y_bot = 0.02f;
+        float y = y_top;
+        rlSetLineWidth(2.5f);
+        while (y > y_bot) {
+            float y_end = y - dash;
+            if (y_end < y_bot) y_end = y_bot;
+            DrawLine3D((Vector3){ v->position.x, y, v->position.z },
+                       (Vector3){ v->position.x, y_end, v->position.z }, drop);
+            y -= dash + gap;
+        }
     }
 
     // Restore original color
@@ -333,8 +544,10 @@ void vehicle_cleanup(vehicle_t *v) {
     free(v->trail_roll);
     free(v->trail_pitch);
     free(v->trail_vert);
+    free(v->trail_speed);
     v->trail = NULL;
     v->trail_roll = NULL;
     v->trail_pitch = NULL;
     v->trail_vert = NULL;
+    v->trail_speed = NULL;
 }

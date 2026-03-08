@@ -114,6 +114,8 @@ The test script accepts these options:
 | `C` | Toggle camera mode (Chase / FPV) |
 | `V` | Cycle view mode (Grid / Rez) |
 | `H` | Toggle HUD visibility |
+| `T` | Cycle trail mode (off / directional trail / speed ribbon) |
+| `G` | Toggle ground track projection |
 | `M` | Cycle vehicle model |
 | `TAB` | Cycle to next vehicle |
 | `[` / `]` | Previous / next vehicle |

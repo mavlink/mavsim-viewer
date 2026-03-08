@@ -53,6 +53,7 @@ typedef struct {
     float *trail_roll;           // roll angle at each trail sample
     float *trail_pitch;          // pitch angle at each trail sample
     float *trail_vert;           // vertical speed at each trail sample
+    float *trail_speed;          // ground speed (m/s) at each trail sample
     int trail_count;
     int trail_head;
     int trail_capacity;
@@ -73,8 +74,9 @@ void vehicle_cycle_model(vehicle_t *v);
 // Update position/rotation from HIL_STATE_QUATERNION data.
 void vehicle_update(vehicle_t *v, const hil_state_t *state);
 
-// Draw the vehicle model. Pass view mode for per-mode coloring and selected state.
-void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected);
+// trail_mode: 0=off, 1=normal trail, 2=speed ribbon
+void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
+                  int trail_mode, bool show_ground_track, Vector3 cam_pos);
 
 // Reset the path trail.
 void vehicle_reset_trail(vehicle_t *v);

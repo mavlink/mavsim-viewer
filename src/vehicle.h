@@ -53,7 +53,8 @@ typedef struct {
     float *trail_roll;           // roll angle at each trail sample
     float *trail_pitch;          // pitch angle at each trail sample
     float *trail_vert;           // vertical speed at each trail sample
-    float *trail_speed;          // ground speed (m/s) at each trail sample
+    float *trail_speed;          // 3D speed (m/s) at each trail sample
+    float trail_speed_max;       // max speed seen so far (for adaptive ribbon)
     int trail_count;
     int trail_head;
     int trail_capacity;

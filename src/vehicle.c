@@ -10,7 +10,7 @@
 #include <stdlib.h>
 
 #define EARTH_RADIUS 6371000.0
-#define TRAIL_MAX 10000
+#define TRAIL_MAX 1200
 #define TRAIL_INTERVAL 0.05f
 #define TRAIL_DIST_INTERVAL 0.01f  // meters between ribbon samples
 
@@ -182,6 +182,7 @@ void vehicle_init(vehicle_t *v, int model_idx, Shader lighting_shader) {
     v->trail_count = 0;
     v->trail_head = 0;
     v->trail_timer = 0.0f;
+    v->trail_speed_max = 0.0f;
 
     v->lighting_shader = lighting_shader;
     v->loc_matNormal = -1;
@@ -269,10 +270,21 @@ void vehicle_update(vehicle_t *v, const hil_state_t *state) {
         v->trail_roll[v->trail_head] = v->roll_deg;
         v->trail_pitch[v->trail_head] = v->pitch_deg;
         v->trail_vert[v->trail_head] = v->vertical_speed;
-        v->trail_speed[v->trail_head] = sqrtf(v->ground_speed * v->ground_speed +
-                                               v->vertical_speed * v->vertical_speed);
+        float spd = sqrtf(v->ground_speed * v->ground_speed +
+                          v->vertical_speed * v->vertical_speed);
+        v->trail_speed[v->trail_head] = spd;
+        if (spd > v->trail_speed_max) v->trail_speed_max = spd;
+        bool was_full = (v->trail_count >= v->trail_capacity);
         v->trail_head = (v->trail_head + 1) % v->trail_capacity;
         if (v->trail_count < v->trail_capacity) v->trail_count++;
+
+        // Recompute max when buffer wraps (old peak may have scrolled out)
+        if (was_full) {
+            float mx = 0.0f;
+            for (int i = 0; i < v->trail_count; i++)
+                if (v->trail_speed[i] > mx) mx = v->trail_speed[i];
+            v->trail_speed_max = mx;
+        }
     }
 }
 
@@ -401,8 +413,8 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
         }
       } else {
         // ── Speed ribbon trail (mode 2) ──
-        float max_speed = 27.78f;  // 100 km/h in m/s
-        float max_half_w = v->model_scale * 0.5f;
+        float max_speed = v->trail_speed_max > 1.0f ? v->trail_speed_max : 1.0f;
+        float max_half_w = v->model_scale * 0.25f;
         float min_half_w = 0.02f;
 
         for (int i = 1; i < v->trail_count; i++) {
@@ -467,9 +479,10 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
 
     // Ground projection (shadow / ring) at Y=0
     if (show_ground_track && v->position.y > 0.1f) {
+
         Vector3 ground = { v->position.x, 0.02f, v->position.z };
-        float radius = 0.3f + v->position.y * 0.02f;
-        if (radius > 1.5f) radius = 1.5f;
+        float radius = 1.0f + v->position.y * 0.1f;
+        if (radius > 5.0f) radius = 5.0f;
 
         // Dotted vertical drop line
         float dash = 0.08f;
@@ -478,17 +491,17 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
 
         Color fill_col, edge_col;
         if (view_mode == VIEW_GRID) {
-            fill_col = (Color){ 0, 0, 0, 50 };
-            edge_col = (Color){ 60, 60, 60, 80 };
-            drop = (Color){ 150, 150, 150, 40 };
+            fill_col = (Color){ 0, 0, 0, 100 };
+            edge_col = (Color){ 80, 80, 80, 180 };
+            drop = (Color){ 150, 150, 150, 120 };
         } else if (view_mode == VIEW_1988) {
-            fill_col = (Color){ 255, 20, 100, 30 };
-            edge_col = (Color){ 255, 20, 100, 120 };
-            drop = (Color){ 255, 20, 100, 50 };
+            fill_col = (Color){ 255, 20, 100, 80 };
+            edge_col = (Color){ 255, 20, 100, 200 };
+            drop = (Color){ 255, 20, 100, 140 };
         } else {
-            fill_col = (Color){ 0, 204, 218, 30 };
-            edge_col = (Color){ 0, 204, 218, 120 };
-            drop = (Color){ 0, 204, 218, 50 };
+            fill_col = (Color){ 0, 204, 218, 80 };
+            edge_col = (Color){ 0, 204, 218, 200 };
+            drop = (Color){ 0, 204, 218, 140 };
         }
 
         // Filled disc: concentric rings when close, cylinder when far
@@ -536,6 +549,7 @@ void vehicle_reset_trail(vehicle_t *v) {
     v->trail_count = 0;
     v->trail_head = 0;
     v->trail_timer = 0.0f;
+    v->trail_speed_max = 0.0f;
 }
 
 void vehicle_cleanup(vehicle_t *v) {

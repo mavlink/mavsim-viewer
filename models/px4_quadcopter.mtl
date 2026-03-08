@@ -1,4 +1,4 @@
-# quad_fpv materials (MAVSim spec Kd values)
+# px4_quadcopter materials (MAVSim spec Kd values)
 
 newmtl Body_Dark
 Kd 0.0500 0.0700 0.0900
@@ -44,6 +44,13 @@ d 1.00
 
 newmtl Blue_Metal
 Kd 0.1000 0.2300 0.8000
+Ka 0.0200 0.0200 0.0200
+Ks 0.0000 0.0000 0.0000
+Ns 10
+d 1.00
+
+newmtl Leg_Dark
+Kd 0.0300 0.0500 0.0700
 Ka 0.0200 0.0200 0.0200
 Ks 0.0000 0.0000 0.0000
 Ns 10

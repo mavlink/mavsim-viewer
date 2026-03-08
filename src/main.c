@@ -49,7 +49,7 @@ static void print_usage(const char *prog) {
 int main(int argc, char *argv[]) {
     uint16_t base_port = 19410;
     int vehicle_count = 1;
-    int model_idx = MODEL_MULTICOPTER;
+    int model_idx = MODEL_QUADROTOR;
     int win_w = 1280;
     int win_h = 720;
     bool debug = false;
@@ -72,7 +72,7 @@ int main(int argc, char *argv[]) {
             origin_alt = atof(argv[++i]);
             origin_specified = true;
         } else if (strcmp(argv[i], "-mc") == 0) {
-            model_idx = MODEL_MULTICOPTER;
+            model_idx = MODEL_QUADROTOR;
         } else if (strcmp(argv[i], "-fw") == 0) {
             model_idx = MODEL_FIXEDWING;
         } else if (strcmp(argv[i], "-ts") == 0) {

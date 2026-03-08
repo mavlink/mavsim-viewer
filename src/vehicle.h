@@ -24,6 +24,7 @@ extern const int vehicle_model_count;
 #define MODEL_FPV_QUAD    3
 #define MODEL_HEXAROTOR   4
 #define MODEL_VTOL        5
+#define MODEL_ROVER       6
 
 typedef struct {
     Model model;

@@ -22,6 +22,7 @@ const vehicle_model_info_t vehicle_models[] = {
     { "models/fpv_quadrotor.obj",         "FPV Quad",     0.75f,   0.0f,   0.0f },
     { "models/px4_hexarotor.obj",         "Hexarotor",    1.05f,   0.0f,   0.0f },
     { "models/vtol_wing.obj",             "VTOL",         1.5f,    0.0f, 180.0f },
+    { "models/rover_4.obj",              "Rover",        1.0f,    0.0f,   0.0f },
 };
 const int vehicle_model_count = sizeof(vehicle_models) / sizeof(vehicle_models[0]);
 

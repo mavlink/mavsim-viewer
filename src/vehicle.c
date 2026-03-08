@@ -1,5 +1,6 @@
 #include "vehicle.h"
 #include "raymath.h"
+#include "rlgl.h"
 #ifdef _MSC_VER
 #define _USE_MATH_DEFINES
 #endif
@@ -198,6 +199,7 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected) {
     DrawModel(v->model, (Vector3){0}, 1.0f, WHITE);
 
     // Draw path trail
+    rlSetLineWidth(2.0f);
     if (v->trail_count > 1) {
         int start = (v->trail_count < v->trail_capacity)
             ? 0

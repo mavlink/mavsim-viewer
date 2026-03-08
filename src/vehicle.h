@@ -18,9 +18,13 @@ extern const vehicle_model_info_t vehicle_models[];
 extern const int vehicle_model_count;
 
 // Default model indices (match vehicle_models[] order in vehicle.c)
-#define MODEL_MULTICOPTER 0
+#define MODEL_QUADROTOR   0
 #define MODEL_FIXEDWING   1
 #define MODEL_TAILSITTER  2
+#define MODEL_FPV_QUAD    3
+#define MODEL_HEXAROTOR   4
+#define MODEL_VTOL        5
+#define MODEL_ROVER       6
 
 typedef struct {
     Model model;

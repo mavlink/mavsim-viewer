@@ -170,13 +170,15 @@ void vehicle_update(vehicle_t *v, const hil_state_t *state) {
 }
 
 void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected) {
-    // In Rez/1988 mode, swap red arm color
+    // In Rez/1988/Snow mode, swap red arm color
     Color saved_red = {0};
-    if ((view_mode == VIEW_REZ || view_mode == VIEW_1988) && v->red_material_idx >= 0) {
+    if ((view_mode == VIEW_REZ || view_mode == VIEW_1988 || view_mode == VIEW_SNOW) && v->red_material_idx >= 0) {
         Color *c = &v->model.materials[v->red_material_idx].maps[MATERIAL_MAP_DIFFUSE].color;
         saved_red = *c;
         if (view_mode == VIEW_1988)
             *c = (Color){ 255, 20, 100, 255 }; // hot pink
+        else if (view_mode == VIEW_SNOW)
+            *c = (Color){ 200, 30, 30, 255 }; // bold red on white
         else
             *c = (Color){ 255, 106, 0, 255 }; // #ff6a00 orange
     }
@@ -203,7 +205,9 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected) {
             ? 0
             : v->trail_head;
         Color trail_color;
-        if (view_mode == VIEW_1988)
+        if (view_mode == VIEW_SNOW)
+            trail_color = (Color){  20,  80, 200, 200 };  // bold blue
+        else if (view_mode == VIEW_1988)
             trail_color = (Color){ 21, 190, 254, 160 };   // teal
         else if (view_mode == VIEW_REZ)
             trail_color = (Color){ 255, 106, 0, 160 };    // orange
@@ -211,7 +215,13 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected) {
             trail_color = (Color){ 255, 200, 50, 180 };   // yellow
         // Per-mode color palette
         Color col_back, col_up, col_down, col_roll_pos, col_roll_neg;
-        if (view_mode == VIEW_1988) {
+        if (view_mode == VIEW_SNOW) {
+            col_back     = (Color){ 140,  20, 200, 255 }; // purple
+            col_up       = (Color){   0, 150,  60, 255 }; // dark green
+            col_down     = (Color){ 200,  50,   0, 255 }; // dark red
+            col_roll_pos = (Color){  20, 160,  40, 255 }; // green
+            col_roll_neg = (Color){ 200,  20,  60, 255 }; // red
+        } else if (view_mode == VIEW_1988) {
             col_back     = (Color){ 255, 20, 100, 255 };  // pink
             col_up       = (Color){   0, 255, 140, 255 }; // mint green
             col_down     = (Color){ 255, 106,   0, 255 }; // orange
@@ -293,7 +303,7 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected) {
     }
 
     // Restore original color
-    if ((view_mode == VIEW_REZ || view_mode == VIEW_1988) && v->red_material_idx >= 0) {
+    if ((view_mode == VIEW_REZ || view_mode == VIEW_1988 || view_mode == VIEW_SNOW) && v->red_material_idx >= 0) {
         v->model.materials[v->red_material_idx].maps[MATERIAL_MAP_DIFFUSE].color = saved_red;
     }
 }

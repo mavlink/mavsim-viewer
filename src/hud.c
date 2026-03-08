@@ -30,6 +30,13 @@
 #define SYNTH_BG (Color){ 5, 5, 16, 220 }
 #define SYNTH_BORDER (Color){ 255, 20, 100, 100 }
 
+// Snow HUD accent colors (dark on bright, black outlines)
+#define SNOW_ACCENT (Color){ 15, 15, 20, 255 }
+#define SNOW_ACCENT_DIM (Color){ 60, 65, 75, 200 }
+#define SNOW_ORANGE (Color){ 200, 40, 0, 255 }
+#define SNOW_BG (Color){ 248, 248, 250, 235 }
+#define SNOW_BORDER (Color){ 15, 15, 20, 140 }
+
 void hud_init(hud_t *h) {
     h->sim_time_s = 0.0f;
     h->pinned_count = 0;
@@ -62,13 +69,14 @@ void hud_update(hud_t *h, uint64_t time_usec, bool connected, float dt) {
 static void draw_compass(float cx, float cy, float radius, float heading_deg, view_mode_t vm, Font font_value) {
     bool rez = (vm == VIEW_REZ);
     bool synth = (vm == VIEW_1988);
-    Color bg = rez ? REZ_BG : synth ? SYNTH_BG : (Color){30, 30, 30, 220};
-    Color border = rez ? REZ_BORDER : synth ? SYNTH_BORDER : (Color){100, 100, 100, 255};
-    Color tick_major = rez ? REZ_ACCENT : synth ? SYNTH_HIGHLIGHT : WHITE;
-    Color tick_minor = rez ? REZ_ACCENT_DIM : synth ? (Color){ 10, 120, 160, 255 } : (Color){160, 160, 160, 255};
-    Color text_color = rez ? REZ_ACCENT : synth ? SYNTH_HIGHLIGHT : WHITE;
-    Color north_color = rez ? REZ_ORANGE : synth ? SYNTH_ACCENT : RED;
-    Color pointer_color = rez ? REZ_ORANGE : synth ? SYNTH_ACCENT : RED;
+    bool snow = (vm == VIEW_SNOW);
+    Color bg = snow ? SNOW_BG : rez ? REZ_BG : synth ? SYNTH_BG : (Color){30, 30, 30, 220};
+    Color border = snow ? SNOW_BORDER : rez ? REZ_BORDER : synth ? SYNTH_BORDER : (Color){100, 100, 100, 255};
+    Color tick_major = snow ? SNOW_ACCENT : rez ? REZ_ACCENT : synth ? SYNTH_HIGHLIGHT : WHITE;
+    Color tick_minor = snow ? SNOW_ACCENT_DIM : rez ? REZ_ACCENT_DIM : synth ? (Color){ 10, 120, 160, 255 } : (Color){160, 160, 160, 255};
+    Color text_color = snow ? SNOW_ACCENT : rez ? REZ_ACCENT : synth ? SYNTH_HIGHLIGHT : WHITE;
+    Color north_color = snow ? SNOW_ORANGE : rez ? REZ_ORANGE : synth ? SYNTH_ACCENT : RED;
+    Color pointer_color = snow ? SNOW_ORANGE : rez ? REZ_ORANGE : synth ? SYNTH_ACCENT : RED;
 
     DrawCircle((int)cx, (int)cy, radius, bg);
     DrawCircleLines((int)cx, (int)cy, radius, border);
@@ -110,14 +118,15 @@ static void draw_compass(float cx, float cy, float radius, float heading_deg, vi
 static void draw_attitude(float cx, float cy, float radius, float roll_deg, float pitch_deg, view_mode_t vm) {
     bool rez = (vm == VIEW_REZ);
     bool synth = (vm == VIEW_1988);
-    Color bg = rez ? REZ_BG : synth ? SYNTH_BG : (Color){30, 30, 30, 220};
-    Color border = rez ? REZ_BORDER : synth ? SYNTH_BORDER : (Color){100, 100, 100, 255};
-    Color horizon_color = rez ? REZ_ACCENT : synth ? (Color){ 112, 40, 21, 255 } : WHITE;
-    Color pitch_bar_color = rez ? REZ_ACCENT_DIM : synth ? SYNTH_ACCENT_DIM : (Color){200, 200, 200, 160};
-    Color wing_color = rez ? REZ_ORANGE : synth ? SYNTH_HIGHLIGHT : YELLOW;
-    Color roll_tri_color = rez ? REZ_ACCENT : synth ? SYNTH_ACCENT : WHITE;
-    Color sky_color = rez ? (Color){ 0, 40, 45, 200 } : synth ? (Color){ 0, 4, 12, 200 } : (Color){ 80, 140, 200, 200 };
-    Color gnd_color = rez ? (Color){ 20, 10, 2, 200 } : synth ? (Color){ 251, 153, 54, 200 } : (Color){ 120, 85, 50, 200 };
+    bool snow = (vm == VIEW_SNOW);
+    Color bg = snow ? SNOW_BG : rez ? REZ_BG : synth ? SYNTH_BG : (Color){30, 30, 30, 220};
+    Color border = snow ? SNOW_BORDER : rez ? REZ_BORDER : synth ? SYNTH_BORDER : (Color){100, 100, 100, 255};
+    Color horizon_color = snow ? WHITE : rez ? REZ_ACCENT : synth ? (Color){ 112, 40, 21, 255 } : WHITE;
+    Color pitch_bar_color = snow ? (Color){ 80, 90, 110, 180 } : rez ? REZ_ACCENT_DIM : synth ? SYNTH_ACCENT_DIM : (Color){200, 200, 200, 160};
+    Color wing_color = snow ? SNOW_ORANGE : rez ? REZ_ORANGE : synth ? SYNTH_HIGHLIGHT : YELLOW;
+    Color roll_tri_color = snow ? SNOW_ACCENT : rez ? REZ_ACCENT : synth ? SYNTH_ACCENT : WHITE;
+    Color sky_color = snow ? (Color){ 160, 185, 215, 220 } : rez ? (Color){ 0, 40, 45, 200 } : synth ? (Color){ 0, 4, 12, 200 } : (Color){ 80, 140, 200, 200 };
+    Color gnd_color = snow ? (Color){ 20, 30, 55, 220 } : rez ? (Color){ 20, 10, 2, 200 } : synth ? (Color){ 251, 153, 54, 200 } : (Color){ 120, 85, 50, 200 };
 
     DrawCircle((int)cx, (int)cy, radius, bg);
 
@@ -270,7 +279,8 @@ static void draw_secondary_row(const hud_t *h, const vehicle_t *pv, int pidx,
                                 float nav_step, float energy_start, float energy_step,
                                 Font font_label, Font font_value,
                                 Color label_color_dim, Color value_color,
-                                Color warn_color, int secondary_h, float scale) {
+                                Color warn_color, Color climb_color,
+                                int secondary_h, float scale) {
     float fsl = 14 * scale;
     float fsv = 18 * scale;
     float label_val_gap = 34 * scale;  // gap between label and value on same line
@@ -324,7 +334,7 @@ static void draw_secondary_row(const hud_t *h, const vehicle_t *pv, int pidx,
 
     float vs_x = energy_start + energy_step * 3;
     DrawTextEx(font_label, "VS", (Vector2){vs_x, label_off_y}, fsl, 0.5f, label_color_dim);
-    Color vs_color = (pv->vertical_speed > 0.1f) ? GREEN :
+    Color vs_color = (pv->vertical_speed > 0.1f) ? climb_color :
                      (pv->vertical_speed < -0.1f) ? warn_color : value_color;
     const char *arrow = (pv->vertical_speed > 0.1f) ? "^" :
                         (pv->vertical_speed < -0.1f) ? "v" : "";
@@ -338,12 +348,17 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
 
     bool rez = (view_mode == VIEW_REZ);
     bool synth = (view_mode == VIEW_1988);
+    bool snow = (view_mode == VIEW_SNOW);
 
     // Semantic color variables
     Color accent, accent_dim, bg, border, warn;
     Color label_color, value_color, dim_color;
+    Color climb_color, connected_color;
 
-    if (rez) {
+    if (snow) {
+        accent = SNOW_ACCENT;  accent_dim = SNOW_ACCENT_DIM;
+        bg = SNOW_BG;  border = SNOW_BORDER;  warn = SNOW_ORANGE;
+    } else if (rez) {
         accent = REZ_ACCENT;  accent_dim = REZ_ACCENT_DIM;
         bg = REZ_BG;  border = REZ_BORDER;  warn = REZ_ORANGE;
     } else if (synth) {
@@ -357,9 +372,19 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
         warn = (Color){255, 106, 0, 255};
     }
 
-    label_color = accent_dim;
-    value_color = (Color){200, 208, 218, 255};
-    dim_color = (Color){200, 208, 218, 100};
+    if (snow) {
+        label_color = SNOW_ACCENT_DIM;
+        value_color = (Color){10, 10, 15, 255};
+        dim_color = (Color){80, 85, 95, 160};
+        climb_color = (Color){ 0, 120, 50, 255 };
+        connected_color = (Color){ 0, 130, 60, 255 };
+    } else {
+        label_color = accent_dim;
+        value_color = (Color){200, 208, 218, 255};
+        dim_color = (Color){200, 208, 218, 100};
+        climb_color = GREEN;
+        connected_color = (Color){100, 200, 100, 255};
+    }
 
     // Scale factor: 1.0 at 720p, ~1.33 at 1080p, ~1.6 at 1440p
     float s = powf(screen_h / 720.0f, 0.7f);
@@ -517,7 +542,7 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
         char b[16];
         float x = energy_start + energy_step * 3;
         DrawTextEx(h->font_label, "VS", (Vector2){x, (float)label_y}, fs_label, 0.5f, label_color);
-        Color vs_color = (v->vertical_speed > 0.1f) ? GREEN :
+        Color vs_color = (v->vertical_speed > 0.1f) ? climb_color :
                          (v->vertical_speed < -0.1f) ? warn : value_color;
         const char *arrow = (v->vertical_speed > 0.1f) ? "^" :
                             (v->vertical_speed < -0.1f) ? "v" : "";
@@ -560,7 +585,7 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
         int status_y = bar_y + primary_h / 2 - (int)(12 * s);
 
         // Connection dot
-        Color dot_color = connected ? (Color){100, 200, 100, 255} : (Color){200, 60, 60, 255};
+        Color dot_color = connected ? connected_color : (Color){200, 60, 60, 255};
         DrawCircle((int)(status_x + 4 * s), status_y + (int)(6 * s), 4 * s, dot_color);
 
         // Status text
@@ -571,7 +596,7 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
             snprintf(status_buf, sizeof(status_buf), "Waiting...");
         }
         DrawTextEx(h->font_label, status_buf, (Vector2){status_x + 14 * s, (float)status_y}, fs_dim, 0.5f,
-                   connected ? (Color){100, 200, 100, 255} : dim_color);
+                   connected ? connected_color : dim_color);
 
         // FPS
         char fps_buf[16];
@@ -596,7 +621,8 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
         draw_secondary_row(h, &vehicles[pidx], pidx, row_y, screen_w,
                            nav_start, nav_step, energy_start, energy_step,
                            h->font_label, h->font_value,
-                           dim_color, value_color, warn, secondary_h, s);
+                           dim_color, value_color, warn, climb_color,
+                           secondary_h, s);
     }
 
     // Help overlay
@@ -612,7 +638,7 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
         typedef struct { const char *key; const char *action; } shortcut_entry_t;
         shortcut_entry_t entries[] = {
             {"C",           "Toggle camera mode (Chase / FPV)"},
-            {"V",           "Cycle view mode (Grid / Rez)"},
+            {"V",           "Cycle view mode (Grid / Rez / Snow)"},
             {"TAB",         "Cycle to next vehicle"},
             {"[ / ]",       "Previous / next vehicle"},
             {"1-9",         "Select vehicle directly"},

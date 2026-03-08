@@ -112,7 +112,7 @@ The test script accepts these options:
 | Key/Input | Action |
 |---|---|
 | `C` | Toggle camera mode (Chase / FPV) |
-| `V` | Cycle view mode (Grid / Rez) |
+| `V` | Cycle view mode (Grid / Rez / Snow) |
 | `H` | Toggle HUD visibility |
 | `M` | Cycle vehicle model |
 | `TAB` | Cycle to next vehicle |
@@ -126,6 +126,7 @@ The test script accepts these options:
 
 - **Grid** (default) — Debug grid with minor/major lines and colored axes
 - **Rez** — Teal grid on black ground with dark sky
+- **Snow** — High-contrast outdoor mode with bright white ground, dark grid lines, and black-outlined HUD for visibility on low-nit screens in sunlight
 
 ## Acknowledgments
 

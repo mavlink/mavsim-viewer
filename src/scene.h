@@ -13,6 +13,7 @@ typedef enum {
 typedef enum {
     VIEW_GRID = 0,
     VIEW_REZ,
+    VIEW_SNOW,
     VIEW_COUNT,     // public modes end here
     VIEW_1988,      // hidden mode (not in V cycle)
 } view_mode_t;

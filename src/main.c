@@ -12,6 +12,7 @@
 #include "vehicle.h"
 #include "scene.h"
 #include "hud.h"
+#include "debug_panel.h"
 
 #define MAX_VEHICLES 16
 
@@ -132,6 +133,9 @@ int main(int argc, char *argv[]) {
     hud_t hud;
     hud_init(&hud);
 
+    debug_panel_t dbg_panel;
+    debug_panel_init(&dbg_panel);
+
     int selected = 0;
     bool was_connected[MAX_VEHICLES];
     memset(was_connected, 0, sizeof(was_connected));
@@ -174,6 +178,11 @@ int main(int argc, char *argv[]) {
         // Toggle HUD visibility
         if (IsKeyPressed(KEY_H)) {
             show_hud = !show_hud;
+        }
+
+        // Toggle debug panel (Ctrl+D)
+        if (IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_D)) {
+            dbg_panel.visible = !dbg_panel.visible;
         }
 
         // Cycle model for selected vehicle
@@ -244,6 +253,9 @@ int main(int argc, char *argv[]) {
             }
         }
 
+        // Update debug panel
+        debug_panel_update(&dbg_panel, GetFrameTime());
+
         // Update camera to follow selected vehicle
         scene_update_camera(&scene, vehicles[selected].position, vehicles[selected].rotation);
 
@@ -267,6 +279,19 @@ int main(int argc, char *argv[]) {
                 hud_draw(&hud, vehicles, receivers, vehicle_count,
                          selected, GetScreenWidth(), GetScreenHeight(),
                          scene.view_mode);
+            }
+
+            // Debug panel
+            {
+                int active_count = 0;
+                int total_trail = 0;
+                for (int i = 0; i < vehicle_count; i++) {
+                    if (vehicles[i].active) active_count++;
+                    total_trail += vehicles[i].trail_count;
+                }
+                debug_panel_draw(&dbg_panel, GetScreenWidth(), GetScreenHeight(),
+                                 scene.view_mode, hud.font_label,
+                                 vehicle_count, active_count, total_trail);
             }
 
         EndDrawing();

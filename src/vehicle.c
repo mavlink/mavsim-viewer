@@ -1,5 +1,6 @@
 #include "vehicle.h"
 #include "raymath.h"
+#include "rlgl.h"
 #ifdef _MSC_VER
 #define _USE_MATH_DEFINES
 #endif
@@ -221,37 +222,36 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected) {
     DrawModel(v->model, (Vector3){0}, 1.0f, WHITE);
 
     // Draw path trail
+    rlSetLineWidth(2.0f);
     if (v->trail_count > 1) {
         int start = (v->trail_count < v->trail_capacity)
             ? 0
             : v->trail_head;
+        // Base forward color and directional palette per view mode
+        // Axes: vertical=cyan/orange, roll=green(starboard)/red(port), pitch=base/purple
         Color trail_color;
-        if (view_mode == VIEW_1988)
-            trail_color = (Color){ 21, 190, 254, 160 };   // teal
-        else if (view_mode == VIEW_REZ)
-            trail_color = (Color){ 255, 106, 0, 160 };    // orange
-        else
-            trail_color = (Color){ 255, 200, 50, 180 };   // yellow
-        // Per-mode color palette
         Color col_back, col_up, col_down, col_roll_pos, col_roll_neg;
         if (view_mode == VIEW_1988) {
-            col_back     = (Color){ 255, 20, 100, 255 };  // pink
-            col_up       = (Color){   0, 255, 140, 255 }; // mint green
-            col_down     = (Color){ 255, 106,   0, 255 }; // orange
-            col_roll_pos = (Color){ 255, 106,   0, 255 }; // orange
-            col_roll_neg = (Color){  40,  80, 255, 255 }; // blue
+            trail_color  = (Color){ 255, 220,  60, 160 };  // warm yellow forward
+            col_back     = (Color){ 180,  40, 255, 255 };  // violet
+            col_up       = (Color){   0, 240, 255, 255 };  // cyan
+            col_down     = (Color){ 255, 140,   0, 255 };  // orange
+            col_roll_pos = (Color){  40, 255,  80, 255 };  // green (starboard)
+            col_roll_neg = (Color){ 255,  40,  80, 255 };  // red (port)
         } else if (view_mode == VIEW_REZ) {
-            col_back     = (Color){ 180,  60, 220, 255 }; // purple
-            col_up       = (Color){  80, 220, 120, 255 }; // green
-            col_down     = (Color){ 220,  60,  40, 255 }; // red
-            col_roll_pos = (Color){ 255,  40,  40, 255 }; // red
-            col_roll_neg = (Color){  40,  80, 255, 255 }; // blue
+            trail_color  = (Color){   0, 255, 200, 160 };  // teal forward
+            col_back     = (Color){ 160,  40, 240, 255 };  // purple
+            col_up       = (Color){   0, 200, 255, 255 };  // cyan
+            col_down     = (Color){ 255, 160,   0, 255 };  // amber
+            col_roll_pos = (Color){  40, 255, 100, 255 };  // green (starboard)
+            col_roll_neg = (Color){ 255,  40,  80, 255 };  // red (port)
         } else {
-            col_back     = (Color){ 180,  80, 255, 255 }; // purple
-            col_up       = (Color){  80, 255, 120, 255 }; // green
-            col_down     = (Color){ 255,  80,  40, 255 }; // orange-red
-            col_roll_pos = (Color){ 255,  40,  40, 255 }; // red
-            col_roll_neg = (Color){  40,  80, 255, 255 }; // blue
+            trail_color  = (Color){ 255, 200,  50, 180 };  // yellow forward
+            col_back     = (Color){ 160,  60, 255, 255 };  // purple
+            col_up       = (Color){   0, 220, 255, 255 };  // cyan
+            col_down     = (Color){ 255, 140,   0, 255 };  // orange
+            col_roll_pos = (Color){  40, 255,  80, 255 };  // green (starboard)
+            col_roll_neg = (Color){ 255,  40,  80, 255 };  // red (port)
         }
 
         for (int i = 1; i < v->trail_count; i++) {

@@ -23,6 +23,7 @@ add_executable(mavsim-viewer
     src/vehicle.c
     src/scene.c
     src/hud.c
+    src/debug_panel.c
 )
 
 target_include_directories(mavsim-viewer PRIVATE

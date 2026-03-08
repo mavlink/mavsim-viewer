@@ -117,6 +117,7 @@ The test script accepts these options:
 | `T` | Cycle trail mode (off / directional trail / speed ribbon) |
 | `G` | Toggle ground track projection |
 | `M` | Cycle vehicle model |
+| `Ctrl+D` | Toggle debug performance overlay |
 | `TAB` | Cycle to next vehicle |
 | `[` / `]` | Previous / next vehicle |
 | `1`-`9` | Select vehicle directly |
@@ -128,6 +129,17 @@ The test script accepts these options:
 
 - **Grid** (default) — Debug grid with minor/major lines and colored axes
 - **Rez** — Teal grid on black ground with dark sky
+
+### Debug Overlay
+
+Press `Ctrl+D` to toggle a performance debug panel on the right side of the screen. It displays:
+
+- **FPS** — live value with color-coded graph (green/yellow/red) and min/max range
+- **Frame time** — millisecond readout with graph, 16.67ms target line, and peak tracker
+- **Render stats** — active vehicle count and total trail points
+- **Memory estimates** — trail buffer usage and estimated total footprint
+
+Colors adapt to the active view mode (Grid / Rez / 1988).
 
 ## Acknowledgments
 

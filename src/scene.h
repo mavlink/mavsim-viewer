@@ -39,6 +39,11 @@ typedef struct {
     int loc_matModel;
     Model grid_plane;    // separate ground plane for grid modes
     int seq_1988;        // key sequence tracker
+    // Vehicle lighting shader
+    Shader lighting_shader;
+    int loc_lightDir;
+    int loc_ambient;
+    int loc_matNormal;
 } scene_t;
 
 // Initialize scene (ground plane, sky, camera, lighting).

@@ -47,6 +47,13 @@ static void remap_materials(vehicle_t *v) {
         else if (c->r < 20 && c->g < 20 && c->b < 20)
             *c = (Color){ 14, 31, 47, 255 };
     }
+
+    // Assign lighting shader to all materials (shader stored in vehicle_init)
+    if (v->lighting_shader.id > 0) {
+        for (int i = 0; i < v->model.materialCount; i++) {
+            v->model.materials[i].shader = v->lighting_shader;
+        }
+    }
 }
 
 // ── Model loading ───────────────────────────────────────────────────────────
@@ -79,7 +86,7 @@ void vehicle_cycle_model(vehicle_t *v) {
 }
 
 // ── Init / update / draw ────────────────────────────────────────────────────
-void vehicle_init(vehicle_t *v, int model_idx) {
+void vehicle_init(vehicle_t *v, int model_idx, Shader lighting_shader) {
     memset(v, 0, sizeof(*v));
     v->position = (Vector3){0};
     v->rotation = QuaternionIdentity();
@@ -95,6 +102,12 @@ void vehicle_init(vehicle_t *v, int model_idx) {
     v->trail_count = 0;
     v->trail_head = 0;
     v->trail_timer = 0.0f;
+
+    v->lighting_shader = lighting_shader;
+    v->loc_matNormal = -1;
+    if (lighting_shader.id > 0) {
+        v->loc_matNormal = GetShaderLocation(lighting_shader, "matNormal");
+    }
 
     vehicle_load_model(v, model_idx);
 }
@@ -197,7 +210,13 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected) {
     Matrix trans = MatrixTranslate(v->position.x, v->position.y, v->position.z);
 
     // Transform = Scale * BaseRot * AttitudeRot * Translation
-    v->model.transform = MatrixMultiply(MatrixMultiply(MatrixMultiply(scale, base_rot), rot), trans);
+    Matrix rot_only = MatrixMultiply(base_rot, rot);
+    v->model.transform = MatrixMultiply(MatrixMultiply(scale, rot_only), trans);
+
+    // Set normal matrix (rotation only, no scale/translation) before drawing
+    if (v->loc_matNormal >= 0) {
+        SetShaderValueMatrix(v->lighting_shader, v->loc_matNormal, rot_only);
+    }
 
     DrawModel(v->model, (Vector3){0}, 1.0f, WHITE);
 

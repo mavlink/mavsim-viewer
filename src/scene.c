@@ -68,6 +68,18 @@ void scene_init(scene_t *s) {
     Mesh grid_mesh = GenMeshPlane(GROUND_SIZE * 2, GROUND_SIZE * 2, 100, 100);
     s->grid_plane = LoadModelFromMesh(grid_mesh);
     s->grid_plane.materials[0].shader = s->grid_shader;
+
+    // Vehicle lighting shader — single directional light
+    s->lighting_shader = LoadShader("shaders/lighting.vs", "shaders/lighting.fs");
+    s->loc_lightDir  = GetShaderLocation(s->lighting_shader, "lightDir");
+    s->loc_ambient   = GetShaderLocation(s->lighting_shader, "ambient");
+    s->loc_matNormal = GetShaderLocation(s->lighting_shader, "matNormal");
+
+    // Sun from upper-left-front
+    Vector3 sun = Vector3Normalize((Vector3){ -0.4f, 0.8f, -0.3f });
+    SetShaderValue(s->lighting_shader, s->loc_lightDir, &sun, SHADER_UNIFORM_VEC3);
+    float ambient = 0.35f;
+    SetShaderValue(s->lighting_shader, s->loc_ambient, &ambient, SHADER_UNIFORM_FLOAT);
 }
 
 static void update_chase_camera(scene_t *s, Vector3 pos) {
@@ -241,4 +253,5 @@ void scene_draw_sky(const scene_t *s) {
 void scene_cleanup(scene_t *s) {
     UnloadModel(s->grid_plane);
     UnloadShader(s->grid_shader);
+    UnloadShader(s->lighting_shader);
 }

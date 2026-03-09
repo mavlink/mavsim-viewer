@@ -134,21 +134,25 @@ static float clampf(float v, float lo, float hi) {
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
-#define GTEX_ATLAS 512
-#define GTEX_TILE  256
-#define GTEX_VARIANTS 4
+#define GTEX_COLS  4       // atlas columns
+#define GTEX_ROWS  2       // atlas rows
+#define GTEX_TILE  256     // individual tile size
+#define GTEX_VARIANTS (GTEX_COLS * GTEX_ROWS)  // 8
+#define GTEX_ATLAS_W (GTEX_COLS * GTEX_TILE)   // 1024
+#define GTEX_ATLAS_H (GTEX_ROWS * GTEX_TILE)   // 512
 
 static Texture2D gen_ground_texture(void) {
-    unsigned char *pixels = RL_CALLOC(GTEX_ATLAS * GTEX_ATLAS * 4, 1);
+    unsigned char *pixels = RL_CALLOC(GTEX_ATLAS_W * GTEX_ATLAS_H * 4, 1);
     float tile_inv = 1.0f / (float)GTEX_TILE;
 
     float seed_offsets[GTEX_VARIANTS][2] = {
-        { 0.0f, 0.0f }, { 17.3f, 41.7f }, { 63.2f, 11.9f }, { 34.8f, 78.1f }
+        {  0.0f,  0.0f }, { 17.3f, 41.7f }, { 63.2f, 11.9f }, { 34.8f, 78.1f },
+        { 91.4f, 23.6f }, { 48.7f, 55.3f }, { 12.1f, 89.4f }, { 76.5f, 37.2f }
     };
 
     for (int tile = 0; tile < GTEX_VARIANTS; tile++) {
-        int tile_ox = (tile % 2) * GTEX_TILE;
-        int tile_oy = (tile / 2) * GTEX_TILE;
+        int tile_ox = (tile % GTEX_COLS) * GTEX_TILE;
+        int tile_oy = (tile / GTEX_COLS) * GTEX_TILE;
         float sox = seed_offsets[tile][0];
         float soy = seed_offsets[tile][1];
 
@@ -192,7 +196,7 @@ static Texture2D gen_ground_texture(void) {
 
                 int px = tile_ox + tx;
                 int py = tile_oy + ty;
-                int idx = (py * GTEX_ATLAS + px) * 4;
+                int idx = (py * GTEX_ATLAS_W + px) * 4;
                 pixels[idx + 0] = (unsigned char)clampf(r, 0, 255);
                 pixels[idx + 1] = (unsigned char)clampf(g, 0, 255);
                 pixels[idx + 2] = (unsigned char)clampf(b, 0, 255);
@@ -203,8 +207,8 @@ static Texture2D gen_ground_texture(void) {
 
     Image img = {
         .data = pixels,
-        .width = GTEX_ATLAS,
-        .height = GTEX_ATLAS,
+        .width = GTEX_ATLAS_W,
+        .height = GTEX_ATLAS_H,
         .mipmaps = 1,
         .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8,
     };
@@ -253,11 +257,27 @@ void scene_init(scene_t *s) {
     s->loc_colFog     = GetShaderLocation(s->grid_shader, "colFog");
     s->loc_colTint    = GetShaderLocation(s->grid_shader, "colTint");
 
-    // Generate procedural terrain texture
+    // Load terrain texture from pre-baked PNG
     double t0 = GetTime();
-    s->ground_tex = gen_ground_texture();
-    printf("Terrain texture: %dx%d atlas (4x%dx%d) generated in %.1fms\n",
-           GTEX_ATLAS, GTEX_ATLAS, GTEX_TILE, GTEX_TILE, (GetTime() - t0) * 1000.0);
+    Image terrain_img = LoadImage("textures/terrain.png");
+    if (terrain_img.data == NULL) {
+        // Fallback: generate procedurally and export
+        printf("Generating terrain texture...\n");
+        s->ground_tex = gen_ground_texture();
+        Image export_img = LoadImageFromTexture(s->ground_tex);
+        ExportImage(export_img, "textures/terrain.png");
+        UnloadImage(export_img);
+        printf("Terrain texture: %dx%d (%d tiles) exported to textures/terrain.png\n",
+               GTEX_ATLAS_W, GTEX_ATLAS_H, GTEX_VARIANTS);
+    } else {
+        s->ground_tex = LoadTextureFromImage(terrain_img);
+        GenTextureMipmaps(&s->ground_tex);
+        SetTextureFilter(s->ground_tex, TEXTURE_FILTER_TRILINEAR);
+        SetTextureWrap(s->ground_tex, TEXTURE_WRAP_CLAMP);
+        UnloadImage(terrain_img);
+    }
+    printf("Terrain texture: %dx%d loaded in %.1fms\n",
+           s->ground_tex.width, s->ground_tex.height, (GetTime() - t0) * 1000.0);
     s->ground_tex_on = false;
 
     Mesh grid_mesh = GenMeshPlane(GROUND_SIZE * 2, GROUND_SIZE * 2, 100, 100);

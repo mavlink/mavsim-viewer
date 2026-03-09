@@ -31,14 +31,14 @@ void main() {
         vec2 tileCoord = floor(coord / 10.0);
         vec2 tileUV = fract(coord / 10.0);
 
-        // Hash tile coordinate to pick one of 4 atlas variants (0-3)
+        // Hash tile coordinate to pick one of 8 atlas variants (0-7)
         float h = fract(sin(dot(tileCoord, vec2(127.1, 311.7))) * 43758.5453);
-        int variant = int(h * 4.0);
-        variant = clamp(variant, 0, 3);
+        int variant = int(h * 8.0);
+        variant = clamp(variant, 0, 7);
 
-        // Map UV into the correct atlas quadrant (2x2 grid, each 0.5x0.5)
-        vec2 atlasOffset = vec2(float(variant % 2), float(variant / 2)) * 0.5;
-        vec2 texUV = atlasOffset + tileUV * 0.5;
+        // Map UV into correct atlas cell (4 cols × 2 rows)
+        vec2 atlasOffset = vec2(float(variant % 4) / 4.0, float(variant / 4) / 2.0);
+        vec2 texUV = atlasOffset + tileUV * vec2(1.0 / 4.0, 1.0 / 2.0);
 
         vec4 texColor = texture(groundTex, texUV);
         // Normalize texture luminance to a detail signal centered on 1.0

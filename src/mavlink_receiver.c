@@ -137,14 +137,18 @@ void mavlink_receiver_poll(mavlink_receiver_t *recv) {
                 }
 
                 switch (msg.msgid) {
-                    case MAVLINK_MSG_ID_HEARTBEAT:
+                    case MAVLINK_MSG_ID_HEARTBEAT: {
+                        mavlink_heartbeat_t hb;
+                        mavlink_msg_heartbeat_decode(&msg, &hb);
+                        recv->mav_type = hb.type;
                         if (!recv->connected) {
                             recv->connected = true;
                             recv->sysid = msg.sysid;
-                            printf("Connected to system %u\n", msg.sysid);
+                            printf("Connected to system %u (type %u)\n", msg.sysid, hb.type);
                             request_home_position(recv);
                         }
                         break;
+                    }
 
                     case MAVLINK_MSG_ID_HOME_POSITION: {
                         mavlink_home_position_t hp;

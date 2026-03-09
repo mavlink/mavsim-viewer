@@ -38,6 +38,7 @@ typedef struct {
     bool connected;
     bool debug;
     uint8_t sysid;
+    uint8_t mav_type;            // MAV_TYPE from heartbeat
     double last_msg_time;        // wall-clock time of last received message
     hil_state_t state;
     home_position_t home;

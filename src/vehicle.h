@@ -5,6 +5,17 @@
 #include "mavlink_receiver.h"
 #include "scene.h"
 
+// Model group — determines which models M-key cycles through
+typedef enum {
+    GROUP_QUAD,
+    GROUP_HEX,
+    GROUP_FIXED_WING,
+    GROUP_VTOL,
+    GROUP_TAILSITTER,
+    GROUP_ROVER,
+    GROUP_COUNT,
+} model_group_t;
+
 // Model descriptor — add new entries to vehicle_models[] in vehicle.c
 typedef struct {
     const char *path;           // OBJ file path
@@ -12,6 +23,7 @@ typedef struct {
     float scale;
     float pitch_offset_deg;    // pitch correction (applied before yaw, after X-90 base)
     float yaw_offset_deg;      // yaw correction after Z-up → Y-up rotation
+    model_group_t group;       // which group this model belongs to
 } vehicle_model_info_t;
 
 extern const vehicle_model_info_t vehicle_models[];
@@ -31,6 +43,7 @@ typedef struct {
     Vector3 position;        // Raylib coords (Y-up, right-handed)
     Quaternion rotation;     // Raylib quaternion
     int model_idx;           // index into vehicle_models[]
+    model_group_t model_group; // active group for M-key cycling
     bool origin_set;
     int origin_wait_count;   // HIL updates received while waiting for HOME_POSITION
     bool active;             // has received data
@@ -70,8 +83,11 @@ void vehicle_init(vehicle_t *v, int model_idx, Shader lighting_shader);
 // Swap to a different model at runtime (unloads old, loads new).
 void vehicle_load_model(vehicle_t *v, int model_idx);
 
-// Cycle to the next model in the registry.
+// Cycle to the next model within the active group.
 void vehicle_cycle_model(vehicle_t *v);
+
+// Select model group and default model based on MAV_TYPE from heartbeat.
+void vehicle_set_type(vehicle_t *v, uint8_t mav_type);
 
 // Update position/rotation from HIL_STATE_QUATERNION data.
 // home may be NULL; if valid, its altitude is used as ground reference.

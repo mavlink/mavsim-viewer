@@ -19,7 +19,8 @@ void ortho_panel_init(ortho_panel_t *op);
 void ortho_panel_update(ortho_panel_t *op, Vector3 vehicle_pos);
 void ortho_panel_render(ortho_panel_t *op, const scene_t *s,
                         const vehicle_t *vehicles, int vehicle_count,
-                        int selected, view_mode_t view_mode);
+                        int selected, view_mode_t view_mode,
+                        int trail_mode);
 void ortho_panel_draw(const ortho_panel_t *op, int screen_h, int hud_bar_h,
                       view_mode_t view_mode, Font font);
 void ortho_panel_draw_fullscreen_label(int screen_w, int screen_h, int ortho_mode,

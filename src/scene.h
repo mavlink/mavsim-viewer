@@ -49,7 +49,13 @@ typedef struct {
     int loc_majorEvery;
     int loc_axisWidth;
     int loc_matModel;
+    int loc_texEnabled;  // terrain texture toggle uniform
+    int loc_groundTex;   // terrain texture sampler uniform
+    int loc_colFog;      // fog/distance color uniform
+    int loc_colTint;     // terrain tint color uniform
     Model grid_plane;    // separate ground plane for grid modes
+    Texture2D ground_tex; // procedural terrain texture
+    bool ground_tex_on;  // F key toggle state (terrain mode)
     int seq_1988;        // key sequence tracker
     // Vehicle lighting shader
     Shader lighting_shader;

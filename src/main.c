@@ -301,7 +301,7 @@ int main(int argc, char *argv[]) {
         if (ortho.visible) {
             ortho_panel_update(&ortho, vehicles[selected].position);
             ortho_panel_render(&ortho, &scene, vehicles, vehicle_count,
-                               selected, scene.view_mode);
+                               selected, scene.view_mode, trail_mode);
         }
 
         // Render

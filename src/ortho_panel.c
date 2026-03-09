@@ -55,7 +55,8 @@ void ortho_panel_update(ortho_panel_t *op, Vector3 pos) {
 
 void ortho_panel_render(ortho_panel_t *op, const scene_t *s,
                         const vehicle_t *vehicles, int vehicle_count,
-                        int selected, view_mode_t view_mode)
+                        int selected, view_mode_t view_mode,
+                        int trail_mode)
 {
     for (int v = 0; v < ORTHO_VIEW_COUNT; v++) {
         BeginTextureMode(op->targets[v]);
@@ -139,7 +140,7 @@ void ortho_panel_render(ortho_panel_t *op, const scene_t *s,
                 for (int i = 0; i < vehicle_count; i++) {
                     if (vehicles[i].active || vehicle_count == 1) {
                         vehicle_draw((vehicle_t *)&vehicles[i], view_mode, i == selected,
-                                     0, false, (Vector3){0});
+                                     trail_mode, false, op->cameras[v].position);
                     }
                 }
             EndMode3D();

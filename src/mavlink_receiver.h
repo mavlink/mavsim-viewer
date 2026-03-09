@@ -25,14 +25,25 @@ typedef struct {
 } hil_state_t;
 
 typedef struct {
+    int32_t lat;         // degE7
+    int32_t lon;         // degE7
+    int32_t alt;         // mm (AMSL)
+    bool valid;
+} home_position_t;
+
+typedef struct {
     sock_t sockfd;
     uint16_t port;
     uint8_t channel;
     bool connected;
     bool debug;
     uint8_t sysid;
+    uint8_t mav_type;            // MAV_TYPE from heartbeat
     double last_msg_time;        // wall-clock time of last received message
     hil_state_t state;
+    home_position_t home;
+    bool sender_known;           // true once we've seen a packet
+    uint8_t sender_addr[16];     // sockaddr_in stored as opaque bytes
 } mavlink_receiver_t;
 
 // Initialize UDP socket on given port with MAVLink parse channel. Returns 0 on success.

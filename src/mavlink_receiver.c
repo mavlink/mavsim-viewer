@@ -25,6 +25,25 @@
 
 #define DISCONNECT_TIMEOUT_S 2.0
 
+static void request_home_position(mavlink_receiver_t *recv) {
+    if (!recv->sender_known) return;
+
+    mavlink_message_t msg;
+    uint8_t buf[MAVLINK_MAX_PACKET_LEN];
+
+    mavlink_msg_command_long_pack(255, 0, &msg,
+        recv->sysid, 1,               // target system, component
+        MAV_CMD_REQUEST_MESSAGE,       // command 512
+        0,                             // confirmation
+        MAVLINK_MSG_ID_HOME_POSITION,  // param1: message id to request
+        0, 0, 0, 0, 0, 0);            // params 2-7 unused
+
+    uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
+    sendto(recv->sockfd, (char *)buf, len, 0,
+           (struct sockaddr *)recv->sender_addr, sizeof(struct sockaddr_in));
+    printf("Requested HOME_POSITION from system %u\n", recv->sysid);
+}
+
 static double get_wall_time(void) {
 #ifdef _WIN32
     LARGE_INTEGER freq, count;
@@ -101,6 +120,12 @@ void mavlink_receiver_poll(mavlink_receiver_t *recv) {
         if (n <= 0) break;
 
         got_data = true;
+
+        if (!recv->sender_known) {
+            memcpy(recv->sender_addr, &sender, sizeof(struct sockaddr_in));
+            recv->sender_known = true;
+        }
+
         mavlink_message_t msg;
         mavlink_status_t status;
 
@@ -112,13 +137,30 @@ void mavlink_receiver_poll(mavlink_receiver_t *recv) {
                 }
 
                 switch (msg.msgid) {
-                    case MAVLINK_MSG_ID_HEARTBEAT:
+                    case MAVLINK_MSG_ID_HEARTBEAT: {
+                        mavlink_heartbeat_t hb;
+                        mavlink_msg_heartbeat_decode(&msg, &hb);
+                        recv->mav_type = hb.type;
                         if (!recv->connected) {
                             recv->connected = true;
                             recv->sysid = msg.sysid;
-                            printf("Connected to system %u\n", msg.sysid);
+                            printf("Connected to system %u (type %u)\n", msg.sysid, hb.type);
+                            request_home_position(recv);
                         }
                         break;
+                    }
+
+                    case MAVLINK_MSG_ID_HOME_POSITION: {
+                        mavlink_home_position_t hp;
+                        mavlink_msg_home_position_decode(&msg, &hp);
+                        recv->home.lat = hp.latitude;
+                        recv->home.lon = hp.longitude;
+                        recv->home.alt = hp.altitude;
+                        recv->home.valid = true;
+                        printf("Home position: lat=%.7f lon=%.7f alt=%.1fm\n",
+                               hp.latitude * 1e-7, hp.longitude * 1e-7, hp.altitude * 1e-3);
+                        break;
+                    }
 
                     case MAVLINK_MSG_ID_HIL_STATE_QUATERNION: {
                         mavlink_hil_state_quaternion_t hil;
@@ -159,6 +201,8 @@ void mavlink_receiver_poll(mavlink_receiver_t *recv) {
         if (now - recv->last_msg_time > DISCONNECT_TIMEOUT_S) {
             recv->connected = false;
             recv->state.valid = false;
+            recv->home.valid = false;
+            recv->sender_known = false;
             printf("Disconnected from system %u\n", recv->sysid);
         }
     }

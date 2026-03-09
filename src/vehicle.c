@@ -17,14 +17,14 @@
 // ── Model registry ──────────────────────────────────────────────────────────
 // To add a new model: append an entry here and increment nothing else.
 const vehicle_model_info_t vehicle_models[] = {
-    //  path                                name            scale  pitch    yaw
-    { "models/px4_quadrotor.obj",         "Quadrotor",    1.0f,    0.0f,   0.0f },
-    { "models/cessna.obj",                "Fixed-wing",   1.33f,   0.0f,  90.0f },
-    { "models/x_vert.obj",                "Tailsitter",   1.0f,  -90.0f,  90.0f },
-    { "models/fpv_quadrotor.obj",         "FPV Quad",     0.75f,   0.0f,   0.0f },
-    { "models/px4_hexarotor.obj",         "Hexarotor",    1.05f,   0.0f,   0.0f },
-    { "models/vtol_wing.obj",             "VTOL",         1.5f,    0.0f, 180.0f },
-    { "models/rover_4.obj",              "Rover",        1.0f,    0.0f,   0.0f },
+    //  path                                name            scale  pitch    yaw       group
+    { "models/px4_quadrotor.obj",         "Quadrotor",    1.0f,    0.0f,   0.0f,   GROUP_QUAD },
+    { "models/cessna.obj",                "Fixed-wing",   1.33f,   0.0f,  90.0f,   GROUP_FIXED_WING },
+    { "models/x_vert.obj",                "Tailsitter",   1.0f,  -90.0f,  90.0f,   GROUP_TAILSITTER },
+    { "models/fpv_quadrotor.obj",         "FPV Quad",     0.75f,   0.0f,   0.0f,   GROUP_QUAD },
+    { "models/px4_hexarotor.obj",         "Hexarotor",    1.05f,   0.0f,   0.0f,   GROUP_HEX },
+    { "models/vtol_wing.obj",             "VTOL",         1.5f,    0.0f, 180.0f,   GROUP_VTOL },
+    { "models/rover_4.obj",              "Rover",        1.0f,    0.0f,   0.0f,   GROUP_ROVER },
 };
 const int vehicle_model_count = sizeof(vehicle_models) / sizeof(vehicle_models[0]);
 
@@ -83,8 +83,61 @@ void vehicle_load_model(vehicle_t *v, int model_idx) {
 }
 
 void vehicle_cycle_model(vehicle_t *v) {
-    int next = (v->model_idx + 1) % vehicle_model_count;
-    vehicle_load_model(v, next);
+    model_group_t group = v->model_group;
+    int start = v->model_idx;
+    int next = start;
+    do {
+        next = (next + 1) % vehicle_model_count;
+    } while (vehicle_models[next].group != group && next != start);
+    if (next != start) {
+        vehicle_load_model(v, next);
+    }
+}
+
+void vehicle_set_type(vehicle_t *v, uint8_t mav_type) {
+    model_group_t group;
+    int default_model;
+
+    switch (mav_type) {
+        case 2:  // MAV_TYPE_QUADROTOR
+            group = GROUP_QUAD;
+            default_model = MODEL_QUADROTOR;
+            break;
+        case 13: // MAV_TYPE_HEXAROTOR
+        case 14: // MAV_TYPE_OCTOROTOR
+            group = GROUP_HEX;
+            default_model = MODEL_HEXAROTOR;
+            break;
+        case 1:  // MAV_TYPE_FIXED_WING
+            group = GROUP_FIXED_WING;
+            default_model = MODEL_FIXEDWING;
+            break;
+        case 19: // MAV_TYPE_VTOL_TAILSITTER_DUOROTOR
+        case 20: // MAV_TYPE_VTOL_TAILSITTER_QUADROTOR
+        case 23: // MAV_TYPE_VTOL_TAILSITTER
+            group = GROUP_TAILSITTER;
+            default_model = MODEL_TAILSITTER;
+            break;
+        case 21: // MAV_TYPE_VTOL_TILTROTOR
+        case 22: // MAV_TYPE_VTOL_FIXEDROTOR
+            group = GROUP_VTOL;
+            default_model = MODEL_VTOL;
+            break;
+        case 10: // MAV_TYPE_GROUND_ROVER
+        case 11: // MAV_TYPE_SURFACE_BOAT
+            group = GROUP_ROVER;
+            default_model = MODEL_ROVER;
+            break;
+        default:
+            group = GROUP_QUAD;
+            default_model = MODEL_QUADROTOR;
+            break;
+    }
+
+    v->model_group = group;
+    if (v->model_idx != default_model) {
+        vehicle_load_model(v, default_model);
+    }
 }
 
 // ── Thermal palette (per-theme) ─────────────────────────────────────────────
@@ -193,7 +246,7 @@ void vehicle_init(vehicle_t *v, int model_idx, Shader lighting_shader) {
     vehicle_load_model(v, model_idx);
 }
 
-void vehicle_update(vehicle_t *v, const hil_state_t *state) {
+void vehicle_update(vehicle_t *v, const hil_state_t *state, const home_position_t *home) {
     if (!state->valid) return;
 
     double lat = state->lat * 1e-7 * (M_PI / 180.0);
@@ -201,10 +254,29 @@ void vehicle_update(vehicle_t *v, const hil_state_t *state) {
     double alt = state->alt * 1e-3;
 
     if (!v->origin_set) {
-        v->lat0 = lat;
-        v->lon0 = lon;
-        v->alt0 = alt;
-        v->origin_set = true;
+        // Wait for HOME_POSITION so we get the correct ground altitude.
+        // Fall back to current altitude after ~1 second (20 HIL updates at 22Hz).
+        v->origin_wait_count++;
+        if (home && home->valid) {
+            double home_alt = home->alt * 1e-3;
+            v->lat0 = lat;
+            v->lon0 = lon;
+            // If vehicle is near home altitude, it's on the ground — use HIL alt
+            // to avoid the ~0.1m offset. If airborne, use home alt as ground ref.
+            if (fabs(alt - home_alt) < 1.0) {
+                v->alt0 = alt;
+            } else {
+                v->alt0 = home_alt;
+            }
+            v->origin_set = true;
+        } else if (v->origin_wait_count > 20) {
+            v->lat0 = lat;
+            v->lon0 = lon;
+            v->alt0 = alt;
+            v->origin_set = true;
+        } else {
+            return;  // skip this update, wait for home
+        }
     }
 
     v->active = true;

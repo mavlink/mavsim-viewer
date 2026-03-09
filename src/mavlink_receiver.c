@@ -40,7 +40,7 @@ static void request_home_position(mavlink_receiver_t *recv) {
 
     uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
     sendto(recv->sockfd, (char *)buf, len, 0,
-           (struct sockaddr *)&recv->sender_addr, sizeof(recv->sender_addr));
+           (struct sockaddr *)recv->sender_addr, sizeof(struct sockaddr_in));
     printf("Requested HOME_POSITION from system %u\n", recv->sysid);
 }
 
@@ -122,7 +122,7 @@ void mavlink_receiver_poll(mavlink_receiver_t *recv) {
         got_data = true;
 
         if (!recv->sender_known) {
-            recv->sender_addr = sender;
+            memcpy(recv->sender_addr, &sender, sizeof(struct sockaddr_in));
             recv->sender_known = true;
         }
 

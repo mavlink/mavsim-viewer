@@ -5,12 +5,6 @@
 #include <stdint.h>
 
 #ifdef _WIN32
-#include <ws2tcpip.h>
-#else
-#include <netinet/in.h>
-#endif
-
-#ifdef _WIN32
 typedef uintptr_t sock_t;
 #define SOCK_INVALID (~(sock_t)0)
 #else
@@ -48,7 +42,7 @@ typedef struct {
     hil_state_t state;
     home_position_t home;
     bool sender_known;           // true once we've seen a packet
-    struct sockaddr_in sender_addr; // address to send commands to
+    uint8_t sender_addr[16];     // sockaddr_in stored as opaque bytes
 } mavlink_receiver_t;
 
 // Initialize UDP socket on given port with MAVLink parse channel. Returns 0 on success.

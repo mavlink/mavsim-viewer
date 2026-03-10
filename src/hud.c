@@ -222,7 +222,7 @@ static void draw_attitude(float cx, float cy, float radius, float roll_deg, floa
 }
 
 static void draw_numpad(const hud_t *h, const vehicle_t *vehicles,
-                        const mavlink_receiver_t *receivers, int vehicle_count,
+                        const data_source_t *sources, int vehicle_count,
                         int selected, float numpad_x, float numpad_y,
                         Font font_label, float btn_size, float gap, float scale) {
     float fs = 12 * scale;
@@ -233,7 +233,7 @@ static void draw_numpad(const hud_t *h, const vehicle_t *vehicles,
         float by = numpad_y + row * (btn_size + gap);
         int veh_idx = i;
 
-        bool is_connected = (veh_idx < vehicle_count) && receivers[veh_idx].connected;
+        bool is_connected = (veh_idx < vehicle_count) && sources[veh_idx].connected;
         bool is_primary = (veh_idx == selected);
         bool is_pinned = false;
         for (int p = 0; p < h->pinned_count; p++)
@@ -343,7 +343,7 @@ static void draw_secondary_row(const hud_t *h, const vehicle_t *pv, int pidx,
 }
 
 void hud_draw(const hud_t *h, const vehicle_t *vehicles,
-              const mavlink_receiver_t *receivers, int vehicle_count,
+              const data_source_t *sources, int vehicle_count,
               int selected, int screen_w, int screen_h, view_mode_t view_mode) {
 
     bool rez = (view_mode == VIEW_REZ);
@@ -401,14 +401,139 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
     // Dynamic bar height
     int primary_h = (int)(120 * s);
     int secondary_h = (int)(38 * s);
-    int total_bar_h = primary_h + (h->pinned_count > 0 ? h->pinned_count * secondary_h + (int)(4 * s) : 0);
+    bool is_replay_source = sources[selected].playback.duration_s > 0.0f;
+    int transport_h = is_replay_source ? (int)(28 * s) : 0;
+    int total_bar_h = transport_h + primary_h + (h->pinned_count > 0 ? h->pinned_count * secondary_h + (int)(4 * s) : 0);
     int bar_y = screen_h - total_bar_h;
 
     const vehicle_t *v = &vehicles[selected];
 
-    // Bar background
+    // Bar background (full height including transport row)
     DrawRectangle(0, bar_y, screen_w, total_bar_h, bg);
     DrawLineEx((Vector2){0, (float)bar_y}, (Vector2){(float)screen_w, (float)bar_y}, 1.0f, border);
+
+    // Replay transport row (above the main HUD bar)
+    if (is_replay_source) {
+        const playback_state_t *pb = &sources[selected].playback;
+        bool connected = sources[selected].connected;
+        float tr_y = (float)bar_y;
+        float tr_cy = tr_y + transport_h / 2.0f;
+        float tr_pad = 12 * s;
+        float icon_sz = 8 * s;
+
+        // Separator line below transport row
+        DrawLineEx((Vector2){0, tr_y + transport_h},
+                   (Vector2){(float)screen_w, tr_y + transport_h},
+                   1.0f, (Color){accent.r, accent.g, accent.b, 30});
+
+        float cx = tr_pad;
+
+        // Play/Pause icon
+        if (pb->paused || !connected) {
+            // Play triangle
+            DrawTriangle(
+                (Vector2){cx, tr_cy - icon_sz * 0.5f},
+                (Vector2){cx, tr_cy + icon_sz * 0.5f},
+                (Vector2){cx + icon_sz * 0.7f, tr_cy},
+                connected ? accent : dim_color);
+        } else {
+            // Pause bars
+            float bw = icon_sz * 0.25f;
+            float bg_val = icon_sz * 0.12f;
+            DrawRectangle((int)(cx), (int)(tr_cy - icon_sz * 0.4f),
+                          (int)bw, (int)(icon_sz * 0.8f), accent);
+            DrawRectangle((int)(cx + bw + bg_val * 2), (int)(tr_cy - icon_sz * 0.4f),
+                          (int)bw, (int)(icon_sz * 0.8f), accent);
+        }
+        cx += icon_sz + 8 * s;
+
+        // Speed
+        char spd_buf[16];
+        snprintf(spd_buf, sizeof(spd_buf), "%.1fx", pb->speed);
+        DrawTextEx(h->font_value, spd_buf, (Vector2){cx, tr_cy - fs_dim * 0.45f},
+                   fs_dim, 0.5f, (pb->speed != 1.0f) ? accent : value_color);
+        Vector2 spd_w = MeasureTextEx(h->font_value, spd_buf, fs_dim, 0.5f);
+        cx += spd_w.x + 12 * s;
+
+        // Time (current)
+        int pos_s = (int)pb->position_s;
+        char pos_buf[16];
+        snprintf(pos_buf, sizeof(pos_buf), "%d:%02d", pos_s / 60, pos_s % 60);
+        DrawTextEx(h->font_value, pos_buf, (Vector2){cx, tr_cy - fs_dim * 0.45f},
+                   fs_dim, 0.5f, value_color);
+        Vector2 pos_w = MeasureTextEx(h->font_value, pos_buf, fs_dim, 0.5f);
+        cx += pos_w.x + 8 * s;
+
+        // Progress bar (stretches to fill available space)
+        int dur_s = (int)pb->duration_s;
+        char dur_buf[16];
+        snprintf(dur_buf, sizeof(dur_buf), "%d:%02d", dur_s / 60, dur_s % 60);
+        Vector2 dur_w = MeasureTextEx(h->font_value, dur_buf, fs_dim, 0.5f);
+
+        // Reserve space for: duration text + icons + right padding
+        float icons_w = (pb->looping ? 20 * s : 0) + 20 * s; // loop + interp
+        float right_reserved = dur_w.x + 8 * s + icons_w + tr_pad;
+        float prog_x = cx;
+        float prog_w = (float)screen_w - cx - right_reserved;
+        if (prog_w < 40 * s) prog_w = 40 * s;
+        float prog_h = 3 * s;
+        float prog_y = tr_cy - prog_h / 2.0f;
+
+        DrawRectangleRounded(
+            (Rectangle){prog_x, prog_y, prog_w, prog_h},
+            0.5f, 4, (Color){accent.r, accent.g, accent.b, 40});
+        if (pb->progress > 0.0f) {
+            float fill_w = prog_w * pb->progress;
+            if (fill_w < prog_h) fill_w = prog_h;
+            DrawRectangleRounded(
+                (Rectangle){prog_x, prog_y, fill_w, prog_h},
+                0.5f, 4, accent);
+        }
+        // Playhead dot
+        float dot_x = prog_x + prog_w * pb->progress;
+        DrawCircle((int)dot_x, (int)(prog_y + prog_h / 2.0f), 3 * s, accent);
+
+        cx = prog_x + prog_w + 8 * s;
+
+        // Duration
+        DrawTextEx(h->font_value, dur_buf, (Vector2){cx, tr_cy - fs_dim * 0.45f},
+                   fs_dim, 0.5f, dim_color);
+        cx += dur_w.x + 8 * s;
+
+        // Loop indicator
+        if (pb->looping) {
+            float lr = 5 * s;
+            float loop_cx = cx + lr;
+            // Circular arrow
+            for (int d = 0; d < 300; d += 15) {
+                float a1 = (float)d * DEG2RAD;
+                float a2 = (float)(d + 15) * DEG2RAD;
+                DrawLineEx(
+                    (Vector2){loop_cx + cosf(a1) * lr, tr_cy + sinf(a1) * lr},
+                    (Vector2){loop_cx + cosf(a2) * lr, tr_cy + sinf(a2) * lr},
+                    1.5f * s, accent);
+            }
+            float arrow_a = 300 * DEG2RAD;
+            float ax = loop_cx + cosf(arrow_a) * lr;
+            float ay = tr_cy + sinf(arrow_a) * lr;
+            DrawTriangle(
+                (Vector2){ax + 3 * s, ay - 2 * s},
+                (Vector2){ax - 1 * s, ay + 3 * s},
+                (Vector2){ax - 2 * s, ay - 3 * s},
+                accent);
+            cx += 14 * s;
+        }
+
+        // Interpolation indicator: "I" label
+        {
+            Color interp_color = pb->interpolation ? accent : dim_color;
+            DrawTextEx(h->font_value, "I", (Vector2){cx, tr_cy - fs_dim * 0.45f},
+                       fs_dim, 0.5f, interp_color);
+        }
+    }
+
+    // Offset the main HUD content below the transport row
+    bar_y += transport_h;
 
     // Primary color bar on left edge
     DrawRectangle(0, bar_y, (int)(3 * s), primary_h, v->color);
@@ -575,22 +700,30 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
     // Numpad (only when vehicle_count > 1)
     if (vehicle_count > 1) {
         float np_y = bar_y + (primary_h / 2.0f) - (3 * (np_btn + np_gap)) / 2.0f;
-        draw_numpad(h, vehicles, receivers, vehicle_count, selected,
+        draw_numpad(h, vehicles, sources, vehicle_count, selected,
                     numpad_x, np_y, h->font_label, np_btn, np_gap, s);
     }
 
     // Status group (right edge)
     {
-        bool connected = receivers[selected].connected;
+        bool connected = sources[selected].connected;
+        bool is_replay = sources[selected].playback.duration_s > 0.0f;
         int status_y = bar_y + primary_h / 2 - (int)(12 * s);
 
         // Connection dot
         Color dot_color = connected ? connected_color : (Color){200, 60, 60, 255};
         DrawCircle((int)(status_x + 4 * s), status_y + (int)(6 * s), 4 * s, dot_color);
 
-        // Status text
-        char status_buf[32];
-        if (connected) {
+        // Status text — simple data source label
+        char status_buf[48];
+        if (is_replay) {
+            if (!connected)
+                snprintf(status_buf, sizeof(status_buf), "Replay ended");
+            else if (sources[selected].playback.paused)
+                snprintf(status_buf, sizeof(status_buf), "Replay paused");
+            else
+                snprintf(status_buf, sizeof(status_buf), "Replaying log...");
+        } else if (connected) {
             snprintf(status_buf, sizeof(status_buf), "MAVLink SYS %u", vehicles[selected].sysid);
         } else {
             snprintf(status_buf, sizeof(status_buf), "Waiting...");
@@ -648,6 +781,11 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
             {"Left-drag",   "Orbit camera (chase mode)"},
             {"Scroll",      "Zoom FOV"},
             {"?",           "Toggle this help"},
+            {"Space",       "Pause/resume replay"},
+            {"+/-",         "Replay speed"},
+            {"<-/->",       "Seek 5s (Shift: 30s)"},
+            {"L",           "Toggle replay loop"},
+            {"R",           "Restart replay"},
         };
         int entry_count = sizeof(entries) / sizeof(entries[0]);
 
@@ -697,7 +835,8 @@ int hud_bar_height(const hud_t *h, int screen_h) {
     if (s < 1.0f) s = 1.0f;
     int primary_h = (int)(120 * s);
     int secondary_h = (int)(38 * s);
-    return primary_h + (h->pinned_count > 0 ? h->pinned_count * secondary_h + (int)(4 * s) : 0);
+    int transport_h = h->is_replay ? (int)(28 * s) : 0;
+    return transport_h + primary_h + (h->pinned_count > 0 ? h->pinned_count * secondary_h + (int)(4 * s) : 0);
 }
 
 void hud_cleanup(hud_t *h) {

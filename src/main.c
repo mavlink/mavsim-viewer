@@ -8,7 +8,8 @@
 
 #include "raylib.h"
 #include "raymath.h"
-#include "mavlink_receiver.h"
+#include "data_source.h"
+#include "ulog_replay.h"
 #include "vehicle.h"
 #include "scene.h"
 #include "hud.h"
@@ -44,6 +45,7 @@ static void print_usage(const char *prog) {
     printf("  -fw            Fixed-wing model\n");
     printf("  -ts            Tailsitter model\n");
     printf("  -origin <lat> <lon> <alt>  NED origin in degrees/meters (default: PX4 SIH)\n");
+    printf("  --replay <file.ulg>  Replay ULog file\n");
     printf("  -w <width>     Window width (default: 1280)\n");
     printf("  -h <height>    Window height (default: 720)\n");
 }
@@ -60,6 +62,7 @@ int main(int argc, char *argv[]) {
     double origin_lon = 8.545594;
     double origin_alt = 489.4;
     bool origin_specified = false;
+    const char *replay_file = NULL;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-udp") == 0 && i + 1 < argc) {
@@ -85,6 +88,8 @@ int main(int argc, char *argv[]) {
             win_w = atoi(argv[++i]);
         } else if (strcmp(argv[i], "-h") == 0 && i + 1 < argc) {
             win_h = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--replay") == 0 && i + 1 < argc) {
+            replay_file = argv[++i];
         } else if (strcmp(argv[i], "--help") == 0) {
             print_usage(argv[0]);
             return 0;
@@ -96,15 +101,25 @@ int main(int argc, char *argv[]) {
     InitWindow(win_w, win_h, "MAVSim Viewer");
     SetTargetFPS(60);
 
-    // Init MAVLink receivers
-    mavlink_receiver_t receivers[MAX_VEHICLES];
-    memset(receivers, 0, sizeof(receivers));
-    for (int i = 0; i < vehicle_count; i++) {
-        receivers[i].debug = debug;
-        if (mavlink_receiver_init(&receivers[i], base_port + i, (uint8_t)i) != 0) {
-            fprintf(stderr, "Failed to init MAVLink receiver on port %u\n", base_port + i);
+    // Init data sources
+    data_source_t sources[MAX_VEHICLES];
+    memset(sources, 0, sizeof(sources));
+    bool is_replay = (replay_file != NULL);
+
+    if (is_replay) {
+        vehicle_count = 1;  // single vehicle replay (multi-file is future scope)
+        if (data_source_ulog_create(&sources[0], replay_file) != 0) {
+            fprintf(stderr, "Failed to open ULog: %s\n", replay_file);
             CloseWindow();
             return 1;
+        }
+    } else {
+        for (int i = 0; i < vehicle_count; i++) {
+            if (data_source_mavlink_create(&sources[i], base_port + i, (uint8_t)i, debug) != 0) {
+                fprintf(stderr, "Failed to init MAVLink receiver on port %u\n", base_port + i);
+                CloseWindow();
+                return 1;
+            }
         }
     }
 
@@ -134,6 +149,7 @@ int main(int argc, char *argv[]) {
 
     hud_t hud;
     hud_init(&hud);
+    hud.is_replay = is_replay;
 
     debug_panel_t dbg_panel;
     debug_panel_init(&dbg_panel);
@@ -152,23 +168,24 @@ int main(int argc, char *argv[]) {
 
     // Main loop
     while (!WindowShouldClose()) {
-        // Poll all MAVLink receivers and update vehicles
+        // Poll all data sources and update vehicles
         for (int i = 0; i < vehicle_count; i++) {
-            mavlink_receiver_poll(&receivers[i]);
+            data_source_poll(&sources[i], GetFrameTime());
 
             // Reset trail and origin on reconnect
-            if (receivers[i].connected && !was_connected[i]) {
+            if (sources[i].connected && !was_connected[i]) {
                 vehicle_reset_trail(&vehicles[i]);
-                vehicle_set_type(&vehicles[i], receivers[i].mav_type);
+                if (sources[i].mav_type != 0)
+                    vehicle_set_type(&vehicles[i], sources[i].mav_type);
                 if (!origin_specified && vehicle_count == 1) {
                     vehicles[i].origin_set = false;
                     vehicles[i].origin_wait_count = 0;
                 }
             }
-            was_connected[i] = receivers[i].connected;
+            was_connected[i] = sources[i].connected;
 
-            vehicle_update(&vehicles[i], &receivers[i].state, &receivers[i].home);
-            vehicles[i].sysid = receivers[i].sysid;
+            vehicle_update(&vehicles[i], &sources[i].state, &sources[i].home);
+            vehicles[i].sysid = sources[i].sysid;
 
             // Detect position jump (new SITL connecting before disconnect timeout)
             if (vehicles[i].active && vehicles[i].trail_count > 0) {
@@ -180,15 +197,15 @@ int main(int argc, char *argv[]) {
             last_pos[i] = vehicles[i].position;
         }
 
-        // Check if any receiver is connected (for HUD)
+        // Check if any source is connected (for HUD)
         bool any_connected = false;
         for (int i = 0; i < vehicle_count; i++) {
-            if (receivers[i].connected) { any_connected = true; break; }
+            if (sources[i].connected) { any_connected = true; break; }
         }
 
         // Update HUD sim time from selected vehicle
-        hud_update(&hud, receivers[selected].state.time_usec,
-                   receivers[selected].connected, GetFrameTime());
+        hud_update(&hud, sources[selected].state.time_usec,
+                   sources[selected].connected, GetFrameTime());
 
         // Handle input
         scene_handle_input(&scene);
@@ -234,7 +251,7 @@ int main(int argc, char *argv[]) {
                 // Cycle to next connected vehicle, clear pins
                 for (int j = 1; j <= vehicle_count; j++) {
                     int next = (selected + j) % vehicle_count;
-                    if (receivers[next].connected) { selected = next; break; }
+                    if (sources[next].connected) { selected = next; break; }
                 }
                 hud.pinned_count = 0;
                 memset(hud.pinned, -1, sizeof(hud.pinned));
@@ -242,7 +259,7 @@ int main(int argc, char *argv[]) {
             if (IsKeyPressed(KEY_LEFT_BRACKET)) {
                 for (int j = 1; j <= vehicle_count; j++) {
                     int prev = (selected - j + vehicle_count) % vehicle_count;
-                    if (receivers[prev].connected) { selected = prev; break; }
+                    if (sources[prev].connected) { selected = prev; break; }
                 }
                 hud.pinned_count = 0;
                 memset(hud.pinned, -1, sizeof(hud.pinned));
@@ -250,7 +267,7 @@ int main(int argc, char *argv[]) {
             if (IsKeyPressed(KEY_RIGHT_BRACKET)) {
                 for (int j = 1; j <= vehicle_count; j++) {
                     int next = (selected + j) % vehicle_count;
-                    if (receivers[next].connected) { selected = next; break; }
+                    if (sources[next].connected) { selected = next; break; }
                 }
                 hud.pinned_count = 0;
                 memset(hud.pinned, -1, sizeof(hud.pinned));
@@ -291,6 +308,76 @@ int main(int argc, char *argv[]) {
             }
         }
 
+        // Replay playback controls
+        if (is_replay) {
+            if (IsKeyPressed(KEY_SPACE)) {
+                if (!sources[0].connected) {
+                    // Replay ended — restart from beginning
+                    ulog_replay_ctx_t *rctx = (ulog_replay_ctx_t *)sources[0].impl;
+                    ulog_replay_seek(rctx, 0.0f);
+                    sources[0].connected = true;
+                    sources[0].playback.paused = false;
+                    vehicle_reset_trail(&vehicles[0]);
+                    vehicles[0].origin_set = false;
+                    vehicles[0].origin_wait_count = 0;
+                } else {
+                    sources[0].playback.paused = !sources[0].playback.paused;
+                }
+            }
+            if (IsKeyPressed(KEY_L)) {
+                sources[0].playback.looping = !sources[0].playback.looping;
+            }
+            if (IsKeyPressed(KEY_I)) {
+                sources[0].playback.interpolation = !sources[0].playback.interpolation;
+                printf("Interpolation: %s\n", sources[0].playback.interpolation ? "ON" : "OFF");
+            }
+            if (IsKeyPressed(KEY_EQUAL)) {
+                float *spd = &sources[0].playback.speed;
+                if (*spd < 0.5f) *spd = 0.5f;
+                else if (*spd < 1.0f) *spd = 1.0f;
+                else if (*spd < 2.0f) *spd = 2.0f;
+                else if (*spd < 4.0f) *spd = 4.0f;
+                else if (*spd < 8.0f) *spd = 8.0f;
+                else *spd = 16.0f;
+            }
+            if (IsKeyPressed(KEY_MINUS)) {
+                float *spd = &sources[0].playback.speed;
+                if (*spd > 8.0f) *spd = 8.0f;
+                else if (*spd > 4.0f) *spd = 4.0f;
+                else if (*spd > 2.0f) *spd = 2.0f;
+                else if (*spd > 1.0f) *spd = 1.0f;
+                else if (*spd > 0.5f) *spd = 0.5f;
+                else *spd = 0.25f;
+            }
+            if (IsKeyPressed(KEY_R)) {
+                ulog_replay_ctx_t *ctx = (ulog_replay_ctx_t *)sources[0].impl;
+                ulog_replay_seek(ctx, 0.0f);
+                sources[0].connected = true;
+                sources[0].playback.paused = false;
+                vehicle_reset_trail(&vehicles[0]);
+                vehicles[0].origin_set = false;
+                vehicles[0].origin_wait_count = 0;
+            }
+            if (IsKeyPressed(KEY_RIGHT)) {
+                ulog_replay_ctx_t *ctx = (ulog_replay_ctx_t *)sources[0].impl;
+                float step = (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT)) ? 30.0f : 5.0f;
+                ulog_replay_seek(ctx, sources[0].playback.position_s + step);
+                sources[0].playback.position_s = (float)ctx->wall_accum;
+                vehicle_reset_trail(&vehicles[0]);
+            }
+            if (IsKeyPressed(KEY_LEFT)) {
+                ulog_replay_ctx_t *ctx = (ulog_replay_ctx_t *)sources[0].impl;
+                float step = (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT)) ? 30.0f : 5.0f;
+                float target = sources[0].playback.position_s - step;
+                if (target < 0.0f) target = 0.0f;
+                ulog_replay_seek(ctx, target);
+                sources[0].playback.position_s = (float)ctx->wall_accum;
+                vehicle_reset_trail(&vehicles[0]);
+                vehicles[0].origin_set = false;
+                vehicles[0].origin_wait_count = 0;
+            }
+        }
+
         // Update debug panel
         debug_panel_update(&dbg_panel, GetFrameTime());
 
@@ -325,7 +412,7 @@ int main(int argc, char *argv[]) {
 
             // HUD
             if (show_hud) {
-                hud_draw(&hud, vehicles, receivers, vehicle_count,
+                hud_draw(&hud, vehicles, sources, vehicle_count,
                          selected, GetScreenWidth(), GetScreenHeight(),
                          scene.view_mode);
             }
@@ -359,7 +446,7 @@ int main(int argc, char *argv[]) {
     hud_cleanup(&hud);
     for (int i = 0; i < vehicle_count; i++) {
         vehicle_cleanup(&vehicles[i]);
-        mavlink_receiver_close(&receivers[i]);
+        data_source_close(&sources[i]);
     }
     scene_cleanup(&scene);
     CloseWindow();

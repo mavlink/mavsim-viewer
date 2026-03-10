@@ -1,4 +1,4 @@
-# notdot — MAVSim-compatible export
+# px4_hexarotor — MAVSim-compatible export
 # Y-up inverted, nose along +Y, faces: f v//vn
 mtllib px4_hexarotor.mtl
 
@@ -20134,8 +20134,8 @@ f 2260//2260 2262//2262 2261//2261
 f 2263//2263 2265//2265 2264//2264
 f 2266//2266 2268//2268 2267//2267
 
-g yellow_metal_2
-usemtl Yellow_Metal
+g purple_metal_2
+usemtl Purple_Metal
 f 2269//2269 2271//2271 2270//2270
 f 2272//2272 2274//2274 2273//2273
 f 2275//2275 2277//2277 2276//2276
@@ -21886,8 +21886,8 @@ f 7480//7480 7482//7482 7481//7481
 f 7483//7483 7485//7485 7484//7484
 f 7486//7486 7488//7488 7487//7487
 
-g purple_metal_6
-usemtl Purple_Metal
+g yellow_metal_6
+usemtl Yellow_Metal
 f 7489//7489 7491//7491 7490//7490
 f 7492//7492 7494//7494 7493//7493
 f 7495//7495 7497//7497 7496//7496

@@ -1,4 +1,4 @@
-# px4_modern_hexarotor materials (MAVSim spec Kd values)
+# fpv_hexarotor materials (MAVSim spec Kd values)
 
 newmtl Body_Dark
 Kd 0.0500 0.0700 0.0900

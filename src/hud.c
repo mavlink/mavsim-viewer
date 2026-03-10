@@ -602,22 +602,18 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
     float sep1_x = adi_cx + inst_radius + sep_margin;       // instruments | NAV
     float sep3_x = timer_x - sep_margin;                     // ENERGY | timer
 
-    // Place sep2 to split the zone proportionally (3 NAV : 4 ENERGY)
+    // Distribute all 7 telemetry items with equal step across the zone
     float tel_zone_w = sep3_x - sep1_x;
-    float sep2_x = sep1_x + tel_zone_w * 3.0f / 7.0f;
+    float item_step = tel_zone_w / 7.0f;
+    float item_x0 = sep1_x + sep_margin;
 
-    // Evenly distribute NAV items (3) between sep1 and sep2
-    // space-evenly: gap = zone / (N+1), item[i] at gap*(i+1)
-    float nav_zone = sep2_x - sep1_x;
-    float nav_gap = nav_zone / 4.0f;  // 3 items + 1 = 4 gaps
-    float nav_start = sep1_x + nav_gap;
-    float nav_step = nav_gap;
+    float nav_start = item_x0;
+    float nav_step = item_step;
+    float energy_start = item_x0 + 3 * item_step;
+    float energy_step = item_step;
 
-    // Evenly distribute ENERGY items (4) between sep2 and sep3
-    float energy_zone = sep3_x - sep2_x;
-    float energy_gap = energy_zone / 5.0f;  // 4 items + 1 = 5 gaps
-    float energy_start = sep2_x + energy_gap;
-    float energy_step = energy_gap;
+    // Separator between NAV and ENERGY groups
+    float sep2_x = sep1_x + 3 * item_step;
 
     float nav_group_x = nav_start;  // used by secondary rows
 
@@ -639,7 +635,10 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
         snprintf(b, sizeof(b), "%03d", ((int)v->heading_deg % 360 + 360) % 360);
         DrawTextEx(h->font_value, b, (Vector2){x, (float)value_y}, fs_value, 0.5f, value_color);
         Vector2 vw = MeasureTextEx(h->font_value, b, fs_value, 0.5f);
-        DrawTextEx(h->font_label, "deg", (Vector2){x + vw.x + 3, (float)(value_y + unit_y_off)}, fs_unit, 0.5f, dim_color);
+        Vector2 uw = MeasureTextEx(h->font_label, "deg", fs_unit, 0.5f);
+        float boundary = item_x0 + 1 * item_step;
+        if (x + vw.x + 3 + uw.x < boundary - 4 * s)
+            DrawTextEx(h->font_label, "deg", (Vector2){x + vw.x + 3, (float)(value_y + unit_y_off)}, fs_unit, 0.5f, dim_color);
     }
 
     // ROLL
@@ -669,7 +668,10 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
         snprintf(b, sizeof(b), "%.1f", v->altitude_rel);
         DrawTextEx(h->font_value, b, (Vector2){x, (float)value_y}, fs_value, 0.5f, value_color);
         Vector2 vw = MeasureTextEx(h->font_value, b, fs_value, 0.5f);
-        DrawTextEx(h->font_label, "m", (Vector2){x + vw.x + 3, (float)(value_y + unit_y_off)}, fs_unit, 0.5f, dim_color);
+        Vector2 uw = MeasureTextEx(h->font_label, "m", fs_unit, 0.5f);
+        float boundary = item_x0 + 4 * item_step;
+        if (x + vw.x + 3 + uw.x < boundary - 4 * s)
+            DrawTextEx(h->font_label, "m", (Vector2){x + vw.x + 3, (float)(value_y + unit_y_off)}, fs_unit, 0.5f, dim_color);
     }
 
     // GS
@@ -680,7 +682,10 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
         snprintf(b, sizeof(b), "%.1f", v->ground_speed);
         DrawTextEx(h->font_value, b, (Vector2){x, (float)value_y}, fs_value, 0.5f, value_color);
         Vector2 vw = MeasureTextEx(h->font_value, b, fs_value, 0.5f);
-        DrawTextEx(h->font_label, "m/s", (Vector2){x + vw.x + 3, (float)(value_y + unit_y_off)}, fs_unit, 0.5f, dim_color);
+        Vector2 uw = MeasureTextEx(h->font_label, "m/s", fs_unit, 0.5f);
+        float boundary = item_x0 + 5 * item_step;
+        if (x + vw.x + 3 + uw.x < boundary - 4 * s)
+            DrawTextEx(h->font_label, "m/s", (Vector2){x + vw.x + 3, (float)(value_y + unit_y_off)}, fs_unit, 0.5f, dim_color);
     }
 
     // AS
@@ -692,7 +697,10 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
             snprintf(b, sizeof(b), "%.1f", v->airspeed);
             DrawTextEx(h->font_value, b, (Vector2){x, (float)value_y}, fs_value, 0.5f, value_color);
             Vector2 vw = MeasureTextEx(h->font_value, b, fs_value, 0.5f);
-            DrawTextEx(h->font_label, "m/s", (Vector2){x + vw.x + 3, (float)(value_y + unit_y_off)}, fs_unit, 0.5f, dim_color);
+            Vector2 uw = MeasureTextEx(h->font_label, "m/s", fs_unit, 0.5f);
+            float boundary = item_x0 + 6 * item_step;
+            if (x + vw.x + 3 + uw.x < boundary - 4 * s)
+                DrawTextEx(h->font_label, "m/s", (Vector2){x + vw.x + 3, (float)(value_y + unit_y_off)}, fs_unit, 0.5f, dim_color);
         } else {
             DrawTextEx(h->font_value, "--", (Vector2){x, (float)value_y}, fs_value, 0.5f, dim_color);
         }
@@ -710,7 +718,9 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
         snprintf(b, sizeof(b), "%.1f%s", v->vertical_speed, arrow);
         DrawTextEx(h->font_value, b, (Vector2){x, (float)value_y}, fs_value, 0.5f, vs_color);
         Vector2 vw = MeasureTextEx(h->font_value, b, fs_value, 0.5f);
-        DrawTextEx(h->font_label, "m/s", (Vector2){x + vw.x + 3, (float)(value_y + unit_y_off)}, fs_unit, 0.5f, dim_color);
+        Vector2 uw = MeasureTextEx(h->font_label, "m/s", fs_unit, 0.5f);
+        if (x + vw.x + 3 + uw.x < sep3_x - 4 * s)
+            DrawTextEx(h->font_label, "m/s", (Vector2){x + vw.x + 3, (float)(value_y + unit_y_off)}, fs_unit, 0.5f, dim_color);
     }
 
     // Timer (sim time from HIL_STATE_QUATERNION)

@@ -15,6 +15,7 @@
 #include "hud.h"
 #include "debug_panel.h"
 #include "ortho_panel.h"
+#include "asset_path.h"
 
 #define MAX_VEHICLES 16
 
@@ -95,6 +96,8 @@ int main(int argc, char *argv[]) {
             return 0;
         }
     }
+
+    asset_path_init();
 
     // Init Raylib
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);

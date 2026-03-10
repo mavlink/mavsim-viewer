@@ -1,4 +1,5 @@
 #include "scene.h"
+#include "asset_path.h"
 #include "raymath.h"
 #include "rlgl.h"
 #include <stdlib.h>
@@ -241,7 +242,10 @@ void scene_init(scene_t *s) {
     };
 
     // Grid shader and plane (100x100 subdivisions for fwidth() precision)
-    s->grid_shader = LoadShader("shaders/grid.vs", "shaders/grid.fs");
+    char vs_path[512], fs_path[512];
+    asset_path("shaders/grid.vs", vs_path, sizeof(vs_path));
+    asset_path("shaders/grid.fs", fs_path, sizeof(fs_path));
+    s->grid_shader = LoadShader(vs_path, fs_path);
     s->loc_colGround  = GetShaderLocation(s->grid_shader, "colGround");
     s->loc_colMinor   = GetShaderLocation(s->grid_shader, "colMinor");
     s->loc_colMajor   = GetShaderLocation(s->grid_shader, "colMajor");
@@ -259,13 +263,17 @@ void scene_init(scene_t *s) {
 
     // Load terrain texture from pre-baked PNG
     double t0 = GetTime();
-    Image terrain_img = LoadImage("textures/terrain.png");
+    char terrain_path[512];
+    asset_path("textures/terrain.png", terrain_path, sizeof(terrain_path));
+    Image terrain_img = LoadImage(terrain_path);
     if (terrain_img.data == NULL) {
-        // Fallback: generate procedurally and export
+        // Fallback: generate procedurally and export to user data dir
         printf("Generating terrain texture...\n");
         s->ground_tex = gen_ground_texture();
         Image export_img = LoadImageFromTexture(s->ground_tex);
-        ExportImage(export_img, "textures/terrain.png");
+        char terrain_write[512];
+        asset_write_path("textures/terrain.png", terrain_write, sizeof(terrain_write));
+        ExportImage(export_img, terrain_write);
         UnloadImage(export_img);
         printf("Terrain texture: %dx%d (%d tiles) exported to textures/terrain.png\n",
                GTEX_ATLAS_W, GTEX_ATLAS_H, GTEX_VARIANTS);
@@ -285,7 +293,9 @@ void scene_init(scene_t *s) {
     s->grid_plane.materials[0].shader = s->grid_shader;
 
     // Vehicle lighting shader — single directional light
-    s->lighting_shader = LoadShader("shaders/lighting.vs", "shaders/lighting.fs");
+    asset_path("shaders/lighting.vs", vs_path, sizeof(vs_path));
+    asset_path("shaders/lighting.fs", fs_path, sizeof(fs_path));
+    s->lighting_shader = LoadShader(vs_path, fs_path);
     s->loc_lightDir  = GetShaderLocation(s->lighting_shader, "lightDir");
     s->loc_ambient   = GetShaderLocation(s->lighting_shader, "ambient");
     s->loc_matNormal = GetShaderLocation(s->lighting_shader, "matNormal");

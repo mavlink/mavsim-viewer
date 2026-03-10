@@ -1,4 +1,5 @@
 #include "hud.h"
+#include "asset_path.h"
 #include "raylib.h"
 #include "raymath.h"
 
@@ -44,8 +45,11 @@ void hud_init(hud_t *h) {
     for (int i = 0; i < HUD_MAX_PINNED; i++)
         h->pinned[i] = -1;
 
-    h->font_value = LoadFontEx("fonts/JetBrainsMono-Medium.ttf", 64, NULL, 0);
-    h->font_label = LoadFontEx("fonts/Inter-Medium.ttf", 48, NULL, 0);
+    char font_path[512];
+    asset_path("fonts/JetBrainsMono-Medium.ttf", font_path, sizeof(font_path));
+    h->font_value = LoadFontEx(font_path, 64, NULL, 0);
+    asset_path("fonts/Inter-Medium.ttf", font_path, sizeof(font_path));
+    h->font_label = LoadFontEx(font_path, 48, NULL, 0);
 
     SetTextureFilter(h->font_value.texture, TEXTURE_FILTER_BILINEAR);
     SetTextureFilter(h->font_label.texture, TEXTURE_FILTER_BILINEAR);

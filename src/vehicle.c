@@ -1,4 +1,5 @@
 #include "vehicle.h"
+#include "asset_path.h"
 #include "raymath.h"
 #include "rlgl.h"
 #ifdef _MSC_VER
@@ -74,7 +75,9 @@ void vehicle_load_model(vehicle_t *v, int model_idx) {
     v->pitch_offset_deg = info->pitch_offset_deg;
     v->yaw_offset_deg = info->yaw_offset_deg;
 
-    v->model = LoadModel(info->path);
+    char model_path[512];
+    asset_path(info->path, model_path, sizeof(model_path));
+    v->model = LoadModel(model_path);
     if (v->model.meshCount == 0)
         printf("Warning: failed to load model %s\n", info->path);
 

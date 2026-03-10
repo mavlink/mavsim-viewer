@@ -234,10 +234,53 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # ── Job 2c: Linux amd64 .deb ──────────────────────────────────────────────
+  deb-amd64:
+    name: Deb (amd64)
+    needs: source-tarball
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev libx11-dev libxrandr-dev \
+            libxinerama-dev libxcursor-dev libxi-dev
+
+      - name: Configure
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DMAVSIM_VERSION=${{ needs.source-tarball.outputs.version }}
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Package .deb
+        run: cd build && cpack -G DEB
+
+      - name: Smoke test
+        run: |
+          sudo dpkg -i build/*.deb
+          which mavsim-viewer
+          ls /usr/share/mavsim-viewer/models/
+          ls /usr/share/mavsim-viewer/shaders/
+          ls /usr/share/mavsim-viewer/fonts/
+
+      - name: Upload .deb to release
+        run: gh release upload ${{ github.ref_name }} build/*.deb
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   # ── Job 3: Publish the release ─────────────────────────────────────────────
   publish-release:
     name: Publish release
-    needs: [bottle-arm64, bottle-x86_64]
+    needs: [bottle-arm64, bottle-x86_64, deb-amd64]
     runs-on: ubuntu-latest
 
     steps:

@@ -392,7 +392,7 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
     Color saved_front = {0}, saved_back = {0}, saved_red = {0}, saved_green = {0};
     bool recolor_arms = true;
     if (recolor_arms) {
-        Color front_col, back_col, side_col;
+        Color front_col, back_col, side_col, red_col = {0}, green_col = {0};
         if (classic_colors) {
             // Classic: red front, blue back, body-dark sides (light grey for VTOL winglets)
             Color classic_side = (Color){ 14, 31, 47, 255 };  // body dark
@@ -412,21 +412,29 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
             }
             side_col = classic_side;
         } else {
-            // Modern: yellow front, purple back, per-mode variants
+            // Modern: yellow front, purple back, red port, green starboard
             if (view_mode == VIEW_1988) {
                 front_col = (Color){ 255, 220,  60, 255 };  // warm yellow
                 back_col  = (Color){ 180,  40, 255, 255 };  // violet
+                red_col   = (Color){ 255,  20, 100, 255 };  // hot pink
+                green_col = (Color){  40, 255, 100, 255 };  // neon green
             } else if (view_mode == VIEW_REZ) {
                 front_col = (Color){ 220, 180,  30, 255 };  // muted gold
                 back_col  = (Color){ 160,  40, 240, 255 };  // purple
+                red_col   = (Color){ 255, 106,   0, 255 };  // orange-red
+                green_col = (Color){  30, 200,  80, 255 };  // muted green
             } else if (view_mode == VIEW_SNOW) {
                 front_col = (Color){ 200, 140,  20, 255 };  // dark amber
                 back_col  = (Color){ 140,  20, 200, 255 };  // purple
+                red_col   = (Color){ 180,  30,  30, 255 };  // dark red
+                green_col = (Color){  20, 160,  50, 255 };  // dark green
             } else {
                 front_col = (Color){ 255, 200,  50, 255 };  // yellow
                 back_col  = (Color){ 160,  60, 255, 255 };  // purple
+                red_col   = (Color){ 204,  33,  33, 255 };  // red
+                green_col = (Color){  41, 255,  79, 255 };  // green
             }
-            side_col = (Color){ 0, 0, 0, 0 };  // unused — keep original
+            side_col = (Color){ 0, 0, 0, 0 };  // unused in modern
         }
         if (v->front_material_idx >= 0) {
             Color *c = &v->model.materials[v->front_material_idx].maps[MATERIAL_MAP_DIFFUSE].color;
@@ -449,6 +457,18 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
                 Color *c = &v->model.materials[v->green_material_idx].maps[MATERIAL_MAP_DIFFUSE].color;
                 saved_green = *c;
                 *c = side_col;
+            }
+        } else {
+            // Modern: per-view-mode red/green
+            if (v->red_material_idx >= 0) {
+                Color *c = &v->model.materials[v->red_material_idx].maps[MATERIAL_MAP_DIFFUSE].color;
+                saved_red = *c;
+                *c = red_col;
+            }
+            if (v->green_material_idx >= 0) {
+                Color *c = &v->model.materials[v->green_material_idx].maps[MATERIAL_MAP_DIFFUSE].color;
+                saved_green = *c;
+                *c = green_col;
             }
         }
     }
@@ -757,12 +777,10 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
             v->model.materials[v->front_material_idx].maps[MATERIAL_MAP_DIFFUSE].color = saved_front;
         if (v->back_material_idx >= 0)
             v->model.materials[v->back_material_idx].maps[MATERIAL_MAP_DIFFUSE].color = saved_back;
-        if (classic_colors) {
-            if (v->red_material_idx >= 0)
-                v->model.materials[v->red_material_idx].maps[MATERIAL_MAP_DIFFUSE].color = saved_red;
-            if (v->green_material_idx >= 0)
-                v->model.materials[v->green_material_idx].maps[MATERIAL_MAP_DIFFUSE].color = saved_green;
-        }
+        if (v->red_material_idx >= 0)
+            v->model.materials[v->red_material_idx].maps[MATERIAL_MAP_DIFFUSE].color = saved_red;
+        if (v->green_material_idx >= 0)
+            v->model.materials[v->green_material_idx].maps[MATERIAL_MAP_DIFFUSE].color = saved_green;
     }
 }
 

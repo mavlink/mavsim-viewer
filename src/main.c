@@ -229,8 +229,8 @@ int main(int argc, char *argv[]) {
             trail_mode = (trail_mode + 1) % 3;
         }
 
-        // Toggle classic/modern arm colors (L = legacy)
-        if (IsKeyPressed(KEY_L)) {
+        // Toggle classic/modern arm colors
+        if (IsKeyPressed(KEY_K)) {
             classic_colors = !classic_colors;
         }
 

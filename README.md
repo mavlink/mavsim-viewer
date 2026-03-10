@@ -16,6 +16,7 @@ Built with [Raylib](https://www.raylib.com/) and [MAVLink](https://mavlink.io/).
 - Mouse orbit (left-drag) and FOV zoom (scroll wheel)
 - HUD with compass, telemetry readouts, vehicle selector indicator
 - Panoramic sky with ground texture
+- **ULog replay** — play back PX4 `.ulg` flight logs with transport controls and interpolation
 - Cross-platform: macOS, Linux, and Windows supported out of the box thanks to Raylib
 
 ## Requirements
@@ -50,6 +51,7 @@ make -j$(nproc)
 | `-ts` | Tailsitter model |
 | `-w <width>` | Window width (default: 1280) |
 | `-h <height>` | Window height (default: 720) |
+| `--replay <file.ulg>` | Replay a PX4 ULog flight log |
 | `-d` | Debug output |
 
 Each vehicle listens on its own UDP port: `base_port`, `base_port+1`, ..., `base_port+n-1`.
@@ -107,6 +109,18 @@ The test script accepts these options:
 
 **Note:** If vehicles appear in formation before running the test script, it's because `SIH_LOC_LON0` params were persisted from a previous run. Clear them with `rm -rf instance_*/parameters*.bson` in the PX4 build directory.
 
+### ULog Replay
+
+Replay PX4 `.ulg` flight logs directly in the viewer:
+
+```bash
+./mavsim-viewer --replay path/to/flight.ulg
+```
+
+The viewer parses `vehicle_attitude`, `vehicle_local_position`, and `vehicle_global_position` topics from the log. Vehicle type is auto-detected from `vehicle_status`. Logs without GPS data (e.g. indoor optical flow flights) fall back to local position with reference point conversion.
+
+Position data in ULog files is typically logged at 5-10 Hz. Dead-reckoning interpolation (toggled with `I`) smooths playback to the render frame rate using velocity data.
+
 ## Controls
 
 | Key/Input | Action |
@@ -127,6 +141,13 @@ The test script accepts these options:
 | `Shift+1`-`9` | Toggle pin/unpin vehicle to HUD |
 | Left-drag | Orbit camera (chase mode) |
 | Scroll wheel | Zoom FOV (perspective) or span (ortho) |
+| **Replay** | |
+| `Space` | Pause / resume (or restart after end) |
+| `+` / `-` | Increase / decrease playback speed |
+| `←` / `→` | Seek 5s backward / forward (Shift: 30s) |
+| `L` | Toggle loop |
+| `I` | Toggle interpolation |
+| `R` | Restart from beginning |
 
 ### View Modes
 

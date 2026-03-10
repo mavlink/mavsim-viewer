@@ -77,6 +77,7 @@ typedef struct {
     int trail_head;
     int trail_capacity;
     float trail_timer;
+    Vector3 trail_last_dir;  // direction of last recorded segment (for adaptive sampling)
     Shader lighting_shader;  // shared lighting shader (id=0 if none)
     int loc_matNormal;       // shader uniform for normal matrix
 } vehicle_t;

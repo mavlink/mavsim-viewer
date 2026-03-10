@@ -11,7 +11,7 @@
 #include <stdlib.h>
 
 #define EARTH_RADIUS 6371000.0
-#define TRAIL_MAX 3600
+#define TRAIL_MAX 1800
 #define TRAIL_INTERVAL 0.016f
 #define TRAIL_DIST_INTERVAL 0.01f  // meters between ribbon samples
 
@@ -351,18 +351,39 @@ void vehicle_update(vehicle_t *v, const hil_state_t *state, const home_position_
     v->airspeed = state->ind_airspeed * 0.01f;
     v->altitude_rel = (float)(alt - v->alt0);
 
-    // Sample trail by time OR distance (whichever triggers first)
+    // Adaptive trail sampling: record a point when direction changes (tight turns
+    // get dense coverage) or after a max distance on straight runs (so they don't
+    // go bare). Minimum distance gate prevents duplicate points when hovering.
     float dist_since = 0.0f;
+    Vector3 cur_dir = {0};
     if (v->trail_count > 0) {
         int last = (v->trail_head - 1 + v->trail_capacity) % v->trail_capacity;
         float ddx = v->position.x - v->trail[last].x;
         float ddy = v->position.y - v->trail[last].y;
         float ddz = v->position.z - v->trail[last].z;
         dist_since = sqrtf(ddx*ddx + ddy*ddy + ddz*ddz);
+        if (dist_since > 0.001f) {
+            cur_dir = (Vector3){ ddx/dist_since, ddy/dist_since, ddz/dist_since };
+        }
     }
+
+    // Direction change: dot product < threshold means significant turn
+    float dir_dot = 1.0f;
+    if (v->trail_count > 1 && dist_since > 0.001f) {
+        dir_dot = cur_dir.x * v->trail_last_dir.x +
+                  cur_dir.y * v->trail_last_dir.y +
+                  cur_dir.z * v->trail_last_dir.z;
+    }
+
+    // Sample triggers: dense on turns, sparse on straights
     v->trail_timer += GetFrameTime();
-    if (v->trail_timer >= TRAIL_INTERVAL || dist_since >= TRAIL_DIST_INTERVAL) {
+    bool dir_trigger  = (dir_dot < 0.995f) && (dist_since >= TRAIL_DIST_INTERVAL);
+    bool dist_trigger = (dist_since >= 0.5f);
+    bool time_trigger = (v->trail_timer >= TRAIL_INTERVAL * 4.0f);
+
+    if (dir_trigger || dist_trigger || time_trigger) {
         v->trail_timer = 0.0f;
+        if (dist_since > 0.001f) v->trail_last_dir = cur_dir;
         v->trail[v->trail_head] = v->position;
         v->trail_roll[v->trail_head] = v->roll_deg;
         v->trail_pitch[v->trail_head] = v->pitch_deg;
@@ -616,7 +637,7 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
         rlEnd();
       } else {
         // ── Speed ribbon trail (mode 2) ──
-        // Batched triangle ribbon: single rlBegin/rlEnd instead of per-quad DrawTriangle3D.
+        // Batched triangle ribbon with adaptive sampling (dense on turns, sparse on straights).
         // Perpendicular blending (70% previous + 30% current) prevents twisting on tight turns.
         float max_speed = v->trail_speed_max > 1.0f ? v->trail_speed_max : 1.0f;
         float max_half_w = v->model_scale * 0.25f;

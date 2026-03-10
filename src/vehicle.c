@@ -437,6 +437,8 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
             col_roll_neg = (Color){ 255,  40,  80, 255 };  // red (port)
         }
 
+        // Batched line trail: single rlBegin/rlEnd instead of per-segment DrawLine3D
+        rlBegin(RL_LINES);
         for (int i = 1; i < v->trail_count; i++) {
             int idx0 = (start + i - 1) % v->trail_capacity;
             int idx1 = (start + i) % v->trail_capacity;
@@ -485,23 +487,26 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
                 cb += (col_roll_neg.b - cb) * rt * 0.7f;
             }
 
-            Color c;
-            c.r = (unsigned char)(cr > 255 ? 255 : cr);
-            c.g = (unsigned char)(cg > 255 ? 255 : cg);
-            c.b = (unsigned char)(cb > 255 ? 255 : cb);
-            c.a = (unsigned char)(t * trail_color.a);
-            DrawLine3D(v->trail[idx0], v->trail[idx1], c);
+            unsigned char ccr = (unsigned char)(cr > 255 ? 255 : cr);
+            unsigned char ccg = (unsigned char)(cg > 255 ? 255 : cg);
+            unsigned char ccb = (unsigned char)(cb > 255 ? 255 : cb);
+            unsigned char ca  = (unsigned char)(t * trail_color.a);
+            rlColor4ub(ccr, ccg, ccb, ca);
+            rlVertex3f(v->trail[idx0].x, v->trail[idx0].y, v->trail[idx0].z);
+            rlVertex3f(v->trail[idx1].x, v->trail[idx1].y, v->trail[idx1].z);
         }
+        rlEnd();
       } else {
         // ── Speed ribbon trail (mode 2) ──
-        // Precompute per-vertex perpendicular by averaging adjacent segment
-        // directions so ribbon edges flow smoothly at joints.
+        // Batched triangle ribbon: single rlBegin/rlEnd instead of per-quad DrawTriangle3D.
+        // Perpendicular blending (70% previous + 30% current) prevents twisting on tight turns.
         float max_speed = v->trail_speed_max > 1.0f ? v->trail_speed_max : 1.0f;
         float max_half_w = v->model_scale * 0.25f;
         float min_half_w = 0.02f;
         Vector3 prev_perp = {0};
         bool have_prev = false;
 
+        rlBegin(RL_TRIANGLES);
         for (int i = 1; i < v->trail_count; i++) {
             int idx0 = (start + i - 1) % v->trail_capacity;
             int idx1 = (start + i) % v->trail_capacity;
@@ -518,16 +523,14 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
 
             // Compute perpendicular: use world-up cross for horizontal flight,
             // camera-based billboard for vertical flight
-            float vert = fabsf(dir.y);
+            float vt = fabsf(dir.y);
             Vector3 perp;
-            if (vert < 0.7f) {
-                // Mostly horizontal: cross with world up
+            if (vt < 0.7f) {
                 Vector3 up = { 0, 1, 0 };
                 perp = (Vector3){ dir.z * up.y - dir.y * up.z,
                                   dir.x * up.z - dir.z * up.x,
                                   dir.y * up.x - dir.x * up.y };
             } else {
-                // Mostly vertical: cross with world forward (Z)
                 Vector3 fwd = { 0, 0, 1 };
                 perp = (Vector3){ dir.y * fwd.z - dir.z * fwd.y,
                                   dir.z * fwd.x - dir.x * fwd.z,
@@ -541,12 +544,16 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
                 perp.x /= plen; perp.y /= plen; perp.z /= plen;
             }
 
-            // Ensure consistent orientation (don't flip side-to-side)
+            // Ensure consistent orientation then blend with previous to reduce twisting
             if (have_prev) {
                 float dot = perp.x*prev_perp.x + perp.y*prev_perp.y + perp.z*prev_perp.z;
-                if (dot < 0.0f) {
-                    perp.x = -perp.x; perp.y = -perp.y; perp.z = -perp.z;
-                }
+                if (dot < 0.0f) { perp.x = -perp.x; perp.y = -perp.y; perp.z = -perp.z; }
+                float blend = 0.3f;
+                perp.x = prev_perp.x * (1.0f - blend) + perp.x * blend;
+                perp.y = prev_perp.y * (1.0f - blend) + perp.y * blend;
+                perp.z = prev_perp.z * (1.0f - blend) + perp.z * blend;
+                float nlen = sqrtf(perp.x*perp.x + perp.y*perp.y + perp.z*perp.z);
+                if (nlen > 0.001f) { perp.x /= nlen; perp.y /= nlen; perp.z /= nlen; }
             }
             prev_perp = perp;
             have_prev = true;
@@ -574,11 +581,13 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
             Vector3 d = { p1.x + perp.x*hw1, p1.y + perp.y*hw1, p1.z + perp.z*hw1 };
             Vector3 e = { p1.x - perp.x*hw1, p1.y - perp.y*hw1, p1.z - perp.z*hw1 };
 
-            DrawTriangle3D(a, b, d, c);
-            DrawTriangle3D(b, e, d, c);
-            DrawTriangle3D(d, b, a, c);
-            DrawTriangle3D(d, e, b, c);
+            rlColor4ub(c.r, c.g, c.b, c.a);
+            rlVertex3f(a.x, a.y, a.z); rlVertex3f(b.x, b.y, b.z); rlVertex3f(d.x, d.y, d.z);
+            rlVertex3f(b.x, b.y, b.z); rlVertex3f(e.x, e.y, e.z); rlVertex3f(d.x, d.y, d.z);
+            rlVertex3f(d.x, d.y, d.z); rlVertex3f(b.x, b.y, b.z); rlVertex3f(a.x, a.y, a.z);
+            rlVertex3f(d.x, d.y, d.z); rlVertex3f(e.x, e.y, e.z); rlVertex3f(b.x, b.y, b.z);
         }
+        rlEnd();
       }
     }
 

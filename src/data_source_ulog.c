@@ -18,6 +18,9 @@ static void ulog_poll(data_source_t *ds, float dt) {
     ds->state = ctx->state;
     ds->home = ctx->home;
     ds->mav_type = ctx->vehicle_type;
+    ds->playback.current_nav_state = ctx->current_nav_state;
+    ds->playback.mode_changes = (const playback_mode_change_t *)ctx->mode_changes;
+    ds->playback.mode_change_count = ctx->mode_change_count;
 
     // Update playback progress
     uint64_t range = ctx->parser.end_timestamp - ctx->parser.start_timestamp;

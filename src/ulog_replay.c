@@ -4,6 +4,30 @@
 #include <string.h>
 #include <stdio.h>
 
+// PX4 nav_state display names
+const char *ulog_nav_state_name(uint8_t nav_state) {
+    switch (nav_state) {
+        case 0:  return "Manual";
+        case 1:  return "Altitude";
+        case 2:  return "Position";
+        case 3:  return "Mission";
+        case 4:  return "Loiter";
+        case 5:  return "RTL";
+        case 10: return "Acro";
+        case 12: return "Descend";
+        case 13: return "Terminate";
+        case 14: return "Offboard";
+        case 15: return "Stabilized";
+        case 17: return "Takeoff";
+        case 18: return "Land";
+        case 19: return "Follow";
+        case 20: return "Precland";
+        case 21: return "Orbit";
+        case 22: return "VTOL Takeoff";
+        default: return "Unknown";
+    }
+}
+
 // Approximate meters-per-degree at a given latitude
 #define DEG_TO_RAD (3.14159265358979323846 / 180.0)
 static void local_to_global(double ref_lat, double ref_lon, float ref_alt,
@@ -175,6 +199,10 @@ static void process_message(ulog_replay_ctx_t *ctx, const ulog_data_msg_t *dmsg)
                 default: ctx->vehicle_type = 2; break;
             }
         }
+        // Track current nav_state for HUD display
+        if (ctx->cache.vstatus_nav_state_offset >= 0) {
+            ctx->current_nav_state = ulog_parser_get_uint8(dmsg, ctx->cache.vstatus_nav_state_offset);
+        }
     }
 }
 
@@ -253,14 +281,23 @@ int ulog_replay_init(ulog_replay_ctx_t *ctx, const char *filepath) {
         int vs_fmt = ctx->parser.subs[ctx->sub_vehicle_status].format_idx;
         ctx->cache.vstatus_type_offset = ulog_parser_find_field(&ctx->parser, vs_fmt, "vehicle_type");
         ctx->cache.vstatus_is_vtol_offset = ulog_parser_find_field(&ctx->parser, vs_fmt, "is_vtol");
+        ctx->cache.vstatus_nav_state_offset = ulog_parser_find_field(&ctx->parser, vs_fmt, "nav_state");
     }
 
-    // Pre-scan for vehicle_type so the correct model shows from the start
+    // Pre-scan for vehicle_type and flight mode transitions
     ctx->vehicle_type = 2;  // default MAV_TYPE_QUADROTOR
+    ctx->current_nav_state = 0xFF;
+    ctx->mode_change_count = 0;
     if (ctx->sub_vehicle_status >= 0) {
+        bool got_type = false;
+        uint8_t prev_nav = 0xFF;
         ulog_data_msg_t scan_msg;
         while (ulog_parser_next(&ctx->parser, &scan_msg)) {
-            if (scan_msg.msg_id == ctx->parser.subs[ctx->sub_vehicle_status].msg_id) {
+            if (scan_msg.msg_id != ctx->parser.subs[ctx->sub_vehicle_status].msg_id)
+                continue;
+
+            // Get vehicle type from first message
+            if (!got_type) {
                 uint8_t px4_type = ulog_parser_get_uint8(&scan_msg, ctx->cache.vstatus_type_offset);
                 bool is_vtol = ctx->cache.vstatus_is_vtol_offset >= 0 &&
                                ulog_parser_get_uint8(&scan_msg, ctx->cache.vstatus_is_vtol_offset);
@@ -274,14 +311,36 @@ int ulog_replay_init(ulog_replay_ctx_t *ctx, const char *filepath) {
                         default: ctx->vehicle_type = 2; break;
                     }
                 }
-                break;
+                got_type = true;
+            }
+
+            // Collect nav_state transitions
+            if (ctx->cache.vstatus_nav_state_offset >= 0) {
+                uint8_t nav = ulog_parser_get_uint8(&scan_msg, ctx->cache.vstatus_nav_state_offset);
+                if (nav != prev_nav && ctx->mode_change_count < ULOG_MAX_MODE_CHANGES) {
+                    float t = (float)((double)(scan_msg.timestamp - ctx->parser.start_timestamp) / 1e6);
+                    ctx->mode_changes[ctx->mode_change_count].time_s = t;
+                    ctx->mode_changes[ctx->mode_change_count].nav_state = nav;
+                    ctx->mode_change_count++;
+                    prev_nav = nav;
+                }
             }
         }
+        if (ctx->mode_change_count > 0)
+            ctx->current_nav_state = ctx->mode_changes[0].nav_state;
         ulog_parser_rewind(&ctx->parser);
     }
 
     float dur = (float)((double)(ctx->parser.end_timestamp - ctx->parser.start_timestamp) / 1e6);
     printf("ULog replay: %s (%.1fs, %d index entries)\n", filepath, dur, ctx->parser.index_count);
+    if (ctx->mode_change_count > 0) {
+        printf("  Flight modes:");
+        for (int i = 0; i < ctx->mode_change_count; i++) {
+            printf(" %s@%.0fs", ulog_nav_state_name(ctx->mode_changes[i].nav_state),
+                   ctx->mode_changes[i].time_s);
+        }
+        printf("\n");
+    }
     if (ctx->sub_global_pos < 0) printf("  Note: vehicle_global_position not found (using local position)\n");
     if (ctx->sub_airspeed < 0) printf("  Note: airspeed_validated not found (no airspeed data)\n");
     if (ctx->sub_vehicle_status < 0) printf("  Note: vehicle_status not found (defaulting to quadrotor)\n");
@@ -386,6 +445,15 @@ void ulog_replay_seek(ulog_replay_ctx_t *ctx, float target_s) {
                            (uint64_t)(target_s * 1e6);
     ulog_parser_seek(&ctx->parser, target_usec);
     ctx->wall_accum = (double)target_s;
+
+    // Update current_nav_state for the seek position
+    ctx->current_nav_state = 0xFF;
+    for (int i = ctx->mode_change_count - 1; i >= 0; i--) {
+        if (ctx->mode_changes[i].time_s <= target_s) {
+            ctx->current_nav_state = ctx->mode_changes[i].nav_state;
+            break;
+        }
+    }
 
     // Read forward to populate state at the seek point
     ulog_data_msg_t dmsg;

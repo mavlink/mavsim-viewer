@@ -5,6 +5,12 @@
 #include <stdint.h>
 #include "mavlink_receiver.h"  // hil_state_t, home_position_t
 
+// Flight mode change event for timeline markers
+typedef struct {
+    float time_s;          // seconds from log start
+    uint8_t nav_state;     // PX4 nav_state value
+} playback_mode_change_t;
+
 // Playback state (only meaningful for replay sources)
 typedef struct {
     bool paused;
@@ -14,6 +20,9 @@ typedef struct {
     float progress;        // 0.0 to 1.0
     float duration_s;      // total log duration in seconds
     float position_s;      // current position in seconds
+    uint8_t current_nav_state;  // current flight mode (0xFF = unknown)
+    const playback_mode_change_t *mode_changes;  // array of mode transitions (NULL for MAVLink)
+    int mode_change_count;
 } playback_state_t;
 
 typedef struct data_source data_source_t;

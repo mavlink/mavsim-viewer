@@ -1,5 +1,6 @@
 #include "hud.h"
 #include "asset_path.h"
+#include "ulog_replay.h"
 #include "raylib.h"
 #include "raymath.h"
 
@@ -497,6 +498,37 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
         float dot_x = prog_x + prog_w * pb->progress;
         DrawCircle((int)dot_x, (int)(prog_y + prog_h / 2.0f), 3 * s, accent);
 
+        // Flight mode markers on timeline
+        if (pb->mode_changes && pb->mode_change_count > 0 && pb->duration_s > 0.0f) {
+            float fs_marker = 9 * s;
+            float last_label_x = -100.0f;  // track last drawn label to avoid overlap
+            for (int i = 0; i < pb->mode_change_count; i++) {
+                float t = pb->mode_changes[i].time_s / pb->duration_s;
+                if (t < 0.0f || t > 1.0f) continue;
+                float mx = prog_x + prog_w * t;
+
+                // Tick mark: white and on top once past, dim accent when ahead
+                bool past = (t <= pb->progress);
+                Color tick_col = past
+                    ? (Color){255, 255, 255, 220}
+                    : (Color){accent.r, accent.g, accent.b, 80};
+                DrawCircle((int)mx, (int)(prog_y + prog_h / 2.0f), 2 * s, tick_col);
+
+                // Label (skip if too close to previous label)
+                if (mx - last_label_x > 40 * s) {
+                    const char *name = ulog_nav_state_name(pb->mode_changes[i].nav_state);
+                    Vector2 tw = MeasureTextEx(h->font_label, name, fs_marker, 0.5f);
+                    float lx = mx - tw.x / 2.0f;
+                    if (lx < prog_x) lx = prog_x;
+                    if (lx + tw.x > prog_x + prog_w) lx = prog_x + prog_w - tw.x;
+                    DrawTextEx(h->font_label, name,
+                               (Vector2){lx, prog_y - tw.y - 2 * s},
+                               fs_marker, 0.5f, tick_col);
+                    last_label_x = mx;
+                }
+            }
+        }
+
         cx = prog_x + prog_w + 8 * s;
 
         // Duration
@@ -570,22 +602,18 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
     float sep1_x = adi_cx + inst_radius + sep_margin;       // instruments | NAV
     float sep3_x = timer_x - sep_margin;                     // ENERGY | timer
 
-    // Place sep2 to split the zone proportionally (3 NAV : 4 ENERGY)
+    // Distribute all 7 telemetry items with equal step across the zone
     float tel_zone_w = sep3_x - sep1_x;
-    float sep2_x = sep1_x + tel_zone_w * 3.0f / 7.0f;
+    float item_step = tel_zone_w / 7.0f;
+    float item_x0 = sep1_x + sep_margin;
 
-    // Evenly distribute NAV items (3) between sep1 and sep2
-    // space-evenly: gap = zone / (N+1), item[i] at gap*(i+1)
-    float nav_zone = sep2_x - sep1_x;
-    float nav_gap = nav_zone / 4.0f;  // 3 items + 1 = 4 gaps
-    float nav_start = sep1_x + nav_gap;
-    float nav_step = nav_gap;
+    float nav_start = item_x0;
+    float nav_step = item_step;
+    float energy_start = item_x0 + 3 * item_step;
+    float energy_step = item_step;
 
-    // Evenly distribute ENERGY items (4) between sep2 and sep3
-    float energy_zone = sep3_x - sep2_x;
-    float energy_gap = energy_zone / 5.0f;  // 4 items + 1 = 5 gaps
-    float energy_start = sep2_x + energy_gap;
-    float energy_step = energy_gap;
+    // Separator between NAV and ENERGY groups
+    float sep2_x = sep1_x + 3 * item_step;
 
     float nav_group_x = nav_start;  // used by secondary rows
 
@@ -607,7 +635,10 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
         snprintf(b, sizeof(b), "%03d", ((int)v->heading_deg % 360 + 360) % 360);
         DrawTextEx(h->font_value, b, (Vector2){x, (float)value_y}, fs_value, 0.5f, value_color);
         Vector2 vw = MeasureTextEx(h->font_value, b, fs_value, 0.5f);
-        DrawTextEx(h->font_label, "deg", (Vector2){x + vw.x + 3, (float)(value_y + unit_y_off)}, fs_unit, 0.5f, dim_color);
+        Vector2 uw = MeasureTextEx(h->font_label, "deg", fs_unit, 0.5f);
+        float boundary = item_x0 + 1 * item_step;
+        if (x + vw.x + 3 + uw.x < boundary - 4 * s)
+            DrawTextEx(h->font_label, "deg", (Vector2){x + vw.x + 3, (float)(value_y + unit_y_off)}, fs_unit, 0.5f, dim_color);
     }
 
     // ROLL
@@ -637,7 +668,10 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
         snprintf(b, sizeof(b), "%.1f", v->altitude_rel);
         DrawTextEx(h->font_value, b, (Vector2){x, (float)value_y}, fs_value, 0.5f, value_color);
         Vector2 vw = MeasureTextEx(h->font_value, b, fs_value, 0.5f);
-        DrawTextEx(h->font_label, "m", (Vector2){x + vw.x + 3, (float)(value_y + unit_y_off)}, fs_unit, 0.5f, dim_color);
+        Vector2 uw = MeasureTextEx(h->font_label, "m", fs_unit, 0.5f);
+        float boundary = item_x0 + 4 * item_step;
+        if (x + vw.x + 3 + uw.x < boundary - 4 * s)
+            DrawTextEx(h->font_label, "m", (Vector2){x + vw.x + 3, (float)(value_y + unit_y_off)}, fs_unit, 0.5f, dim_color);
     }
 
     // GS
@@ -648,7 +682,10 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
         snprintf(b, sizeof(b), "%.1f", v->ground_speed);
         DrawTextEx(h->font_value, b, (Vector2){x, (float)value_y}, fs_value, 0.5f, value_color);
         Vector2 vw = MeasureTextEx(h->font_value, b, fs_value, 0.5f);
-        DrawTextEx(h->font_label, "m/s", (Vector2){x + vw.x + 3, (float)(value_y + unit_y_off)}, fs_unit, 0.5f, dim_color);
+        Vector2 uw = MeasureTextEx(h->font_label, "m/s", fs_unit, 0.5f);
+        float boundary = item_x0 + 5 * item_step;
+        if (x + vw.x + 3 + uw.x < boundary - 4 * s)
+            DrawTextEx(h->font_label, "m/s", (Vector2){x + vw.x + 3, (float)(value_y + unit_y_off)}, fs_unit, 0.5f, dim_color);
     }
 
     // AS
@@ -660,7 +697,10 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
             snprintf(b, sizeof(b), "%.1f", v->airspeed);
             DrawTextEx(h->font_value, b, (Vector2){x, (float)value_y}, fs_value, 0.5f, value_color);
             Vector2 vw = MeasureTextEx(h->font_value, b, fs_value, 0.5f);
-            DrawTextEx(h->font_label, "m/s", (Vector2){x + vw.x + 3, (float)(value_y + unit_y_off)}, fs_unit, 0.5f, dim_color);
+            Vector2 uw = MeasureTextEx(h->font_label, "m/s", fs_unit, 0.5f);
+            float boundary = item_x0 + 6 * item_step;
+            if (x + vw.x + 3 + uw.x < boundary - 4 * s)
+                DrawTextEx(h->font_label, "m/s", (Vector2){x + vw.x + 3, (float)(value_y + unit_y_off)}, fs_unit, 0.5f, dim_color);
         } else {
             DrawTextEx(h->font_value, "--", (Vector2){x, (float)value_y}, fs_value, 0.5f, dim_color);
         }
@@ -678,7 +718,9 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
         snprintf(b, sizeof(b), "%.1f%s", v->vertical_speed, arrow);
         DrawTextEx(h->font_value, b, (Vector2){x, (float)value_y}, fs_value, 0.5f, vs_color);
         Vector2 vw = MeasureTextEx(h->font_value, b, fs_value, 0.5f);
-        DrawTextEx(h->font_label, "m/s", (Vector2){x + vw.x + 3, (float)(value_y + unit_y_off)}, fs_unit, 0.5f, dim_color);
+        Vector2 uw = MeasureTextEx(h->font_label, "m/s", fs_unit, 0.5f);
+        if (x + vw.x + 3 + uw.x < sep3_x - 4 * s)
+            DrawTextEx(h->font_label, "m/s", (Vector2){x + vw.x + 3, (float)(value_y + unit_y_off)}, fs_unit, 0.5f, dim_color);
     }
 
     // Timer (sim time from HIL_STATE_QUATERNION)
@@ -772,36 +814,78 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
         float line_h = 24 * s;
         float col_gap = 24 * s;
 
+        // Grouped shortcut entries: NULL key = section header
         typedef struct { const char *key; const char *action; } shortcut_entry_t;
-        shortcut_entry_t entries[] = {
-            {"C",           "Toggle camera mode (Chase / FPV)"},
-            {"V",           "Cycle view mode (Grid / Rez / Snow)"},
-            {"TAB",         "Cycle to next vehicle"},
-            {"[ / ]",       "Previous / next vehicle"},
-            {"1-9",         "Select vehicle directly"},
-            {"Shift+1-9",   "Toggle pin/unpin vehicle to HUD"},
-            {"H",           "Toggle HUD visibility"},
-            {"M",           "Cycle vehicle model"},
-            {"Left-drag",   "Orbit camera (chase mode)"},
-            {"Scroll",      "Zoom FOV"},
-            {"?",           "Toggle this help"},
-            {"Space",       "Pause/resume replay"},
-            {"+/-",         "Replay speed"},
-            {"<-/->",       "Seek 5s (Shift: 30s)"},
-            {"L",           "Toggle replay loop"},
-            {"R",           "Restart replay"},
-        };
-        int entry_count = sizeof(entries) / sizeof(entries[0]);
 
-        // Measure widths for alignment
+        // Left column: VIEW + VEHICLE
+        shortcut_entry_t left_col[] = {
+            {NULL,          "VIEW"},
+            {"C",           "Camera mode (Chase / FPV)"},
+            {"V",           "View mode (Grid / Rez / Snow)"},
+            {"F",           "Terrain texture"},
+            {"K",           "Arm colors (classic / modern)"},
+            {"O",           "Orthographic side panel"},
+            {"Ctrl+D",      "Debug overlay"},
+            {"Alt+1-7",     "Ortho views (1=perspective)"},
+            {NULL,          "VEHICLE MODEL"},
+            {"M",           "Switch variant (Shift: all)"},
+            {NULL,          "MULTI-VEHICLE"},
+            {"TAB",         "Next vehicle"},
+            {"[ / ]",       "Prev / next vehicle"},
+            {"1-9",         "Select vehicle"},
+            {"Sh+1-9",      "Pin / unpin to HUD"},
+        };
+
+        // Right column: HUD + CAMERA + REPLAY
+        shortcut_entry_t right_col[] = {
+            {NULL,          "HUD"},
+            {"H",           "Toggle HUD"},
+            {"T",           "Cycle trail mode"},
+            {"G",           "Ground track projection"},
+            {"?",           "Toggle this help"},
+            {NULL,          "CAMERA"},
+            {"Drag",        "Orbit (chase mode)"},
+            {"Scroll",      "Zoom FOV"},
+            {"Alt+Scrl",    "Zoom ortho span"},
+            {NULL,          "REPLAY"},
+            {"Space",       "Pause / resume"},
+            {"+/-",         "Playback speed"},
+            {"<-/->",       "Seek 5s (Shift: 30s)"},
+            {"L",           "Toggle loop"},
+            {"I",           "Interpolation"},
+            {"R",           "Restart"},
+        };
+
+        int left_count = sizeof(left_col) / sizeof(left_col[0]);
+        int right_count = sizeof(right_col) / sizeof(right_col[0]);
+        int max_rows = left_count > right_count ? left_count : right_count;
+
+        float help_fs_group = 14 * s;
+        float group_top_pad = 6 * s;
+
+        // Measure max key width across both columns
         float max_key_w = 0;
-        for (int i = 0; i < entry_count; i++) {
-            Vector2 kw = MeasureTextEx(h->font_value, entries[i].key, help_fs, 0.5f);
+        for (int i = 0; i < left_count; i++) {
+            if (!left_col[i].key) continue;
+            Vector2 kw = MeasureTextEx(h->font_value, left_col[i].key, help_fs, 0.5f);
+            if (kw.x > max_key_w) max_key_w = kw.x;
+        }
+        for (int i = 0; i < right_count; i++) {
+            if (!right_col[i].key) continue;
+            Vector2 kw = MeasureTextEx(h->font_value, right_col[i].key, help_fs, 0.5f);
             if (kw.x > max_key_w) max_key_w = kw.x;
         }
 
-        float panel_w = max_key_w + col_gap + 320 * s;
-        float panel_h = 40 * s + entry_count * line_h + 20 * s;
+        // Count group headers for extra padding
+        int left_headers = 0, right_headers = 0;
+        for (int i = 0; i < left_count; i++) if (!left_col[i].key) left_headers++;
+        for (int i = 0; i < right_count; i++) if (!right_col[i].key) right_headers++;
+        int max_headers = left_headers > right_headers ? left_headers : right_headers;
+
+        float col_w = max_key_w + col_gap + 220 * s;
+        float mid_gap = 32 * s;
+        float panel_w = col_w * 2 + mid_gap + 40 * s;
+        float panel_h = 40 * s + max_rows * line_h + max_headers * group_top_pad + 20 * s;
         float panel_x = (screen_w - panel_w) / 2.0f;
         float panel_y = (screen_h - panel_h) / 2.0f;
 
@@ -820,16 +904,29 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
                    (Vector2){panel_x + (panel_w - tw.x) / 2, panel_y + 12 * s},
                    help_fs_title, 0.5f, accent);
 
-        // Entries
-        float ey = panel_y + 40 * s;
-        float key_x = panel_x + 20 * s;
-        float action_x = key_x + max_key_w + col_gap;
-        for (int i = 0; i < entry_count; i++) {
-            DrawTextEx(h->font_value, entries[i].key,
-                       (Vector2){key_x, ey}, help_fs, 0.5f, accent);
-            DrawTextEx(h->font_label, entries[i].action,
-                       (Vector2){action_x, ey}, help_fs, 0.5f, value_color);
-            ey += line_h;
+        // Draw a column of grouped entries
+        float ey_start = panel_y + 40 * s;
+        shortcut_entry_t *cols[] = { left_col, right_col };
+        int counts[] = { left_count, right_count };
+
+        for (int c = 0; c < 2; c++) {
+            float key_x = panel_x + 20 * s + c * (col_w + mid_gap);
+            float action_x = key_x + max_key_w + col_gap;
+            float ey = ey_start;
+            for (int i = 0; i < counts[c]; i++) {
+                if (!cols[c][i].key) {
+                    // Section header
+                    if (i > 0) ey += group_top_pad;
+                    DrawTextEx(h->font_label, cols[c][i].action,
+                               (Vector2){key_x, ey}, help_fs_group, 0.5f, dim_color);
+                } else {
+                    DrawTextEx(h->font_value, cols[c][i].key,
+                               (Vector2){key_x, ey}, help_fs, 0.5f, accent);
+                    DrawTextEx(h->font_label, cols[c][i].action,
+                               (Vector2){action_x, ey}, help_fs, 0.5f, value_color);
+                }
+                ey += line_h;
+            }
         }
     }
 }

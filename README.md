@@ -130,11 +130,14 @@ Position data in ULog files is typically logged at 5-10 Hz. Dead-reckoning inter
 | `H` | Toggle HUD visibility |
 | `T` | Cycle trail mode (off / directional trail / speed ribbon) |
 | `G` | Toggle ground track projection |
-| `M` | Cycle vehicle model |
+| `F` | Toggle terrain texture |
+| `M` | Cycle vehicle model (`Shift+M`: all models) |
+| `K` | Toggle classic/modern arm colors |
 | `Ctrl+D` | Toggle debug performance overlay |
 | `O` | Toggle orthographic side panel (Top / Front / Right) |
 | `Alt+1` | Return to perspective camera |
 | `Alt+2`-`7` | Fullscreen ortho view (Top / Front / Left / Right / Bottom / Back) |
+| `Alt+Scroll` | Zoom ortho view span |
 | `TAB` | Cycle to next vehicle |
 | `[` / `]` | Previous / next vehicle |
 | `1`-`9` | Select vehicle directly |

@@ -490,13 +490,23 @@ void scene_handle_input(scene_t *s) {
         }
     }
 
-    // Scroll wheel FOV zoom (only in perspective mode, not when Alt held)
+    // Scroll wheel zoom (only in perspective mode, not when Alt held)
     if (!IsKeyDown(KEY_LEFT_ALT) && !IsKeyDown(KEY_RIGHT_ALT) && s->ortho_mode == ORTHO_NONE) {
         float wheel = GetMouseWheelMove();
         if (wheel != 0.0f) {
-            s->camera.fovy -= wheel * 5.0f;
-            if (s->camera.fovy < 10.0f) s->camera.fovy = 10.0f;
-            if (s->camera.fovy > 120.0f) s->camera.fovy = 120.0f;
+            if (s->cam_mode == CAM_MODE_CHASE) {
+                // Chase: combined distance + FOV for natural zoom feel
+                s->chase_distance -= wheel * 0.5f;
+                if (s->chase_distance < 1.5f) s->chase_distance = 1.5f;
+                if (s->chase_distance > 30.0f) s->chase_distance = 30.0f;
+                // FOV widens as distance increases, narrows as it decreases
+                float t = (s->chase_distance - 1.5f) / (30.0f - 1.5f);
+                s->camera.fovy = 40.0f + t * 40.0f;  // 40° close, 80° far
+            } else {
+                s->camera.fovy -= wheel * 5.0f;
+                if (s->camera.fovy < 10.0f) s->camera.fovy = 10.0f;
+                if (s->camera.fovy > 120.0f) s->camera.fovy = 120.0f;
+            }
         }
     }
     // Scroll wheel ortho span zoom (fullscreen ortho, no Alt needed)

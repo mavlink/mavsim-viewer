@@ -5,6 +5,14 @@
 #include "mavlink_receiver.h"  // hil_state_t, home_position_t
 #include <stdbool.h>
 
+// Flight mode change event (from nav_state transitions)
+#define ULOG_MAX_MODE_CHANGES 256
+
+typedef struct {
+    float time_s;          // seconds from log start
+    uint8_t nav_state;     // PX4 nav_state value
+} ulog_mode_change_t;
+
 // Cached field offsets for fast extraction (resolved once on init)
 typedef struct {
     int att_q_offset;           // vehicle_attitude: q[4]
@@ -30,6 +38,7 @@ typedef struct {
 
     int vstatus_type_offset;    // vehicle_status: vehicle_type
     int vstatus_is_vtol_offset; // vehicle_status: is_vtol
+    int vstatus_nav_state_offset; // vehicle_status: nav_state
 } ulog_field_cache_t;
 
 typedef struct {
@@ -48,6 +57,11 @@ typedef struct {
     hil_state_t state;
     home_position_t home;
     uint8_t vehicle_type;
+    uint8_t current_nav_state;  // current PX4 nav_state (0xFF = unknown)
+
+    // Flight mode transitions (populated during pre-scan)
+    ulog_mode_change_t mode_changes[ULOG_MAX_MODE_CHANGES];
+    int mode_change_count;
 
     // Timing
     double wall_accum;          // accumulated playback time in seconds
@@ -89,6 +103,9 @@ void ulog_replay_seek(ulog_replay_ctx_t *ctx, float target_s);
 
 // Close and free resources.
 void ulog_replay_close(ulog_replay_ctx_t *ctx);
+
+// Return short display name for a PX4 nav_state value.
+const char *ulog_nav_state_name(uint8_t nav_state);
 
 // Future scope: multi-file swarm replay with time synchronization.
 // Each vehicle would get its own ulog_replay_ctx_t with a time_offset

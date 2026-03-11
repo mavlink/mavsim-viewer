@@ -143,7 +143,7 @@ jobs:
           echo "file=${CLEAN_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Upload bottle to release
-        run: gh release upload ${{ github.ref_name }} ${{ steps.bottle.outputs.file }}
+        run: gh release upload ${{ github.ref_name }} ${{ steps.bottle.outputs.file }} --repo ${{ github.repository }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

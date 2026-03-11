@@ -73,7 +73,7 @@ jobs:
           TARBALL_SHA: ${{ needs.source-tarball.outputs.tarball_sha256 }}
           TAG: ${{ github.ref_name }}
         run: |
-          FORMULA_DIR="$(brew --repo)/Library/Taps/mavlink/homebrew-tap/Formula"
+          export FORMULA_DIR="$(brew --repo)/Library/Taps/mavlink/homebrew-tap/Formula"
           mkdir -p "$FORMULA_DIR"
           python3 -c "
           import os
@@ -103,7 +103,7 @@ jobs:
           )
           with open(os.environ['FORMULA_DIR'] + '/mavsim-viewer.rb', 'w') as f:
               f.write(formula)
-          " FORMULA_DIR="$FORMULA_DIR"
+          "
 
       - name: Build bottle
         run: brew install --build-bottle mavlink/tap/mavsim-viewer
@@ -146,96 +146,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # ── Job 2b: macOS x86_64 bottle ───────────────────────────────────────────
-  bottle-x86_64:
-    name: Bottle (x86_64)
-    needs: source-tarball
-    runs-on: macos-13
-    outputs:
-      bottle_sha256: ${{ steps.bottle.outputs.sha256 }}
-      bottle_tag: ${{ steps.bottle.outputs.tag }}
-
-    steps:
-      - name: Set up tap with formula
-        env:
-          VERSION: ${{ needs.source-tarball.outputs.version }}
-          TARBALL_SHA: ${{ needs.source-tarball.outputs.tarball_sha256 }}
-          TAG: ${{ github.ref_name }}
-        run: |
-          FORMULA_DIR="$(brew --repo)/Library/Taps/mavlink/homebrew-tap/Formula"
-          mkdir -p "$FORMULA_DIR"
-          python3 -c "
-          import os
-          formula = '''class MavsimViewer < Formula
-            desc \"3D MAVLink vehicle viewer for SITL simulation\"
-            homepage \"https://github.com/mavlink/mavsim-viewer\"
-            url \"https://github.com/mavlink/mavsim-viewer/releases/download/{tag}/mavsim-viewer-{version}.tar.gz\"
-            sha256 \"{sha}\"
-            license \"BSD-3-Clause\"
-
-            depends_on \"cmake\" => :build
-
-            def install
-              system \"cmake\", \"-S\", \".\", \"-B\", \"build\", \"-DCMAKE_BUILD_TYPE=Release\", *std_cmake_args
-              system \"cmake\", \"--build\", \"build\"
-              system \"cmake\", \"--install\", \"build\", \"--prefix\", prefix
-            end
-
-            test do
-              assert_predicate bin/\"mavsim-viewer\", :executable?
-            end
-          end
-          '''.format(
-              tag=os.environ['TAG'],
-              version=os.environ['VERSION'],
-              sha=os.environ['TARBALL_SHA'],
-          )
-          with open(os.environ['FORMULA_DIR'] + '/mavsim-viewer.rb', 'w') as f:
-              f.write(formula)
-          " FORMULA_DIR="$FORMULA_DIR"
-
-      - name: Build bottle
-        run: brew install --build-bottle mavlink/tap/mavsim-viewer
-
-      - name: Package bottle
-        id: bottle
-        run: |
-          TAG=${{ github.ref_name }}
-          brew bottle \
-            --json \
-            --root-url="https://github.com/mavlink/mavsim-viewer/releases/download/${TAG}" \
-            mavlink/tap/mavsim-viewer
-
-          BOTTLE_JSON=$(ls mavsim-viewer--*.bottle.json)
-          BOTTLE_FILE=$(ls mavsim-viewer--*.bottle.tar.gz)
-          CLEAN_NAME=$(echo "$BOTTLE_FILE" | sed 's/--/-/')
-          mv "$BOTTLE_FILE" "$CLEAN_NAME"
-
-          BOTTLE_SHA=$(python3 -c "
-          import json, sys
-          data = json.load(open(sys.argv[1]))
-          tags = data['mavsim-viewer']['bottle']['tags']
-          tag = list(tags.keys())[0]
-          print(tags[tag]['sha256'])
-          " "$BOTTLE_JSON")
-
-          BOTTLE_TAG=$(python3 -c "
-          import json, sys
-          data = json.load(open(sys.argv[1]))
-          tags = data['mavsim-viewer']['bottle']['tags']
-          print(list(tags.keys())[0])
-          " "$BOTTLE_JSON")
-
-          echo "sha256=${BOTTLE_SHA}" >> "$GITHUB_OUTPUT"
-          echo "tag=${BOTTLE_TAG}" >> "$GITHUB_OUTPUT"
-          echo "file=${CLEAN_NAME}" >> "$GITHUB_OUTPUT"
-
-      - name: Upload bottle to release
-        run: gh release upload ${{ github.ref_name }} ${{ steps.bottle.outputs.file }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # ── Job 2c: Linux amd64 .deb ──────────────────────────────────────────────
+  # ── Job 2b: Linux amd64 .deb ──────────────────────────────────────────────
   deb-amd64:
     name: Deb (amd64)
     needs: source-tarball
@@ -281,7 +192,7 @@ jobs:
   # ── Job 3: Publish the release ─────────────────────────────────────────────
   publish-release:
     name: Publish release
-    needs: [bottle-arm64, bottle-x86_64, deb-amd64]
+    needs: [bottle-arm64, deb-amd64]
     runs-on: ubuntu-latest
 
     steps:
@@ -296,7 +207,7 @@ jobs:
   # ── Job 4: Update Homebrew tap ─────────────────────────────────────────────
   update-tap:
     name: Update Homebrew tap
-    needs: [source-tarball, bottle-arm64, bottle-x86_64, publish-release]
+    needs: [source-tarball, bottle-arm64, publish-release]
     runs-on: ubuntu-latest
 
     steps:
@@ -307,8 +218,6 @@ jobs:
           TARBALL_SHA: ${{ needs.source-tarball.outputs.tarball_sha256 }}
           ARM64_SHA: ${{ needs.bottle-arm64.outputs.bottle_sha256 }}
           ARM64_TAG: ${{ needs.bottle-arm64.outputs.bottle_tag }}
-          X86_SHA: ${{ needs.bottle-x86_64.outputs.bottle_sha256 }}
-          X86_TAG: ${{ needs.bottle-x86_64.outputs.bottle_tag }}
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           git clone https://x-access-token:${TAP_TOKEN}@github.com/mavlink/homebrew-tap.git tap
@@ -326,7 +235,6 @@ jobs:
             bottle do
               root_url \"https://github.com/mavlink/mavsim-viewer/releases/download/{tag}\"
               sha256 cellar: :any_skip_relocation, {arm64_tag}: \"{arm64_sha}\"
-              sha256 cellar: :any_skip_relocation, {x86_tag}: \"{x86_sha}\"
             end
 
             depends_on \"cmake\" => :build
@@ -349,8 +257,6 @@ jobs:
               tarball_sha=os.environ['TARBALL_SHA'],
               arm64_sha=os.environ['ARM64_SHA'],
               arm64_tag=os.environ['ARM64_TAG'],
-              x86_sha=os.environ['X86_SHA'],
-              x86_tag=os.environ['X86_TAG'],
           )
           with open('tap/Formula/mavsim-viewer.rb', 'w') as f:
               f.write(formula)

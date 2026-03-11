@@ -208,6 +208,27 @@ static Color heat_to_color(float heat, unsigned char alpha, view_mode_t mode) {
             float s = (heat - 0.83f) / 0.17f;
             cr = 255; cg = 250 + 5 * s; cb = 60 + 195 * s;
         }
+    } else if (mode == VIEW_SNOW) {
+        // Snow: deep navy → royal blue → teal → green → yellow → red
+        if (heat < 0.16f) {
+            float s = heat / 0.16f;
+            cr = 10 + 10 * s; cg = 20 + 20 * s; cb = 100 + 40 * s;
+        } else if (heat < 0.33f) {
+            float s = (heat - 0.16f) / 0.17f;
+            cr = 20 - 10 * s; cg = 40 + 80 * s; cb = 140 + 40 * s;
+        } else if (heat < 0.5f) {
+            float s = (heat - 0.33f) / 0.17f;
+            cr = 10 - 10 * s; cg = 120 + 40 * s; cb = 180 - 100 * s;
+        } else if (heat < 0.66f) {
+            float s = (heat - 0.5f) / 0.16f;
+            cr = 0 + 60 * s; cg = 160 + 40 * s; cb = 80 - 80 * s;
+        } else if (heat < 0.83f) {
+            float s = (heat - 0.66f) / 0.17f;
+            cr = 60 + 180 * s; cg = 200 + 20 * s; cb = 0;
+        } else {
+            float s = (heat - 0.83f) / 0.17f;
+            cr = 240; cg = 220 - 180 * s; cb = 0;
+        }
     } else {
         // Grid (default): purple → magenta → red → orange → yellow → white
         if (heat < 0.16f) {

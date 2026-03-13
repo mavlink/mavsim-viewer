@@ -98,6 +98,10 @@ void vehicle_set_type(vehicle_t *v, uint8_t mav_type);
 // home may be NULL; if valid, its altitude is used as ground reference.
 void vehicle_update(vehicle_t *v, const hil_state_t *state, const home_position_t *home);
 
+// LOD: distance-based segment skipping for trail rendering.
+// Reduces GPU vertex count for distant trails while preserving close-up detail.
+extern bool trail_lod_enabled;
+
 // trail_mode: 0=off, 1=normal trail, 2=speed ribbon
 // classic_colors: false = modern (yellow/purple), true = classic (red/blue)
 void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,

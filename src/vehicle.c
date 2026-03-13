@@ -11,8 +11,10 @@
 #include <stdlib.h>
 
 #define EARTH_RADIUS 6371000.0
-#define TRAIL_MAX 1800
+#define TRAIL_MAX 2700
 #define TRAIL_INTERVAL 0.016f
+
+bool trail_lod_enabled = true;
 #define TRAIL_DIST_INTERVAL 0.01f  // meters between ribbon samples
 
 // ── Model registry ──────────────────────────────────────────────────────────
@@ -580,9 +582,24 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
 
         // Batched trail: single rlBegin/rlEnd instead of per-segment DrawLine3D
         rlBegin(thick ? RL_TRIANGLES : RL_LINES);
+        int lod_skip = 0;
         for (int i = 1; i < v->trail_count; i++) {
             int idx0 = (start + i - 1) % v->trail_capacity;
             int idx1 = (start + i) % v->trail_capacity;
+
+            // LOD: skip segments far from camera to reduce vertex count
+            int skip = 0;
+            if (trail_lod_enabled) {
+                float mx = (v->trail[idx0].x + v->trail[idx1].x) * 0.5f - cam_pos.x;
+                float my = (v->trail[idx0].y + v->trail[idx1].y) * 0.5f - cam_pos.y;
+                float mz = (v->trail[idx0].z + v->trail[idx1].z) * 0.5f - cam_pos.z;
+                float dist_sq = mx*mx + my*my + mz*mz;
+                if      (dist_sq > 2250000.0f) skip = 3;  // >1500m: every 4th
+                else if (dist_sq >  160000.0f) skip = 1;  // > 400m: every 2nd
+            }
+            if (lod_skip > 0) { lod_skip--; continue; }
+            lod_skip = skip;
+
             float t = (float)i / (float)v->trail_count;
 
             float pitch = v->trail_pitch[idx1];
@@ -667,9 +684,23 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
         bool have_prev = false;
 
         rlBegin(RL_TRIANGLES);
+        int lod_skip = 0;
         for (int i = 1; i < v->trail_count; i++) {
             int idx0 = (start + i - 1) % v->trail_capacity;
             int idx1 = (start + i) % v->trail_capacity;
+
+            // LOD: skip segments far from camera to reduce vertex count
+            int skip = 0;
+            if (trail_lod_enabled) {
+                float mx = (v->trail[idx0].x + v->trail[idx1].x) * 0.5f - cam_pos.x;
+                float my = (v->trail[idx0].y + v->trail[idx1].y) * 0.5f - cam_pos.y;
+                float mz = (v->trail[idx0].z + v->trail[idx1].z) * 0.5f - cam_pos.z;
+                float dist_sq = mx*mx + my*my + mz*mz;
+                if      (dist_sq > 2250000.0f) skip = 3;  // >1500m: every 4th
+                else if (dist_sq >  160000.0f) skip = 1;  // > 400m: every 2nd
+            }
+            if (lod_skip > 0) { lod_skip--; continue; }
+            lod_skip = skip;
 
             Vector3 p0 = v->trail[idx0];
             Vector3 p1 = v->trail[idx1];

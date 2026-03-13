@@ -18,6 +18,10 @@ uniform sampler2D groundTex;
 uniform vec4 colFog;
 uniform vec4 colTint;
 
+// Fog distance control
+uniform float fogStart;  // default 400
+uniform float fogEnd;    // default 800
+
 out vec4 finalColor;
 
 void main() {
@@ -73,7 +77,7 @@ void main() {
     color = mix(color, colAxisZ, axisZLine * colAxisZ.a);
 
     // Distance fade — prevent aliasing at horizon
-    float fade = 1.0 - smoothstep(400.0, 800.0, dist);
+    float fade = 1.0 - smoothstep(fogStart, fogEnd, dist);
     color = mix(ground, color, fade);
 
     color.a = 1.0;

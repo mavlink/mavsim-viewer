@@ -7,6 +7,7 @@
 typedef enum {
     CAM_MODE_CHASE = 0,
     CAM_MODE_FPV,
+    CAM_MODE_FREE,
     CAM_MODE_COUNT
 } camera_mode_t;
 
@@ -57,6 +58,9 @@ typedef struct {
     Texture2D ground_tex; // procedural terrain texture
     bool ground_tex_on;  // F key toggle state (terrain mode)
     int seq_1988;        // key sequence tracker
+    // LMS terrain
+    Shader lms_shader;
+    Model lms;
     // Vehicle lighting shader
     Shader lighting_shader;
     int loc_lightDir;
@@ -64,6 +68,9 @@ typedef struct {
     int loc_matNormal;
     ortho_mode_t ortho_mode; // fullscreen ortho view (0 = perspective)
     float ortho_span;        // ortho view span in world units
+    bool free_track;         // free cam tracks vehicle until WASDQE detaches
+    int loc_fogStart;        // grid shader fog start distance
+    int loc_fogEnd;          // grid shader fog end distance
 } scene_t;
 
 // Initialize scene (ground plane, sky, camera, lighting).

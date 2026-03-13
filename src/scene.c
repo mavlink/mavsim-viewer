@@ -221,6 +221,169 @@ static Texture2D gen_ground_texture(void) {
     return tex;
 }
 
+// LMS terrain settings
+#define LMS_COLOR      (Color){ 1, 156, 227, 255 }    // #019CE3 teal
+#define LMS_COLS       40       // subdivisions along edge
+#define LMS_ROWS       12       // subdivisions deep
+#define LMS_DEPTH      400.0f   // how far lms extend from grid edge
+#define LMS_PEAK       350.0f   // max lms height
+
+static float lms_hash(int x, int y) {
+    unsigned int h = (unsigned int)(x * 7919 + y * 104729 + 31337);
+    h ^= h >> 13;
+    h *= 0x5bd1e995;
+    h ^= h >> 15;
+    return (float)(h & 0xFFFF) / 65535.0f;
+}
+
+static float lms_vnoise(float x, float y) {
+    int ix = (int)floorf(x), iy = (int)floorf(y);
+    float fx = x - ix, fy = y - iy;
+    fx = fx * fx * (3.0f - 2.0f * fx);
+    fy = fy * fy * (3.0f - 2.0f * fy);
+    float a = lms_hash(ix, iy), b = lms_hash(ix+1, iy);
+    float c = lms_hash(ix, iy+1), d = lms_hash(ix+1, iy+1);
+    return a + (b-a)*fx + (c-a)*fy + (a-b-c+d)*fx*fy;
+}
+
+static float lms_fbm(float x, float y) {
+    float v = 0.0f;
+    v += lms_vnoise(x, y) * 1.0f;
+    v += lms_vnoise(x*2.0f + 5.3f, y*2.0f + 1.7f) * 0.5f;
+    v += lms_vnoise(x*4.0f + 9.1f, y*4.0f + 3.2f) * 0.25f;
+    return v / 1.75f;
+}
+
+static float lms_get_height(float along, float deep, int edge) {
+    float env = sinf(deep * 3.14159f);
+    env = powf(env, 0.6f);
+
+    float edge_taper = 1.0f;
+    if (along < 0.15f) edge_taper = along / 0.15f;
+    else if (along > 0.85f) edge_taper = (1.0f - along) / 0.15f;
+    edge_taper = edge_taper * edge_taper;
+    env *= edge_taper;
+
+    float ox = along * 5.0f + edge * 13.7f;
+    float oy = deep * 3.0f + edge * 7.3f;
+    float n = lms_fbm(ox, oy);
+    float ridge = 1.0f - fabsf(n * 2.0f - 1.0f);
+    ridge = powf(ridge, 2.0f);
+    float variation = lms_vnoise(along * 3.0f + edge * 5.1f, deep * 1.5f + edge * 2.3f);
+    variation = 0.3f + 0.7f * variation;
+    float h = env * ridge * variation * LMS_PEAK;
+    if (h < LMS_PEAK * 0.15f) h *= 0.7f;
+    return h;
+}
+
+static void lms_vert(Mesh *m, int vi, float x, float y, float z,
+                     float bx, float by, unsigned char r, unsigned char g, unsigned char b) {
+    m->vertices[vi*3+0] = x;  m->vertices[vi*3+1] = y;  m->vertices[vi*3+2] = z;
+    m->texcoords[vi*2+0] = bx; m->texcoords[vi*2+1] = by;
+    m->colors[vi*4+0] = r; m->colors[vi*4+1] = g; m->colors[vi*4+2] = b; m->colors[vi*4+3] = 255;
+}
+
+static Mesh gen_lms(void) {
+    // 4 edges of lms ranges + 4 corner fill patches
+    #define CORNER_SUBDIVS 8
+    int corner_tris = 4 * CORNER_SUBDIVS * CORNER_SUBDIVS * 2;
+    int total_tris = 4 * LMS_COLS * LMS_ROWS * 2 + corner_tris;
+    int vert_count = total_tris * 3;
+
+    Mesh mesh = { 0 };
+    mesh.triangleCount = total_tris;
+    mesh.vertexCount = vert_count;
+    mesh.vertices = RL_CALLOC(vert_count * 3, sizeof(float));
+    mesh.texcoords = RL_CALLOC(vert_count * 2, sizeof(float));
+    mesh.colors = RL_CALLOC(vert_count * 4, sizeof(unsigned char));
+
+    float ext = GRID_EXTENT;
+    unsigned char cr = LMS_COLOR.r, cg = LMS_COLOR.g, cb = LMS_COLOR.b;
+
+    float edges[4][6] = {
+        { -ext, -ext,  1,  0,  0, -1 },
+        {  ext, -ext,  0,  1,  1,  0 },
+        {  ext,  ext, -1,  0,  0,  1 },
+        { -ext,  ext,  0, -1, -1,  0 },
+    };
+
+    int vi = 0;
+    for (int e = 0; e < 4; e++) {
+        float sx = edges[e][0], sz = edges[e][1];
+        float adx = edges[e][2], adz = edges[e][3];
+        float onx = edges[e][4], onz = edges[e][5];
+        float elen = 2.0f * ext;
+
+        for (int col = 0; col < LMS_COLS; col++) {
+            for (int row = 0; row < LMS_ROWS; row++) {
+                float a0 = (float)col / LMS_COLS, a1 = (float)(col+1) / LMS_COLS;
+                float d0 = (float)row / LMS_ROWS, d1 = (float)(row+1) / LMS_ROWS;
+
+                float x00 = sx + adx*a0*elen + onx*d0*LMS_DEPTH;
+                float z00 = sz + adz*a0*elen + onz*d0*LMS_DEPTH;
+                float y00 = lms_get_height(a0, d0, e);
+
+                float x10 = sx + adx*a1*elen + onx*d0*LMS_DEPTH;
+                float z10 = sz + adz*a1*elen + onz*d0*LMS_DEPTH;
+                float y10 = lms_get_height(a1, d0, e);
+
+                float x01 = sx + adx*a0*elen + onx*d1*LMS_DEPTH;
+                float z01 = sz + adz*a0*elen + onz*d1*LMS_DEPTH;
+                float y01 = lms_get_height(a0, d1, e);
+
+                float x11 = sx + adx*a1*elen + onx*d1*LMS_DEPTH;
+                float z11 = sz + adz*a1*elen + onz*d1*LMS_DEPTH;
+                float y11 = lms_get_height(a1, d1, e);
+
+                lms_vert(&mesh, vi++, x00,y00,z00, 1,0, cr,cg,cb);
+                lms_vert(&mesh, vi++, x10,y10,z10, 0,1, cr,cg,cb);
+                lms_vert(&mesh, vi++, x01,y01,z01, 0,0, cr,cg,cb);
+                lms_vert(&mesh, vi++, x10,y10,z10, 1,0, cr,cg,cb);
+                lms_vert(&mesh, vi++, x11,y11,z11, 0,1, cr,cg,cb);
+                lms_vert(&mesh, vi++, x01,y01,z01, 0,0, cr,cg,cb);
+            }
+        }
+    }
+
+    // Corner fill patches — flat grid to fill gaps between lms ranges
+    float corner_pts[4][2] = {
+        { -ext, -ext }, {  ext, -ext }, {  ext,  ext }, { -ext,  ext },
+    };
+    float csigns[4][2] = {
+        { -1, -1 }, {  1, -1 }, {  1,  1 }, { -1,  1 },
+    };
+    for (int c = 0; c < 4; c++) {
+        float cx0 = corner_pts[c][0];
+        float cz0 = corner_pts[c][1];
+        float csx = csigns[c][0], csz = csigns[c][1];
+        for (int ci = 0; ci < CORNER_SUBDIVS; ci++) {
+            for (int cj = 0; cj < CORNER_SUBDIVS; cj++) {
+                float u0 = (float)ci / CORNER_SUBDIVS;
+                float u1 = (float)(ci + 1) / CORNER_SUBDIVS;
+                float v0 = (float)cj / CORNER_SUBDIVS;
+                float v1 = (float)(cj + 1) / CORNER_SUBDIVS;
+
+                float x0 = cx0 + csx * u0 * LMS_DEPTH;
+                float x1 = cx0 + csx * u1 * LMS_DEPTH;
+                float z0 = cz0 + csz * v0 * LMS_DEPTH;
+                float z1 = cz0 + csz * v1 * LMS_DEPTH;
+
+                float cy = 0.7f;
+                lms_vert(&mesh, vi++, x0, cy, z0, 1, 0, cr, cg, cb);
+                lms_vert(&mesh, vi++, x1, cy, z0, 0, 1, cr, cg, cb);
+                lms_vert(&mesh, vi++, x1, cy, z1, 0, 0, cr, cg, cb);
+
+                lms_vert(&mesh, vi++, x0, cy, z0, 1, 0, cr, cg, cb);
+                lms_vert(&mesh, vi++, x1, cy, z1, 0, 1, cr, cg, cb);
+                lms_vert(&mesh, vi++, x0, cy, z1, 0, 0, cr, cg, cb);
+            }
+        }
+    }
+
+    UploadMesh(&mesh, false);
+    return mesh;
+}
+
 void scene_init(scene_t *s) {
     s->cam_mode = CAM_MODE_CHASE;
     s->view_mode = VIEW_GRID;
@@ -260,6 +423,8 @@ void scene_init(scene_t *s) {
     s->loc_groundTex  = GetShaderLocation(s->grid_shader, "groundTex");
     s->loc_colFog     = GetShaderLocation(s->grid_shader, "colFog");
     s->loc_colTint    = GetShaderLocation(s->grid_shader, "colTint");
+    s->loc_fogStart   = GetShaderLocation(s->grid_shader, "fogStart");
+    s->loc_fogEnd     = GetShaderLocation(s->grid_shader, "fogEnd");
 
     // Load terrain texture from pre-baked PNG
     double t0 = GetTime();
@@ -305,6 +470,14 @@ void scene_init(scene_t *s) {
     SetShaderValue(s->lighting_shader, s->loc_lightDir, &sun, SHADER_UNIFORM_VEC3);
     float ambient = 0.35f;
     SetShaderValue(s->lighting_shader, s->loc_ambient, &ambient, SHADER_UNIFORM_FLOAT);
+
+    // LMS wireframe terrain
+    asset_path("shaders/lms.vs", vs_path, sizeof(vs_path));
+    asset_path("shaders/lms.fs", fs_path, sizeof(fs_path));
+    s->lms_shader = LoadShader(vs_path, fs_path);
+    Mesh lms_mesh = gen_lms();
+    s->lms = LoadModelFromMesh(lms_mesh);
+    s->lms.materials[0].shader = s->lms_shader;
 }
 
 static void update_chase_camera(scene_t *s, Vector3 pos) {
@@ -401,6 +574,69 @@ void scene_update_camera(scene_t *s, Vector3 vehicle_pos, Quaternion vehicle_rot
         case CAM_MODE_FPV:
             update_fpv_camera(s, vehicle_pos, vehicle_rot);
             break;
+        case CAM_MODE_FREE: {
+            float dt = GetFrameTime();
+            float speed = 20.0f * dt;
+
+            // WASDQE breaks tracking
+            bool move = IsKeyDown(KEY_W) || IsKeyDown(KEY_S) || IsKeyDown(KEY_A) ||
+                        IsKeyDown(KEY_D) || IsKeyDown(KEY_Q) || IsKeyDown(KEY_E);
+            if (move) s->free_track = false;
+
+            if (s->free_track) {
+                // Track mode: camera looks at vehicle, scroll zooms in/out
+                s->camera.target = vehicle_pos;
+                float wheel = GetMouseWheelMove();
+                if (wheel != 0.0f) {
+                    Vector3 dir = Vector3Subtract(s->camera.position, vehicle_pos);
+                    float dist = Vector3Length(dir);
+                    dist -= wheel * 2.0f;
+                    if (dist < 2.0f) dist = 2.0f;
+                    s->camera.position = Vector3Add(vehicle_pos, Vector3Scale(Vector3Normalize(dir), dist));
+                }
+                // Mouse: orbit around vehicle
+                if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) || IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
+                    Vector2 delta = GetMouseDelta();
+                    float sensitivity = 0.003f;
+                    Vector3 offset = Vector3Subtract(s->camera.position, vehicle_pos);
+                    Vector3 right = Vector3Normalize(Vector3CrossProduct(
+                        Vector3Normalize(Vector3Subtract(vehicle_pos, s->camera.position)), s->camera.up));
+                    Matrix yaw_m = MatrixRotate((Vector3){0,1,0}, -delta.x * sensitivity);
+                    Matrix pitch_m = MatrixRotate(right, -delta.y * sensitivity);
+                    offset = Vector3Transform(offset, yaw_m);
+                    offset = Vector3Transform(offset, pitch_m);
+                    s->camera.position = Vector3Add(vehicle_pos, offset);
+                }
+            } else {
+                // Free-fly mode
+                Vector3 forward = Vector3Normalize(Vector3Subtract(s->camera.target, s->camera.position));
+                Vector3 right = Vector3Normalize(Vector3CrossProduct(forward, s->camera.up));
+
+                if (IsKeyDown(KEY_W)) { s->camera.position = Vector3Add(s->camera.position, Vector3Scale(forward, speed)); s->camera.target = Vector3Add(s->camera.target, Vector3Scale(forward, speed)); }
+                if (IsKeyDown(KEY_S)) { s->camera.position = Vector3Add(s->camera.position, Vector3Scale(forward, -speed)); s->camera.target = Vector3Add(s->camera.target, Vector3Scale(forward, -speed)); }
+                if (IsKeyDown(KEY_D)) { s->camera.position = Vector3Add(s->camera.position, Vector3Scale(right, speed)); s->camera.target = Vector3Add(s->camera.target, Vector3Scale(right, speed)); }
+                if (IsKeyDown(KEY_A)) { s->camera.position = Vector3Add(s->camera.position, Vector3Scale(right, -speed)); s->camera.target = Vector3Add(s->camera.target, Vector3Scale(right, -speed)); }
+                if (IsKeyDown(KEY_E)) { s->camera.position.y += speed; s->camera.target.y += speed; }
+                if (IsKeyDown(KEY_Q)) { s->camera.position.y -= speed; s->camera.target.y -= speed; }
+
+                // Shift = boost
+                if (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT))
+                    speed *= 3.0f;
+
+                // Mouse look (any click held)
+                if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) || IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
+                    Vector2 delta = GetMouseDelta();
+                    float sensitivity = 0.003f;
+                    Matrix yaw = MatrixRotate((Vector3){0,1,0}, -delta.x * sensitivity);
+                    Matrix pitch = MatrixRotate(right, -delta.y * sensitivity);
+                    Vector3 dir = Vector3Subtract(s->camera.target, s->camera.position);
+                    dir = Vector3Transform(dir, yaw);
+                    dir = Vector3Transform(dir, pitch);
+                    s->camera.target = Vector3Add(s->camera.position, dir);
+                }
+            }
+            break;
+        }
         default:
             break;
     }
@@ -430,8 +666,9 @@ void scene_handle_input(scene_t *s) {
 
     if (IsKeyPressed(KEY_C)) {
         s->ortho_mode = ORTHO_NONE;  // return to perspective on camera toggle
+        s->free_track = false;
         s->cam_mode = (s->cam_mode + 1) % CAM_MODE_COUNT;
-        const char *names[] = {"Chase", "FPV"};
+        const char *names[] = {"Chase", "FPV", "Free"};
         printf("Camera: %s\n", names[s->cam_mode]);
 
         s->camera.up = (Vector3){0, 1, 0};
@@ -529,7 +766,7 @@ static void color_to_vec4(Color c, float out[4]) {
 
 static void draw_shader_grid(const scene_t *s,
     Color ground, Color minor, Color major, Color axis_x, Color axis_z,
-    Color fog, Color tint)
+    Color fog, Color tint, float fog_start, float fog_end)
 {
     float v[4];
     color_to_vec4(ground, v); SetShaderValue(s->grid_shader, s->loc_colGround, v, SHADER_UNIFORM_VEC4);
@@ -546,6 +783,8 @@ static void draw_shader_grid(const scene_t *s,
     SetShaderValue(s->grid_shader, s->loc_spacing, &spacing, SHADER_UNIFORM_FLOAT);
     SetShaderValue(s->grid_shader, s->loc_majorEvery, &majorEvery, SHADER_UNIFORM_FLOAT);
     SetShaderValue(s->grid_shader, s->loc_axisWidth, &axisWidth, SHADER_UNIFORM_FLOAT);
+    SetShaderValue(s->grid_shader, s->loc_fogStart, &fog_start, SHADER_UNIFORM_FLOAT);
+    SetShaderValue(s->grid_shader, s->loc_fogEnd, &fog_end, SHADER_UNIFORM_FLOAT);
 
     // Terrain texture toggle
     int texOn = s->ground_tex_on ? 1 : 0;
@@ -572,16 +811,21 @@ static void draw_shader_grid(const scene_t *s,
 void scene_draw(const scene_t *s) {
     if (s->view_mode == VIEW_GRID) {
         draw_shader_grid(s, GRID_GROUND, GRID_MINOR, GRID_MAJOR, GRID_AXIS_X, GRID_AXIS_Z,
-            (Color){ 30, 34, 28, 255 }, (Color){ 42, 38, 32, 255 });
+            (Color){ 30, 34, 28, 255 }, (Color){ 42, 38, 32, 255 }, 400.0f, 800.0f);
     } else if (s->view_mode == VIEW_REZ) {
         draw_shader_grid(s, REZ_GROUND, REZ_MINOR, REZ_MAJOR, REZ_AXIS_X, REZ_AXIS_Z,
-            REZ_GROUND, (Color){ 31, 31, 59, 255 });
+            REZ_GROUND, (Color){ 31, 31, 59, 255 }, 400.0f, 800.0f);
     } else if (s->view_mode == VIEW_SNOW) {
         draw_shader_grid(s, SNOW_GROUND, SNOW_MINOR, SNOW_MAJOR, SNOW_AXIS_X, SNOW_AXIS_Z,
-            SNOW_GROUND, (Color){ 215, 218, 222, 255 });
+            SNOW_GROUND, (Color){ 215, 218, 222, 255 }, 400.0f, 800.0f);
     } else if (s->view_mode == VIEW_1988) {
         draw_shader_grid(s, SYNTH_GROUND, SYNTH_MINOR, SYNTH_MAJOR, SYNTH_AXIS_X, SYNTH_AXIS_Z,
-            SYNTH_GROUND, (Color){ 25, 25, 82, 255 });
+            SYNTH_GROUND, (Color){ 25, 25, 82, 255 }, 800.0f, 1200.0f);
+
+        // Wireframe lms — pushed back by 1.4x to match extended grid
+        rlDisableBackfaceCulling();
+        DrawModel(s->lms, (Vector3){0, 0, 0}, 1.4f, WHITE);
+        rlEnableBackfaceCulling();
     }
 
     // Fullscreen ortho: distance grid + ground line
@@ -686,5 +930,7 @@ void scene_cleanup(scene_t *s) {
     UnloadTexture(s->ground_tex);
     UnloadModel(s->grid_plane);
     UnloadShader(s->grid_shader);
+    UnloadModel(s->lms);
+    UnloadShader(s->lms_shader);
     UnloadShader(s->lighting_shader);
 }

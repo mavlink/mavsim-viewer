@@ -67,6 +67,25 @@ static void process_message(ulog_replay_ctx_t *ctx, const ulog_data_msg_t *dmsg)
     if (ctx->first_pos_set)
         ctx->state.valid = true;
 
+    // home_position topic — authoritative home (Tier 1)
+    if (sub_idx == ctx->sub_home_pos && ctx->sub_home_pos >= 0) {
+        double lat = 0, lon = 0;
+        float alt = 0;
+        if (ctx->cache.home_lat_offset >= 0)
+            lat = ulog_parser_get_double(dmsg, ctx->cache.home_lat_offset);
+        if (ctx->cache.home_lon_offset >= 0)
+            lon = ulog_parser_get_double(dmsg, ctx->cache.home_lon_offset);
+        if (ctx->cache.home_alt_offset >= 0)
+            alt = ulog_parser_get_float(dmsg, ctx->cache.home_alt_offset);
+        if (lat != 0.0 || lon != 0.0) {
+            ctx->home.lat = (int32_t)(lat * 1e7);
+            ctx->home.lon = (int32_t)(lon * 1e7);
+            ctx->home.alt = (int32_t)(alt * 1000.0f);
+            ctx->home.valid = true;
+            ctx->home_from_topic = true;
+        }
+    }
+
     if (sub_idx == ctx->sub_attitude) {
         // float[4] q — NED quaternion (w,x,y,z) — direct copy
         int off = ctx->cache.att_q_offset;
@@ -112,10 +131,12 @@ static void process_message(ulog_replay_ctx_t *ctx, const ulog_data_msg_t *dmsg)
         ctx->last_pos_usec = dmsg->timestamp;
 
         if (!ctx->first_pos_set) {
-            ctx->home.lat = ctx->state.lat;
-            ctx->home.lon = ctx->state.lon;
-            ctx->home.alt = ctx->state.alt;
-            ctx->home.valid = true;
+            if (!ctx->home_from_topic) {
+                ctx->home.lat = ctx->state.lat;
+                ctx->home.lon = ctx->state.lon;
+                ctx->home.alt = ctx->state.alt;
+                ctx->home.valid = true;
+            }
             ctx->first_pos_set = true;
             ctx->state.valid = true;
         }
@@ -167,10 +188,12 @@ static void process_message(ulog_replay_ctx_t *ctx, const ulog_data_msg_t *dmsg)
                                 &ctx->state.lat, &ctx->state.lon, &ctx->state.alt);
 
                 if (!ctx->first_pos_set) {
-                    ctx->home.lat = ctx->state.lat;
-                    ctx->home.lon = ctx->state.lon;
-                    ctx->home.alt = ctx->state.alt;
-                    ctx->home.valid = true;
+                    if (!ctx->home_from_topic) {
+                        ctx->home.lat = ctx->state.lat;
+                        ctx->home.lon = ctx->state.lon;
+                        ctx->home.alt = ctx->state.alt;
+                        ctx->home.valid = true;
+                    }
                     ctx->first_pos_set = true;
                     ctx->state.valid = true;
                 }
@@ -217,6 +240,7 @@ int ulog_replay_init(ulog_replay_ctx_t *ctx, const char *filepath) {
     ctx->sub_local_pos = -1;
     ctx->sub_airspeed = -1;
     ctx->sub_vehicle_status = -1;
+    ctx->sub_home_pos = -1;
 
     int ret = ulog_parser_open(&ctx->parser, filepath);
     if (ret != 0) return ret;
@@ -227,6 +251,7 @@ int ulog_replay_init(ulog_replay_ctx_t *ctx, const char *filepath) {
     ctx->sub_local_pos = ulog_parser_find_subscription(&ctx->parser, "vehicle_local_position");
     ctx->sub_airspeed = ulog_parser_find_subscription(&ctx->parser, "airspeed_validated");
     ctx->sub_vehicle_status = ulog_parser_find_subscription(&ctx->parser, "vehicle_status");
+    ctx->sub_home_pos = ulog_parser_find_subscription(&ctx->parser, "home_position");
 
     // Required topics
     if (ctx->sub_attitude < 0) {
@@ -284,48 +309,92 @@ int ulog_replay_init(ulog_replay_ctx_t *ctx, const char *filepath) {
         ctx->cache.vstatus_nav_state_offset = ulog_parser_find_field(&ctx->parser, vs_fmt, "nav_state");
     }
 
-    // Pre-scan for vehicle_type and flight mode transitions
+    // Optional: home_position
+    if (ctx->sub_home_pos >= 0) {
+        int hp_fmt = ctx->parser.subs[ctx->sub_home_pos].format_idx;
+        ctx->cache.home_lat_offset = ulog_parser_find_field(&ctx->parser, hp_fmt, "lat");
+        ctx->cache.home_lon_offset = ulog_parser_find_field(&ctx->parser, hp_fmt, "lon");
+        ctx->cache.home_alt_offset = ulog_parser_find_field(&ctx->parser, hp_fmt, "alt");
+    }
+
+    // Pre-scan for vehicle_type, flight mode transitions, and home position
     ctx->vehicle_type = 2;  // default MAV_TYPE_QUADROTOR
     ctx->current_nav_state = 0xFF;
     ctx->mode_change_count = 0;
-    if (ctx->sub_vehicle_status >= 0) {
+    {
         bool got_type = false;
+        bool got_home = false;
         uint8_t prev_nav = 0xFF;
+
+        uint16_t vstatus_msg_id = (ctx->sub_vehicle_status >= 0)
+            ? ctx->parser.subs[ctx->sub_vehicle_status].msg_id : 0xFFFF;
+        uint16_t home_msg_id = (ctx->sub_home_pos >= 0)
+            ? ctx->parser.subs[ctx->sub_home_pos].msg_id : 0xFFFF;
+        uint16_t gpos_msg_id = (ctx->sub_global_pos >= 0)
+            ? ctx->parser.subs[ctx->sub_global_pos].msg_id : 0xFFFF;
+
         ulog_data_msg_t scan_msg;
         while (ulog_parser_next(&ctx->parser, &scan_msg)) {
-            if (scan_msg.msg_id != ctx->parser.subs[ctx->sub_vehicle_status].msg_id)
-                continue;
-
-            // Get vehicle type from first message
-            if (!got_type) {
-                uint8_t px4_type = ulog_parser_get_uint8(&scan_msg, ctx->cache.vstatus_type_offset);
-                bool is_vtol = ctx->cache.vstatus_is_vtol_offset >= 0 &&
-                               ulog_parser_get_uint8(&scan_msg, ctx->cache.vstatus_is_vtol_offset);
-                if (is_vtol) {
-                    ctx->vehicle_type = 22;
-                } else {
-                    switch (px4_type) {
-                        case 1: ctx->vehicle_type = 2;  break;
-                        case 2: ctx->vehicle_type = 1;  break;
-                        case 3: ctx->vehicle_type = 10; break;
-                        default: ctx->vehicle_type = 2; break;
+            // Vehicle status: type + nav_state transitions
+            if (scan_msg.msg_id == vstatus_msg_id && ctx->sub_vehicle_status >= 0) {
+                if (!got_type) {
+                    uint8_t px4_type = ulog_parser_get_uint8(&scan_msg, ctx->cache.vstatus_type_offset);
+                    bool is_vtol = ctx->cache.vstatus_is_vtol_offset >= 0 &&
+                                   ulog_parser_get_uint8(&scan_msg, ctx->cache.vstatus_is_vtol_offset);
+                    if (is_vtol) {
+                        ctx->vehicle_type = 22;
+                    } else {
+                        switch (px4_type) {
+                            case 1: ctx->vehicle_type = 2;  break;
+                            case 2: ctx->vehicle_type = 1;  break;
+                            case 3: ctx->vehicle_type = 10; break;
+                            default: ctx->vehicle_type = 2; break;
+                        }
+                    }
+                    got_type = true;
+                }
+                if (ctx->cache.vstatus_nav_state_offset >= 0) {
+                    uint8_t nav = ulog_parser_get_uint8(&scan_msg, ctx->cache.vstatus_nav_state_offset);
+                    if (nav != prev_nav && ctx->mode_change_count < ULOG_MAX_MODE_CHANGES) {
+                        float t = (float)((double)(scan_msg.timestamp - ctx->parser.start_timestamp) / 1e6);
+                        ctx->mode_changes[ctx->mode_change_count].time_s = t;
+                        ctx->mode_changes[ctx->mode_change_count].nav_state = nav;
+                        ctx->mode_change_count++;
+                        prev_nav = nav;
                     }
                 }
-                got_type = true;
             }
 
-            // Collect nav_state transitions
-            if (ctx->cache.vstatus_nav_state_offset >= 0) {
-                uint8_t nav = ulog_parser_get_uint8(&scan_msg, ctx->cache.vstatus_nav_state_offset);
-                if (nav != prev_nav && ctx->mode_change_count < ULOG_MAX_MODE_CHANGES) {
-                    float t = (float)((double)(scan_msg.timestamp - ctx->parser.start_timestamp) / 1e6);
-                    ctx->mode_changes[ctx->mode_change_count].time_s = t;
-                    ctx->mode_changes[ctx->mode_change_count].nav_state = nav;
-                    ctx->mode_change_count++;
-                    prev_nav = nav;
+            // Home position: Tier 1 (highest priority)
+            if (!got_home && scan_msg.msg_id == home_msg_id) {
+                double lat = ulog_parser_get_double(&scan_msg, ctx->cache.home_lat_offset);
+                double lon = ulog_parser_get_double(&scan_msg, ctx->cache.home_lon_offset);
+                float alt = ulog_parser_get_float(&scan_msg, ctx->cache.home_alt_offset);
+                if (lat != 0.0 || lon != 0.0) {
+                    ctx->home.lat = (int32_t)(lat * 1e7);
+                    ctx->home.lon = (int32_t)(lon * 1e7);
+                    ctx->home.alt = (int32_t)(alt * 1000.0f);
+                    ctx->home.valid = true;
+                    ctx->home_from_topic = true;
+                    got_home = true;
+                }
+            }
+
+            // GPOS fallback: Tier 2
+            if (!got_home && scan_msg.msg_id == gpos_msg_id) {
+                double lat = ulog_parser_get_double(&scan_msg, ctx->cache.gpos_lat_offset);
+                double lon = ulog_parser_get_double(&scan_msg, ctx->cache.gpos_lon_offset);
+                float alt = ulog_parser_get_float(&scan_msg, ctx->cache.gpos_alt_offset);
+                if (lat != 0.0 || lon != 0.0) {
+                    ctx->home.lat = (int32_t)(lat * 1e7);
+                    ctx->home.lon = (int32_t)(lon * 1e7);
+                    ctx->home.alt = (int32_t)(alt * 1000.0f);
+                    ctx->home.valid = true;
+                    got_home = true;
                 }
             }
         }
+
         if (ctx->mode_change_count > 0)
             ctx->current_nav_state = ctx->mode_changes[0].nav_state;
         ulog_parser_rewind(&ctx->parser);
@@ -344,6 +413,7 @@ int ulog_replay_init(ulog_replay_ctx_t *ctx, const char *filepath) {
     if (ctx->sub_global_pos < 0) printf("  Note: vehicle_global_position not found (using local position)\n");
     if (ctx->sub_airspeed < 0) printf("  Note: airspeed_validated not found (no airspeed data)\n");
     if (ctx->sub_vehicle_status < 0) printf("  Note: vehicle_status not found (defaulting to quadrotor)\n");
+    if (ctx->sub_home_pos < 0) printf("  Note: home_position not found (deriving from first GPS fix)\n");
 
     return 0;
 }

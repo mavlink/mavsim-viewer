@@ -39,6 +39,10 @@ typedef struct {
     int vstatus_type_offset;    // vehicle_status: vehicle_type
     int vstatus_is_vtol_offset; // vehicle_status: is_vtol
     int vstatus_nav_state_offset; // vehicle_status: nav_state
+
+    int home_lat_offset;        // home_position: lat (double, deg)
+    int home_lon_offset;        // home_position: lon (double, deg)
+    int home_alt_offset;        // home_position: alt (float, m)
 } ulog_field_cache_t;
 
 typedef struct {
@@ -50,6 +54,7 @@ typedef struct {
     int sub_local_pos;
     int sub_airspeed;
     int sub_vehicle_status;
+    int sub_home_pos;
 
     ulog_field_cache_t cache;
 
@@ -90,6 +95,7 @@ typedef struct {
 
     // First valid position becomes home
     bool first_pos_set;
+    bool home_from_topic;  // true = home set from home_position topic (Tier 1)
 } ulog_replay_ctx_t;
 
 // Initialize replay context, parse file, build index. Returns 0 on success.

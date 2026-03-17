@@ -61,6 +61,8 @@ int data_source_ulog_create(data_source_t *ds, const char *filepath) {
     }
 
     ds->impl = ctx;
+    ds->home = ctx->home;       // pre-scanned home for conflict detection
+    ds->mav_type = ctx->vehicle_type;
     ds->connected = true;
     ds->sysid = 1;
     ds->playback.speed = 1.0f;

@@ -218,13 +218,204 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    // ── Conflict detection + resolution (multi-file replay, not --ghost) ──
+    bool conflict_far = false;
+    bool ghost_mode_grid = false;
+
+    if (is_replay && num_replay_files > 1 && !ghost_mode) {
+        // Tier assignment
+        int tier3_count = 0;
+        for (int i = 0; i < num_replay_files; i++) {
+            ulog_replay_ctx_t *r = (ulog_replay_ctx_t *)sources[i].impl;
+            if (r->home_from_topic) {
+                // Tier 1
+            } else if (r->home.valid) {
+                // Tier 2
+            } else {
+                tier3_count++;  // Tier 3
+            }
+        }
+
+        // Detect conflicts
+        bool conflict = false;
+        if (tier3_count > 0) conflict = true;
+
+        // Pairwise distance check (only if all have valid homes)
+        if (!conflict) {
+            for (int i = 0; i < num_replay_files && !conflict; i++) {
+                if (!sources[i].home.valid) continue;
+                for (int j = i + 1; j < num_replay_files && !conflict; j++) {
+                    if (!sources[j].home.valid) continue;
+                    double dlat_m = (double)(sources[i].home.lat - sources[j].home.lat) / 1e7 * 111319.5;
+                    double lat_rad = (sources[i].home.lat / 1e7) * (M_PI / 180.0);
+                    double dlon_m = (double)(sources[i].home.lon - sources[j].home.lon) / 1e7 * 111319.5 * cos(lat_rad);
+                    double dalt_m = (double)(sources[i].home.alt - sources[j].home.alt) / 1000.0;
+                    double dist = sqrt(dlat_m * dlat_m + dlon_m * dlon_m + dalt_m * dalt_m);
+                    if (dist < 0.1) conflict = true;              // identical position
+                    if (dist > 1000.0) { conflict = true; conflict_far = true; }  // too far
+                }
+            }
+        }
+
+        // Show deconfliction prompt
+        if (conflict) {
+            // Init HUD early for fonts
+            hud_t prompt_hud;
+            hud_init(&prompt_hud);
+
+            int choice = 0;
+            while (choice == 0 && !WindowShouldClose()) {
+                int sw = GetScreenWidth();
+                int sh = GetScreenHeight();
+                float s = powf(sh / 720.0f, 0.7f);
+                if (s < 1.0f) s = 1.0f;
+
+                int key = GetKeyPressed();
+                if (key == KEY_ONE) choice = 1;
+                else if (key == KEY_TWO) choice = 2;
+                else if (key == KEY_THREE) choice = 3;
+
+                // View-mode colors
+                Color scrim_col, box_bg, box_border, subtitle_col, hint_col, key_col, text_col, title_col;
+                if (scene.view_mode == VIEW_SNOW) {
+                    scrim_col=(Color){255,255,255,140}; box_bg=(Color){248,248,250,240};
+                    box_border=(Color){15,15,20,120}; subtitle_col=(Color){60,65,75,255};
+                    hint_col=(Color){120,125,135,200}; key_col=(Color){15,15,20,220};
+                    text_col=(Color){10,10,15,255}; title_col=(Color){200,140,0,255};
+                } else if (scene.view_mode == VIEW_1988) {
+                    scrim_col=(Color){5,0,15,160}; box_bg=(Color){5,5,16,240};
+                    box_border=(Color){255,20,100,140}; subtitle_col=(Color){255,20,100,200};
+                    hint_col=(Color){180,60,120,160}; key_col=(Color){255,220,60,255};
+                    text_col=(Color){255,220,60,255}; title_col=(Color){255,20,100,255};
+                } else if (scene.view_mode == VIEW_REZ) {
+                    scrim_col=(Color){0,0,0,150}; box_bg=(Color){8,8,12,235};
+                    box_border=(Color){0,204,218,100}; subtitle_col=(Color){0,140,150,160};
+                    hint_col=(Color){0,140,150,160}; key_col=(Color){0,204,218,220};
+                    text_col=(Color){200,208,218,255}; title_col=YELLOW;
+                } else {
+                    scrim_col=(Color){0,0,0,140}; box_bg=(Color){10,14,20,235};
+                    box_border=(Color){0,180,204,100}; subtitle_col=(Color){140,150,170,255};
+                    hint_col=(Color){90,95,110,200}; key_col=(Color){0,255,255,220};
+                    text_col=WHITE; title_col=YELLOW;
+                }
+
+                float fs_title=15*s, fs_option=20*s, fs_hint=12*s;
+                float line_h=36*s, pad=16*s, inner_gap=20*s;
+
+                const char *title_main = "POSITION CONFLICT";
+                const char *grid_label = conflict_far ? "Narrow grid offset" : "Grid offset";
+                char title_rest[64];
+                if (conflict_far)
+                    snprintf(title_rest, sizeof(title_rest), "  -  %d drones too far apart", num_replay_files);
+                else
+                    snprintf(title_rest, sizeof(title_rest), "  -  %d drones overlap", num_replay_files);
+
+                const char *labels[] = {"Cancel & reupload", "Ghost mode", grid_label};
+                float key_num_w = MeasureTextEx(prompt_hud.font_value, "1", fs_option, 0.5f).x;
+                float gap = 16*s;
+                float widest = 0;
+                for (int o = 0; o < 3; o++) {
+                    float w = key_num_w + gap + MeasureTextEx(prompt_hud.font_label, labels[o], fs_option, 0.5f).x;
+                    if (w > widest) widest = w;
+                }
+
+                Vector2 tmw = MeasureTextEx(prompt_hud.font_label, title_main, fs_title, 0.5f);
+                Vector2 trw = MeasureTextEx(prompt_hud.font_label, title_rest, fs_title, 0.5f);
+                float title_total = tmw.x + trw.x;
+
+                float box_w = 520*s;
+                float opts_block_h = line_h * 3;
+                float box_h = pad + fs_title + inner_gap + opts_block_h + inner_gap*0.3f + fs_hint + pad*0.5f;
+                float cx = sw/2.0f, cy = sh/2.0f;
+                float bx = cx - box_w/2.0f, by = cy - box_h/2.0f;
+
+                BeginDrawing();
+                    scene_draw_sky(&scene);
+                    BeginMode3D(scene.camera);
+                        scene_draw(&scene);
+                    EndMode3D();
+                    DrawRectangle(0, 0, sw, sh, scrim_col);
+
+                    Rectangle box = {bx, by, box_w, box_h};
+                    DrawRectangleRounded(box, 0.06f, 8, box_bg);
+                    DrawRectangleRoundedLinesEx(box, 0.06f, 8, 1.5f*s, box_border);
+
+                    float title_x = cx - title_total/2.0f;
+                    DrawTextEx(prompt_hud.font_label, title_main,
+                               (Vector2){title_x, by + pad}, fs_title, 0.5f, title_col);
+                    DrawTextEx(prompt_hud.font_label, title_rest,
+                               (Vector2){title_x + tmw.x, by + pad}, fs_title, 0.5f, subtitle_col);
+
+                    float left = cx - widest/2.0f;
+                    float opts_y = by + pad + fs_title + inner_gap;
+                    for (int o = 0; o < 3; o++) {
+                        char num[2] = {(char)('1'+o), '\0'};
+                        DrawTextEx(prompt_hud.font_value, num,
+                                   (Vector2){left, opts_y + o*line_h}, fs_option, 0.5f, key_col);
+                        DrawTextEx(prompt_hud.font_label, labels[o],
+                                   (Vector2){left + key_num_w + gap, opts_y + o*line_h}, fs_option, 0.5f, text_col);
+                    }
+
+                    const char *hint = "Press 1, 2, or 3";
+                    Vector2 hw = MeasureTextEx(prompt_hud.font_label, hint, fs_hint, 0.5f);
+                    DrawTextEx(prompt_hud.font_label, hint,
+                               (Vector2){cx - hw.x/2.0f, by + box_h - pad*0.5f - fs_hint}, fs_hint, 0.5f, hint_col);
+                EndDrawing();
+            }
+
+            hud_cleanup(&prompt_hud);
+
+            if (choice == 1 || WindowShouldClose()) {
+                for (int i = 0; i < num_replay_files; i++)
+                    data_source_close(&sources[i]);
+                num_replay_files = 0;
+                vehicle_count = 0;
+                is_replay = false;
+                if (WindowShouldClose()) {
+                    scene_cleanup(&scene);
+                    CloseWindow();
+                    return 0;
+                }
+            } else if (choice == 2) {
+                ghost_mode = true;
+            } else if (choice == 3) {
+                ghost_mode_grid = true;
+            }
+        }
+    }
+
     // Apply ghost mode: translucent non-primary drones
-    // Origin sharing is handled at runtime — when vehicle[0]'s origin is set
-    // during playback, we copy it to all other vehicles (see main loop below)
+    // Origin sharing is handled at runtime (see main loop)
     if (ghost_mode && num_replay_files > 1) {
         vehicle_set_ghost_alpha(&vehicles[0], 1.0f);
         for (int i = 1; i < num_replay_files; i++)
             vehicle_set_ghost_alpha(&vehicles[i], 0.35f);
+    }
+
+    // Apply grid offset for deconfliction
+    if (ghost_mode_grid && num_replay_files > 1) {
+        if (conflict_far) {
+            // Narrow grid: compute position delta using same math as vehicle_update
+            double ref_lat_rad = (sources[0].home.lat / 1e7) * (M_PI / 180.0);
+            double ref_lon_rad = (sources[0].home.lon / 1e7) * (M_PI / 180.0);
+            double ref_alt_m = sources[0].home.alt / 1000.0;
+            for (int i = 1; i < num_replay_files; i++) {
+                if (!sources[i].home.valid) continue;
+                double sec_lat_rad = (sources[i].home.lat / 1e7) * (M_PI / 180.0);
+                double sec_lon_rad = (sources[i].home.lon / 1e7) * (M_PI / 180.0);
+                double jmav_x = 6371000.0 * (sec_lat_rad - ref_lat_rad);
+                double jmav_y = 6371000.0 * (sec_lon_rad - ref_lon_rad) * cos(ref_lat_rad);
+                vehicles[i].grid_offset = (Vector3){
+                    (float)(-jmav_y + i * 1.0),
+                    0.0f,
+                    (float)(jmav_x)
+                };
+            }
+        } else {
+            // Normal grid offset: 5m per drone
+            for (int i = 1; i < num_replay_files; i++)
+                vehicles[i].grid_offset = (Vector3){ i * 5.0f, 0.0f, 0.0f };
+        }
     }
 
     hud_t hud;
@@ -304,6 +495,98 @@ int main(int argc, char *argv[]) {
 
         // Handle input
         scene_handle_input(&scene);
+
+        // P key: reopen deconfliction menu during replay
+        if (IsKeyPressed(KEY_P) && is_replay && num_replay_files > 1) {
+            int ch = 0;
+            while (ch == 0 && !WindowShouldClose()) {
+                int psw = GetScreenWidth(), psh = GetScreenHeight();
+                float ps = powf(psh / 720.0f, 0.7f);
+                if (ps < 1.0f) ps = 1.0f;
+                int pk = GetKeyPressed();
+                if (pk == KEY_ONE) ch = 1;
+                else if (pk == KEY_TWO) ch = 2;
+                else if (pk == KEY_THREE) ch = 3;
+
+                Color pscrim, pbbg, pbbd, psub, phint_c, pkc, ptc, pttl;
+                if (scene.view_mode == VIEW_SNOW) {
+                    pscrim=(Color){255,255,255,140}; pbbg=(Color){248,248,250,240};
+                    pbbd=(Color){15,15,20,120}; psub=(Color){60,65,75,255};
+                    phint_c=(Color){120,125,135,200}; pkc=(Color){15,15,20,220};
+                    ptc=(Color){10,10,15,255}; pttl=(Color){200,140,0,255};
+                } else if (scene.view_mode == VIEW_1988) {
+                    pscrim=(Color){5,0,15,160}; pbbg=(Color){5,5,16,240};
+                    pbbd=(Color){255,20,100,140}; psub=(Color){255,20,100,200};
+                    phint_c=(Color){180,60,120,160}; pkc=(Color){255,220,60,255};
+                    ptc=(Color){255,220,60,255}; pttl=(Color){255,20,100,255};
+                } else if (scene.view_mode == VIEW_REZ) {
+                    pscrim=(Color){0,0,0,150}; pbbg=(Color){8,8,12,235};
+                    pbbd=(Color){0,204,218,100}; psub=(Color){0,140,150,160};
+                    phint_c=(Color){0,140,150,160}; pkc=(Color){0,204,218,220};
+                    ptc=(Color){200,208,218,255}; pttl=YELLOW;
+                } else {
+                    pscrim=(Color){0,0,0,140}; pbbg=(Color){10,14,20,235};
+                    pbbd=(Color){0,180,204,100}; psub=(Color){140,150,170,255};
+                    phint_c=(Color){90,95,110,200}; pkc=(Color){0,255,255,220};
+                    ptc=WHITE; pttl=YELLOW;
+                }
+
+                float pfs_t=15*ps, pfs_o=20*ps, pfs_h=12*ps, plh=36*ps, pp=16*ps, pig=20*ps;
+                const char *pl[]={"Cancel","Ghost mode","Grid offset"};
+                float pkw=MeasureTextEx(hud.font_value,"1",pfs_o,0.5f).x, pg=16*ps, pw=0;
+                for(int o=0;o<3;o++){float w=pkw+pg+MeasureTextEx(hud.font_label,pl[o],pfs_o,0.5f).x;if(w>pw)pw=w;}
+                float pbw=520*ps, pbh=pp+pfs_t+pig+plh*3+pig*0.3f+pfs_h+pp*0.5f;
+                float pcx=psw/2.0f, pcy=psh/2.0f, pbx=pcx-pbw/2, pby=pcy-pbh/2;
+
+                BeginDrawing();
+                scene_draw_sky(&scene);
+                BeginMode3D(scene.camera); scene_draw(&scene); EndMode3D();
+                DrawRectangle(0,0,psw,psh,pscrim);
+                Rectangle pb={pbx,pby,pbw,pbh};
+                DrawRectangleRounded(pb,0.06f,8,pbbg);
+                DrawRectangleRoundedLinesEx(pb,0.06f,8,1.5f*ps,pbbd);
+                const char*pt1="POSITION CONFLICT";char pt2[64];
+                snprintf(pt2,sizeof(pt2),"  -  %d drones",num_replay_files);
+                Vector2 ptm=MeasureTextEx(hud.font_label,pt1,pfs_t,0.5f);
+                Vector2 ptr=MeasureTextEx(hud.font_label,pt2,pfs_t,0.5f);
+                float ptx=pcx-(ptm.x+ptr.x)/2;
+                DrawTextEx(hud.font_label,pt1,(Vector2){ptx,pby+pp},pfs_t,0.5f,pttl);
+                DrawTextEx(hud.font_label,pt2,(Vector2){ptx+ptm.x,pby+pp},pfs_t,0.5f,psub);
+                float pleft=pcx-pw/2, poy=pby+pp+pfs_t+pig;
+                for(int o=0;o<3;o++){
+                    char n[2]={(char)('1'+o),'\0'};
+                    DrawTextEx(hud.font_value,n,(Vector2){pleft,poy+o*plh},pfs_o,0.5f,pkc);
+                    DrawTextEx(hud.font_label,pl[o],(Vector2){pleft+pkw+pg,poy+o*plh},pfs_o,0.5f,ptc);
+                }
+                const char*pht="Press 1, 2, or 3";
+                Vector2 phw=MeasureTextEx(hud.font_label,pht,pfs_h,0.5f);
+                DrawTextEx(hud.font_label,pht,(Vector2){pcx-phw.x/2,pby+pbh-pp*0.5f-pfs_h},pfs_h,0.5f,phint_c);
+                EndDrawing();
+            }
+            if (ch == 1) {
+                // Cancel — reset everything
+                ghost_mode = false; ghost_mode_grid = false;
+                for (int i = 0; i < num_replay_files; i++) {
+                    vehicles[i].grid_offset = (Vector3){0,0,0};
+                    vehicle_set_ghost_alpha(&vehicles[i], 1.0f);
+                }
+            } else if (ch == 2) {
+                // Ghost mode
+                ghost_mode = true; ghost_mode_grid = false;
+                vehicle_set_ghost_alpha(&vehicles[0], 1.0f);
+                for (int i = 1; i < num_replay_files; i++) {
+                    vehicles[i].grid_offset = (Vector3){0,0,0};
+                    vehicle_set_ghost_alpha(&vehicles[i], 0.35f);
+                }
+            } else if (ch == 3) {
+                // Grid offset
+                ghost_mode = false; ghost_mode_grid = true;
+                for (int i = 0; i < num_replay_files; i++)
+                    vehicle_set_ghost_alpha(&vehicles[i], 1.0f);
+                for (int i = 1; i < num_replay_files; i++)
+                    vehicles[i].grid_offset = (Vector3){ i * 5.0f, 0.0f, 0.0f };
+            }
+        }
 
         // Update vehicle colors when view mode changes
         {

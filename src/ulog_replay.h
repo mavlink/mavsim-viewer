@@ -43,7 +43,11 @@ typedef struct {
     int home_lat_offset;        // home_position: lat (double, deg)
     int home_lon_offset;        // home_position: lon (double, deg)
     int home_alt_offset;        // home_position: alt (float, m)
+    int home_valid_hpos_offset; // home_position: valid_hpos (uint8, bool)
 } ulog_field_cache_t;
+
+// home_rejected: pre-scan determined this log lacks reliable global position.
+// Prevents runtime process_message from re-validating home during playback.
 
 typedef struct {
     ulog_parser_t parser;
@@ -96,6 +100,7 @@ typedef struct {
     // First valid position becomes home
     bool first_pos_set;
     bool home_from_topic;  // true = home set from home_position topic (Tier 1)
+    bool home_rejected;    // pre-scan rejected home (no GPOS data to confirm it)
 } ulog_replay_ctx_t;
 
 // Initialize replay context, parse file, build index. Returns 0 on success.

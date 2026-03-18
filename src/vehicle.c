@@ -308,17 +308,10 @@ void vehicle_update(vehicle_t *v, const hil_state_t *state, const home_position_
         // Wait for HOME_POSITION so we get the correct ground altitude.
         // Fall back to current altitude after ~1 second (20 HIL updates at 22Hz).
         v->origin_wait_count++;
-        if (home && home->valid) {
-            double home_alt = home->alt * 1e-3;
+        if (home && home->valid && (lat != 0.0 || lon != 0.0)) {
             v->lat0 = lat;
             v->lon0 = lon;
-            // If vehicle is near home altitude, it's on the ground — use HIL alt
-            // to avoid the ~0.1m offset. If airborne, use home alt as ground ref.
-            if (fabs(alt - home_alt) < 1.0) {
-                v->alt0 = alt;
-            } else {
-                v->alt0 = home_alt;
-            }
+            v->alt0 = alt;
             v->origin_set = true;
         } else if (v->origin_wait_count > 20) {
             v->lat0 = lat;

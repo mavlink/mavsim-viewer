@@ -307,9 +307,16 @@ static void draw_secondary_row(const hud_t *h, const vehicle_t *pv, int pidx,
     float label_off_y = (float)(row_y + (int)(4 * scale));
     char b[16];
 
-    // NAV: HDG, ROLL, PITCH — same X positions as primary
-    DrawTextEx(font_label, "HDG", (Vector2){nav_start, label_off_y}, fsl, 0.5f, label_color_dim);
-    snprintf(b, sizeof(b), "%03d", ((int)pv->heading_deg % 360 + 360) % 360);
+    // NAV: HDG/YAW, ROLL, PITCH — same X positions as primary
+    if (h->show_yaw) {
+        DrawTextEx(font_label, "YAW", (Vector2){nav_start, label_off_y}, fsl, 0.5f, label_color_dim);
+        float yaw_p = pv->heading_deg;
+        if (yaw_p > 180.0f) yaw_p -= 360.0f;
+        snprintf(b, sizeof(b), "%+.0f", yaw_p);
+    } else {
+        DrawTextEx(font_label, "HDG", (Vector2){nav_start, label_off_y}, fsl, 0.5f, label_color_dim);
+        snprintf(b, sizeof(b), "%03d", ((int)pv->heading_deg % 360 + 360) % 360);
+    }
     DrawTextEx(font_value, b, (Vector2){nav_start + label_val_gap, (float)text_y}, fsv, 0.5f, value_color);
 
     DrawTextEx(font_label, "ROLL", (Vector2){nav_start + nav_step, label_off_y}, fsl, 0.5f, label_color_dim);
@@ -349,7 +356,8 @@ static void draw_secondary_row(const hud_t *h, const vehicle_t *pv, int pidx,
 
 void hud_draw(const hud_t *h, const vehicle_t *vehicles,
               const data_source_t *sources, int vehicle_count,
-              int selected, int screen_w, int screen_h, view_mode_t view_mode) {
+              int selected, int screen_w, int screen_h, view_mode_t view_mode,
+              bool ghost_mode, bool has_tier3) {
 
     bool rez = (view_mode == VIEW_REZ);
     bool synth = (view_mode == VIEW_1988);
@@ -416,6 +424,16 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
     // Bar background (full height including transport row)
     DrawRectangle(0, bar_y, screen_w, total_bar_h, bg);
     DrawLineEx((Vector2){0, (float)bar_y}, (Vector2){(float)screen_w, (float)bar_y}, 1.0f, border);
+
+    // ESTIMATED POSITION warning above timeline when any drone is Tier 3
+    if (has_tier3 && is_replay_source) {
+        const char *est_text = "ESTIMATED POSITION";
+        float est_fs = 11 * s;
+        Vector2 est_w = MeasureTextEx(h->font_label, est_text, est_fs, 0.5f);
+        float est_y = (float)bar_y - est_w.y - 4 * s;
+        float est_x = (float)(screen_w / 2) - est_w.x / 2.0f;
+        DrawTextEx(h->font_label, est_text, (Vector2){est_x, est_y}, est_fs, 0.5f, warn);
+    }
 
     // Replay transport row (above the main HUD bar)
     if (is_replay_source) {
@@ -627,12 +645,19 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
     float unit_y_off = (float)(int)(6 * s);
 
     // NAV group: HDG, ROLL, PITCH (evenly spaced)
-    // HDG
+    // HDG / YAW (Y key toggles)
     {
         char b[8];
         float x = nav_start + nav_step * 0;
-        DrawTextEx(h->font_label, "HDG", (Vector2){x, (float)label_y}, fs_label, 0.5f, label_color);
-        snprintf(b, sizeof(b), "%03d", ((int)v->heading_deg % 360 + 360) % 360);
+        if (h->show_yaw) {
+            DrawTextEx(h->font_label, "YAW", (Vector2){x, (float)label_y}, fs_label, 0.5f, label_color);
+            float yaw = v->heading_deg;
+            if (yaw > 180.0f) yaw -= 360.0f;
+            snprintf(b, sizeof(b), "%+.0f", yaw);
+        } else {
+            DrawTextEx(h->font_label, "HDG", (Vector2){x, (float)label_y}, fs_label, 0.5f, label_color);
+            snprintf(b, sizeof(b), "%03d", ((int)v->heading_deg % 360 + 360) % 360);
+        }
         DrawTextEx(h->font_value, b, (Vector2){x, (float)value_y}, fs_value, 0.5f, value_color);
         Vector2 vw = MeasureTextEx(h->font_value, b, fs_value, 0.5f);
         Vector2 uw = MeasureTextEx(h->font_label, "deg", fs_unit, 0.5f);
@@ -750,17 +775,24 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
                     numpad_x, np_y, h->font_label, np_btn, np_gap, s);
     }
 
-    // Status group (right edge)
+    // Status group (right edge) — vertically centered as a block
     {
         bool connected = sources[selected].connected;
         bool is_replay = sources[selected].playback.duration_s > 0.0f;
-        int status_y = bar_y + primary_h / 2 - (int)(12 * s);
+        float line_gap = 4 * s;
+        float status_line_h = fs_dim;
+        float fps_line_h = fs_dim;
+        float badge_h = ghost_mode ? (fs_dim * 0.8f + 4 * s) : 0;
+        float badge_gap = ghost_mode ? line_gap : 0;
+        float total_h = status_line_h + line_gap + fps_line_h + badge_gap + badge_h;
+        float top_y = bar_y + primary_h / 2.0f - total_h / 2.0f;
+        float cx = status_x + 14 * s;
 
         // Connection dot
         Color dot_color = connected ? connected_color : (Color){200, 60, 60, 255};
-        DrawCircle((int)(status_x + 4 * s), status_y + (int)(6 * s), 4 * s, dot_color);
+        DrawCircle((int)(status_x + 4 * s), (int)(top_y + 6 * s), 4 * s, dot_color);
 
-        // Status text — simple data source label
+        // Status text
         char status_buf[48];
         if (is_replay) {
             if (!connected)
@@ -774,13 +806,31 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
         } else {
             snprintf(status_buf, sizeof(status_buf), "Waiting...");
         }
-        DrawTextEx(h->font_label, status_buf, (Vector2){status_x + 14 * s, (float)status_y}, fs_dim, 0.5f,
+        DrawTextEx(h->font_label, status_buf, (Vector2){cx, top_y}, fs_dim, 0.5f,
                    connected ? connected_color : dim_color);
 
         // FPS
         char fps_buf[16];
         snprintf(fps_buf, sizeof(fps_buf), "FPS: %d", GetFPS());
-        DrawTextEx(h->font_label, fps_buf, (Vector2){status_x + 14 * s, (float)(status_y + (int)(18 * s))}, fs_dim, 0.5f, dim_color);
+        float fps_y = top_y + status_line_h + line_gap;
+        DrawTextEx(h->font_label, fps_buf, (Vector2){cx, fps_y}, fs_dim, 0.5f, dim_color);
+
+        // GHOST badge (small purple pill)
+        if (ghost_mode) {
+            float badge_fs = fs_dim * 0.8f;
+            float badge_y = fps_y + fps_line_h + badge_gap;
+            const char *badge_text = "GHOST";
+            Vector2 tw = MeasureTextEx(h->font_label, badge_text, badge_fs, 0.5f);
+            float pad_x = 10 * s, pad_y = 1.5f * s;
+            float pill_w = tw.x + pad_x * 2;
+            float pill_h = tw.y + pad_y * 2;
+            float pill_x = cx + (MeasureTextEx(h->font_label, "FPS: 60", fs_dim, 0.5f).x - pill_w) / 2.0f;
+            Color purple_bg = (Color){140, 80, 220, 180};
+            Color purple_text = (Color){255, 255, 255, 230};
+            Rectangle pill_r = {pill_x, badge_y, pill_w, pill_h};
+            DrawRectangleRounded(pill_r, 1.0f, 12, purple_bg);
+            DrawTextEx(h->font_label, badge_text, (Vector2){pill_x + pad_x, badge_y + pad_y}, badge_fs, 0.5f, purple_text);
+        }
     }
 
     // Secondary row: position info

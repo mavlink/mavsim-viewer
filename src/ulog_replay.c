@@ -68,7 +68,8 @@ static void process_message(ulog_replay_ctx_t *ctx, const ulog_data_msg_t *dmsg)
         ctx->state.valid = true;
 
     // home_position topic — authoritative home (Tier 1)
-    if (sub_idx == ctx->sub_home_pos && ctx->sub_home_pos >= 0) {
+    // Skip if pre-scan rejected this log's home (no GPOS data to confirm it)
+    if (sub_idx == ctx->sub_home_pos && ctx->sub_home_pos >= 0 && !ctx->home_rejected) {
         double lat = 0, lon = 0;
         float alt = 0;
         if (ctx->cache.home_lat_offset >= 0)
@@ -315,6 +316,7 @@ int ulog_replay_init(ulog_replay_ctx_t *ctx, const char *filepath) {
         ctx->cache.home_lat_offset = ulog_parser_find_field(&ctx->parser, hp_fmt, "lat");
         ctx->cache.home_lon_offset = ulog_parser_find_field(&ctx->parser, hp_fmt, "lon");
         ctx->cache.home_alt_offset = ulog_parser_find_field(&ctx->parser, hp_fmt, "alt");
+        ctx->cache.home_valid_hpos_offset = ulog_parser_find_field(&ctx->parser, hp_fmt, "valid_hpos");
     }
 
     // Pre-scan for vehicle_type, flight mode transitions, and home position
@@ -324,6 +326,7 @@ int ulog_replay_init(ulog_replay_ctx_t *ctx, const char *filepath) {
     {
         bool got_type = false;
         bool got_home = false;
+        bool seen_gpos_data = false;
         uint8_t prev_nav = 0xFF;
 
         uint16_t vstatus_msg_id = (ctx->sub_vehicle_status >= 0)
@@ -366,11 +369,17 @@ int ulog_replay_init(ulog_replay_ctx_t *ctx, const char *filepath) {
             }
 
             // Home position: Tier 1 (highest priority)
+            // Require valid_hpos. After the scan, we also verify that GPOS data
+            // actually exists — subscription alone isn't enough (PX4 subscribes
+            // even when EKF never produces data).
             if (!got_home && scan_msg.msg_id == home_msg_id) {
+                bool hpos_valid = true;  // default true for older logs without the field
+                if (ctx->cache.home_valid_hpos_offset >= 0)
+                    hpos_valid = ulog_parser_get_uint8(&scan_msg, ctx->cache.home_valid_hpos_offset) != 0;
                 double lat = ulog_parser_get_double(&scan_msg, ctx->cache.home_lat_offset);
                 double lon = ulog_parser_get_double(&scan_msg, ctx->cache.home_lon_offset);
                 float alt = ulog_parser_get_float(&scan_msg, ctx->cache.home_alt_offset);
-                if (lat != 0.0 || lon != 0.0) {
+                if (hpos_valid && (lat != 0.0 || lon != 0.0)) {
                     ctx->home.lat = (int32_t)(lat * 1e7);
                     ctx->home.lon = (int32_t)(lon * 1e7);
                     ctx->home.alt = (int32_t)(alt * 1000.0f);
@@ -380,7 +389,9 @@ int ulog_replay_init(ulog_replay_ctx_t *ctx, const char *filepath) {
                 }
             }
 
-            // GPOS fallback: Tier 2
+            // GPOS: track whether any data exists, and use as Tier 2 fallback
+            if (scan_msg.msg_id == gpos_msg_id && gpos_msg_id != 0xFFFF)
+                seen_gpos_data = true;
             if (!got_home && scan_msg.msg_id == gpos_msg_id) {
                 double lat = ulog_parser_get_double(&scan_msg, ctx->cache.gpos_lat_offset);
                 double lon = ulog_parser_get_double(&scan_msg, ctx->cache.gpos_lon_offset);
@@ -393,6 +404,14 @@ int ulog_replay_init(ulog_replay_ctx_t *ctx, const char *filepath) {
                     got_home = true;
                 }
             }
+        }
+
+        // If home came from home_position topic but no GPOS data exists,
+        // the position is baro-only and unreliable as an absolute datum.
+        if (got_home && ctx->home_from_topic && !seen_gpos_data) {
+            ctx->home.valid = false;
+            ctx->home_from_topic = false;
+            ctx->home_rejected = true;
         }
 
         if (ctx->mode_change_count > 0)

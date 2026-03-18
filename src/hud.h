@@ -13,6 +13,7 @@ typedef struct {
     int pinned_count;
     bool show_help;
     bool is_replay;     // true when data source is ULog replay (affects layout)
+    bool show_yaw;      // Y key: swap HDG for YAW display
     Font font_value;    // JetBrains Mono for telemetry numbers
     Font font_label;    // Inter for labels and status text
 } hud_t;
@@ -21,7 +22,8 @@ void hud_init(hud_t *h);
 void hud_update(hud_t *h, uint64_t time_usec, bool connected, float dt);
 void hud_draw(const hud_t *h, const vehicle_t *vehicles,
               const data_source_t *sources, int vehicle_count,
-              int selected, int screen_w, int screen_h, view_mode_t view_mode);
+              int selected, int screen_w, int screen_h, view_mode_t view_mode,
+              bool ghost_mode, bool has_tier3);
 void hud_cleanup(hud_t *h);
 
 // Returns the total height of the HUD bar in pixels (for layout by other panels).

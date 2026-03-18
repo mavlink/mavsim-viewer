@@ -246,10 +246,10 @@ int main(int argc, char *argv[]) {
                 if (!sources[i].home.valid) continue;
                 for (int j = i + 1; j < num_replay_files && !conflict; j++) {
                     if (!sources[j].home.valid) continue;
-                    double dlat_m = (double)(sources[i].home.lat - sources[j].home.lat) / 1e7 * 111319.5;
+                    double dlat_m = ((double)sources[i].home.lat - (double)sources[j].home.lat) / 1e7 * 111319.5;
                     double lat_rad = (sources[i].home.lat / 1e7) * (M_PI / 180.0);
-                    double dlon_m = (double)(sources[i].home.lon - sources[j].home.lon) / 1e7 * 111319.5 * cos(lat_rad);
-                    double dalt_m = (double)(sources[i].home.alt - sources[j].home.alt) / 1000.0;
+                    double dlon_m = ((double)sources[i].home.lon - (double)sources[j].home.lon) / 1e7 * 111319.5 * cos(lat_rad);
+                    double dalt_m = ((double)sources[i].home.alt - (double)sources[j].home.alt) / 1000.0;
                     double dist = sqrt(dlat_m * dlat_m + dlon_m * dlon_m + dalt_m * dalt_m);
                     if (dist < 0.1) conflict = true;              // identical position
                     if (dist > 500.0) { conflict = true; conflict_far = true; }  // too far
@@ -384,19 +384,77 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    // Pre-set shared NED origin for multi-drone replay so all drones share
+    // the same coordinate system. Alt datum = minimum home altitude so no
+    // drone renders underground.
+    // Shared NED origin for all multi-file replay.
+    // All drones with valid homes share the same coordinate frame.
+    // Tier 3 drones (no valid home) keep origin_set=false and use vehicle_update's default.
+    if (is_replay && num_replay_files > 1 && (ghost_mode || ghost_mode_grid)) {
+        // Find first drone with valid home for reference lat/lon
+        int ref_idx = -1;
+        double ref_lat_rad = 0.0, ref_lon_rad = 0.0;
+        for (int i = 0; i < num_replay_files; i++) {
+            if (sources[i].home.valid) {
+                ref_idx = i;
+                ref_lat_rad = sources[i].home.lat / 1e7 * (M_PI / 180.0);
+                ref_lon_rad = sources[i].home.lon / 1e7 * (M_PI / 180.0);
+                break;
+            }
+        }
+
+        // Min altitude across drones with valid homes
+        double min_alt = 1e9;
+        for (int i = 0; i < num_replay_files; i++) {
+            if (sources[i].home.valid) {
+                double a = sources[i].home.alt * 1e-3;
+                if (a < min_alt) min_alt = a;
+            }
+        }
+        if (min_alt > 1e8) min_alt = 0.0;
+
+        // Apply shared origin and grid offsets based on conflict type
+        if (conflict_far) {
+            // Too far: each drone keeps its own origin (own home, own altitude).
+            // Narrow grid just spaces them apart like regular grid but tighter.
+            for (int i = 1; i < num_replay_files; i++) {
+                if (ghost_mode_grid)
+                    vehicles[i].grid_offset.x = i * 5.0f;
+            }
+            // Don't set origin_set — vehicle_update handles each drone independently
+        } else {
+            // Same location or no-data: shared origin for drones with valid homes
+            for (int i = 0; i < num_replay_files; i++) {
+                if (sources[i].home.valid) {
+                    vehicles[i].lat0 = ref_lat_rad;
+                    vehicles[i].lon0 = ref_lon_rad;
+                    vehicles[i].alt0 = min_alt;
+                    vehicles[i].origin_set = true;
+                }
+            }
+            // Grid offsets for same-location (only for ghost_mode_grid)
+            if (ghost_mode_grid) {
+                for (int i = 1; i < num_replay_files; i++)
+                    vehicles[i].grid_offset.x = i * 5.0f;
+            }
+        }
+
+        if (ref_idx >= 0)
+            printf("Multi-drone origin: lat=%.6f lon=%.6f alt=%.1f (min datum)\n",
+                   ref_lat_rad * (180.0 / M_PI), ref_lon_rad * (180.0 / M_PI), min_alt);
+    }
+
+    // Check for Tier 3 drones (no valid home = estimated position)
+    bool has_tier3 = false;
+    for (int i = 0; i < num_replay_files; i++) {
+        if (!sources[i].home.valid) { has_tier3 = true; break; }
+    }
+
     // Apply ghost mode: translucent non-primary drones
-    // Origin sharing is handled at runtime (see main loop)
     if (ghost_mode && num_replay_files > 1) {
         vehicle_set_ghost_alpha(&vehicles[0], 1.0f);
         for (int i = 1; i < num_replay_files; i++)
             vehicle_set_ghost_alpha(&vehicles[i], 0.35f);
-    }
-
-    // Apply grid offset for deconfliction
-    // Normal grid: set immediately. Narrow grid (too far): handled at runtime.
-    if (ghost_mode_grid && !conflict_far && num_replay_files > 1) {
-        for (int i = 1; i < num_replay_files; i++)
-            vehicles[i].grid_offset = (Vector3){ i * 5.0f, 0.0f, 0.0f };
     }
 
     hud_t hud;
@@ -450,30 +508,8 @@ int main(int argc, char *argv[]) {
             last_pos[i] = vehicles[i].position;
         }
 
-        // Ghost mode: once both primary and secondary drones have positions,
-        // compute offset to collapse secondary onto primary's location
-        if (ghost_mode && num_replay_files > 1 && vehicles[0].active) {
-            for (int i = 1; i < num_replay_files; i++) {
-                if (vehicles[i].active && vehicles[i].grid_offset.x == 0.0f
-                    && vehicles[i].grid_offset.z == 0.0f) {
-                    vehicles[i].grid_offset.x = vehicles[0].position.x - vehicles[i].position.x;
-                    vehicles[i].grid_offset.y = vehicles[0].position.y - vehicles[i].position.y;
-                    vehicles[i].grid_offset.z = vehicles[0].position.z - vehicles[i].position.z;
-                }
-            }
-        }
-
-        // Narrow grid: same runtime snap as ghost but with 1m spacing per drone
-        if (ghost_mode_grid && conflict_far && num_replay_files > 1 && vehicles[0].active) {
-            for (int i = 1; i < num_replay_files; i++) {
-                if (vehicles[i].active && vehicles[i].grid_offset.x == 0.0f
-                    && vehicles[i].grid_offset.z == 0.0f) {
-                    vehicles[i].grid_offset.x = vehicles[0].position.x - vehicles[i].position.x + i * 1.0f;
-                    vehicles[i].grid_offset.y = vehicles[0].position.y - vehicles[i].position.y;
-                    vehicles[i].grid_offset.z = vehicles[0].position.z - vehicles[i].position.z;
-                }
-            }
-        }
+        // Grid offsets for ghost/narrow-grid are now computed at init time
+        // from home positions (see shared origin block above).
 
         // Check if any source is connected (for HUD)
         bool any_connected = false;
@@ -720,6 +756,9 @@ int main(int argc, char *argv[]) {
                 for (int i = 0; i < nrf; i++)
                     sources[i].playback.looping = l;
             }
+            if (IsKeyPressed(KEY_Y)) {
+                hud.show_yaw = !hud.show_yaw;
+            }
             if (IsKeyPressed(KEY_I)) {
                 bool interp = !sources[selected].playback.interpolation;
                 for (int i = 0; i < nrf; i++)
@@ -817,7 +856,7 @@ int main(int argc, char *argv[]) {
             if (show_hud) {
                 hud_draw(&hud, vehicles, sources, vehicle_count,
                          selected, GetScreenWidth(), GetScreenHeight(),
-                         scene.view_mode);
+                         scene.view_mode, ghost_mode, has_tier3);
             }
 
             // Debug panel
@@ -830,7 +869,8 @@ int main(int argc, char *argv[]) {
                 }
                 debug_panel_draw(&dbg_panel, GetScreenWidth(), GetScreenHeight(),
                                  scene.view_mode, hud.font_label,
-                                 vehicle_count, active_count, total_trail);
+                                 vehicle_count, active_count, total_trail,
+                                 vehicles[selected].position);
             }
 
             // Ortho panel overlay

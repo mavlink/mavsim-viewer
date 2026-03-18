@@ -84,6 +84,7 @@ typedef struct {
     double ref_lon;             // degrees
     float ref_alt;              // meters
     bool ref_set;
+    bool ref_rejected;          // LPOS ref coordinates were out of range
 
     // Last position sample for dead-reckoning interpolation
     uint64_t last_pos_usec;     // timestamp of last position update

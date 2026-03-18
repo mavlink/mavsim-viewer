@@ -313,11 +313,13 @@ void vehicle_update(vehicle_t *v, const hil_state_t *state, const home_position_
             v->lon0 = lon;
             v->alt0 = alt;
             v->origin_set = true;
+
         } else if (v->origin_wait_count > 20) {
             v->lat0 = lat;
             v->lon0 = lon;
             v->alt0 = alt;
             v->origin_set = true;
+
         } else {
             return;  // skip this update, wait for home
         }

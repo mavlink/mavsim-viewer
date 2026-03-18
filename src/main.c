@@ -219,6 +219,7 @@ int main(int argc, char *argv[]) {
     }
 
     // ── Conflict detection + resolution (multi-file replay, not --ghost) ──
+    bool conflict_detected = false;
     bool conflict_far = false;
     bool ghost_mode_grid = false;
 
@@ -258,6 +259,7 @@ int main(int argc, char *argv[]) {
         }
 
         // Show deconfliction prompt
+        conflict_detected = conflict;
         if (conflict) {
             // Init HUD early for fonts
             hud_t prompt_hud;
@@ -384,16 +386,11 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // Pre-set shared NED origin for multi-drone replay so all drones share
-    // the same coordinate system. Alt datum = minimum home altitude so no
-    // drone renders underground.
-    // Shared NED origin for all multi-file replay.
-    // All drones with valid homes share the same coordinate frame.
-    // Tier 3 drones (no valid home) keep origin_set=false and use vehicle_update's default.
-    if (is_replay && num_replay_files > 1 && (ghost_mode || ghost_mode_grid)) {
-        // Find first drone with valid home for reference lat/lon
-        int ref_idx = -1;
-        double ref_lat_rad = 0.0, ref_lon_rad = 0.0;
+    // Compute shared NED origin for multi-drone replay.
+    // ref_lat_rad/ref_lon_rad/min_alt persist for runtime mode switching (P key).
+    double ref_lat_rad = 0.0, ref_lon_rad = 0.0, min_alt = 0.0;
+    int ref_idx = -1;
+    if (is_replay && num_replay_files > 1) {
         for (int i = 0; i < num_replay_files; i++) {
             if (sources[i].home.valid) {
                 ref_idx = i;
@@ -403,8 +400,7 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // Min altitude across drones with valid homes
-        double min_alt = 1e9;
+        min_alt = 1e9;
         for (int i = 0; i < num_replay_files; i++) {
             if (sources[i].home.valid) {
                 double a = sources[i].home.alt * 1e-3;
@@ -413,17 +409,16 @@ int main(int argc, char *argv[]) {
         }
         if (min_alt > 1e8) min_alt = 0.0;
 
-        // Apply shared origin and grid offsets based on conflict type
-        if (conflict_far) {
-            // Too far: each drone keeps its own origin (own home, own altitude).
-            // Narrow grid just spaces them apart like regular grid but tighter.
-            for (int i = 1; i < num_replay_files; i++) {
-                if (ghost_mode_grid)
+        if (ghost_mode || ghost_mode_grid) {
+            // Ghost/grid: each drone uses its own home as origin (collapse to center).
+            // Grid mode additionally offsets each drone along X.
+            // Don't set origin_set — vehicle_update will set each drone's own origin.
+            if (ghost_mode_grid) {
+                for (int i = 1; i < num_replay_files; i++)
                     vehicles[i].grid_offset.x = i * 5.0f;
             }
-            // Don't set origin_set — vehicle_update handles each drone independently
         } else {
-            // Same location or no-data: shared origin for drones with valid homes
+            // Normal replay: shared origin so drones render at real relative positions
             for (int i = 0; i < num_replay_files; i++) {
                 if (sources[i].home.valid) {
                     vehicles[i].lat0 = ref_lat_rad;
@@ -431,11 +426,6 @@ int main(int argc, char *argv[]) {
                     vehicles[i].alt0 = min_alt;
                     vehicles[i].origin_set = true;
                 }
-            }
-            // Grid offsets for same-location (only for ghost_mode_grid)
-            if (ghost_mode_grid) {
-                for (int i = 1; i < num_replay_files; i++)
-                    vehicles[i].grid_offset.x = i * 5.0f;
             }
         }
 
@@ -498,6 +488,12 @@ int main(int argc, char *argv[]) {
             vehicle_update(&vehicles[i], &sources[i].state, &sources[i].home);
             vehicles[i].sysid = sources[i].sysid;
 
+            // Placeholder: show model at origin while waiting for position data.
+            if (sources[i].connected && !vehicles[i].active) {
+                vehicles[i].active = true;
+                vehicles[i].position = vehicles[i].grid_offset;
+            }
+
             // Detect position jump (new SITL connecting before disconnect timeout)
             if (vehicles[i].active && vehicles[i].trail_count > 0) {
                 Vector3 delta = Vector3Subtract(vehicles[i].position, last_pos[i]);
@@ -524,7 +520,11 @@ int main(int argc, char *argv[]) {
         // Handle input
         scene_handle_input(&scene);
 
-        // P key: reopen deconfliction menu during replay
+        // P key: switch between Swarm / Ghost / Grid modes during multi-file replay
+        // P key: mode switcher for multi-file replay
+        // - No conflict: Formation / Ghost / Grid
+        // - Conflict (close/no-data): Cancel / Ghost / Grid offset
+        // - Conflict (too far): Cancel / Ghost / Narrow grid
         if (IsKeyPressed(KEY_P) && is_replay && num_replay_files > 1) {
             int ch = 0;
             while (ch == 0 && !WindowShouldClose()) {
@@ -559,8 +559,19 @@ int main(int argc, char *argv[]) {
                     ptc=WHITE; pttl=YELLOW;
                 }
 
+                // Menu labels and title depend on conflict state
+                const char *title;
+                const char *pl[3];
+                const char *grid_label = conflict_far ? "Narrow grid" : "Grid offset";
+                if (conflict_detected) {
+                    title = "POSITION CONFLICT";
+                    pl[0] = "Cancel"; pl[1] = "Ghost mode"; pl[2] = grid_label;
+                } else {
+                    title = "REPLAY MODE";
+                    pl[0] = "Formation"; pl[1] = "Ghost"; pl[2] = "Grid offset";
+                }
+
                 float pfs_t=15*ps, pfs_o=20*ps, pfs_h=12*ps, plh=36*ps, pp=16*ps, pig=20*ps;
-                const char *pl[]={"Cancel","Ghost mode","Grid offset"};
                 float pkw=MeasureTextEx(hud.font_value,"1",pfs_o,0.5f).x, pg=16*ps, pw=0;
                 for(int o=0;o<3;o++){float w=pkw+pg+MeasureTextEx(hud.font_label,pl[o],pfs_o,0.5f).x;if(w>pw)pw=w;}
                 float pbw=520*ps, pbh=pp+pfs_t+pig+plh*3+pig*0.3f+pfs_h+pp*0.5f;
@@ -573,12 +584,19 @@ int main(int argc, char *argv[]) {
                 Rectangle pb={pbx,pby,pbw,pbh};
                 DrawRectangleRounded(pb,0.06f,8,pbbg);
                 DrawRectangleRoundedLinesEx(pb,0.06f,8,1.5f*ps,pbbd);
-                const char*pt1="POSITION CONFLICT";char pt2[64];
-                snprintf(pt2,sizeof(pt2),"  -  %d drones",num_replay_files);
-                Vector2 ptm=MeasureTextEx(hud.font_label,pt1,pfs_t,0.5f);
+                char pt2[64];
+                if (conflict_detected) {
+                    if (conflict_far)
+                        snprintf(pt2,sizeof(pt2),"  -  %d drones too far apart",num_replay_files);
+                    else
+                        snprintf(pt2,sizeof(pt2),"  -  %d drones overlap",num_replay_files);
+                } else {
+                    snprintf(pt2,sizeof(pt2),"  -  %d drones",num_replay_files);
+                }
+                Vector2 ptm=MeasureTextEx(hud.font_label,title,pfs_t,0.5f);
                 Vector2 ptr=MeasureTextEx(hud.font_label,pt2,pfs_t,0.5f);
                 float ptx=pcx-(ptm.x+ptr.x)/2;
-                DrawTextEx(hud.font_label,pt1,(Vector2){ptx,pby+pp},pfs_t,0.5f,pttl);
+                DrawTextEx(hud.font_label,title,(Vector2){ptx,pby+pp},pfs_t,0.5f,pttl);
                 DrawTextEx(hud.font_label,pt2,(Vector2){ptx+ptm.x,pby+pp},pfs_t,0.5f,psub);
                 float pleft=pcx-pw/2, poy=pby+pp+pfs_t+pig;
                 for(int o=0;o<3;o++){
@@ -592,27 +610,56 @@ int main(int argc, char *argv[]) {
                 EndDrawing();
             }
             if (ch == 1) {
-                // Cancel — reset everything
-                ghost_mode = false; ghost_mode_grid = false;
-                for (int i = 0; i < num_replay_files; i++) {
-                    vehicles[i].grid_offset = (Vector3){0,0,0};
-                    vehicle_set_ghost_alpha(&vehicles[i], 1.0f);
+                if (conflict_detected) {
+                    // Cancel — reset to ghost (safe default for conflicts)
+                    ghost_mode = false; ghost_mode_grid = false;
+                    for (int i = 0; i < num_replay_files; i++) {
+                        vehicles[i].grid_offset = (Vector3){0,0,0};
+                        vehicle_set_ghost_alpha(&vehicles[i], 1.0f);
+                        vehicles[i].origin_set = false;
+                    }
+                } else {
+                    // Formation mode — shared origin, real relative positions
+                    ghost_mode = false; ghost_mode_grid = false;
+                    for (int i = 0; i < num_replay_files; i++) {
+                        vehicles[i].grid_offset = (Vector3){0,0,0};
+                        vehicle_set_ghost_alpha(&vehicles[i], 1.0f);
+                        if (sources[i].home.valid) {
+                            vehicles[i].lat0 = ref_lat_rad;
+                            vehicles[i].lon0 = ref_lon_rad;
+                            vehicles[i].alt0 = min_alt;
+                            vehicles[i].origin_set = true;
+                        }
+                    }
                 }
             } else if (ch == 2) {
-                // Ghost mode
+                // Ghost mode — each drone uses own home, collapse to center
                 ghost_mode = true; ghost_mode_grid = false;
-                vehicle_set_ghost_alpha(&vehicles[0], 1.0f);
-                for (int i = 1; i < num_replay_files; i++) {
+                for (int i = 0; i < num_replay_files; i++) {
                     vehicles[i].grid_offset = (Vector3){0,0,0};
-                    vehicle_set_ghost_alpha(&vehicles[i], 0.35f);
+                    vehicles[i].origin_set = false;
                 }
-            } else if (ch == 3) {
-                // Grid offset
-                ghost_mode = false; ghost_mode_grid = true;
-                for (int i = 0; i < num_replay_files; i++)
-                    vehicle_set_ghost_alpha(&vehicles[i], 1.0f);
+                vehicle_set_ghost_alpha(&vehicles[0], 1.0f);
                 for (int i = 1; i < num_replay_files; i++)
-                    vehicles[i].grid_offset = (Vector3){ i * 5.0f, 0.0f, 0.0f };
+                    vehicle_set_ghost_alpha(&vehicles[i], 0.35f);
+            } else if (ch == 3) {
+                if (conflict_far) {
+                    // Narrow grid — each drone keeps own origin, narrow spacing
+                    ghost_mode = false; ghost_mode_grid = true;
+                    for (int i = 0; i < num_replay_files; i++) {
+                        vehicle_set_ghost_alpha(&vehicles[i], 1.0f);
+                        vehicles[i].origin_set = false;
+                        vehicles[i].grid_offset = (i > 0) ? (Vector3){ i * 5.0f, 0.0f, 0.0f } : (Vector3){0,0,0};
+                    }
+                } else {
+                    // Grid offset — each drone uses own home + X offset
+                    ghost_mode = false; ghost_mode_grid = true;
+                    for (int i = 0; i < num_replay_files; i++) {
+                        vehicle_set_ghost_alpha(&vehicles[i], 1.0f);
+                        vehicles[i].origin_set = false;
+                        vehicles[i].grid_offset = (i > 0) ? (Vector3){ i * 5.0f, 0.0f, 0.0f } : (Vector3){0,0,0};
+                    }
+                }
             }
         }
 
@@ -854,9 +901,11 @@ int main(int argc, char *argv[]) {
 
             // HUD
             if (show_hud) {
+                bool has_awaiting_gps = vehicles[selected].active &&
+                    !vehicles[selected].origin_set && sources[selected].home.valid;
                 hud_draw(&hud, vehicles, sources, vehicle_count,
                          selected, GetScreenWidth(), GetScreenHeight(),
-                         scene.view_mode, ghost_mode, has_tier3);
+                         scene.view_mode, ghost_mode, has_tier3, has_awaiting_gps);
             }
 
             // Debug panel
@@ -870,7 +919,8 @@ int main(int argc, char *argv[]) {
                 debug_panel_draw(&dbg_panel, GetScreenWidth(), GetScreenHeight(),
                                  scene.view_mode, hud.font_label,
                                  vehicle_count, active_count, total_trail,
-                                 vehicles[selected].position);
+                                 vehicles[selected].position,
+                                 sources[selected].ref_rejected);
             }
 
             // Ortho panel overlay

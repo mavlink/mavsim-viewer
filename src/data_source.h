@@ -43,6 +43,7 @@ struct data_source {
     uint8_t sysid;
     uint8_t mav_type;
     bool debug;
+    bool ref_rejected;     // LPOS reference coordinates were invalid
 
     // Replay controls (ignored by MAVLink backend)
     playback_state_t playback;

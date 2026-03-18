@@ -69,7 +69,8 @@ static void draw_graph(float x, float y, float w, float h,
 void debug_panel_draw(const debug_panel_t *d, int screen_w, int screen_h,
                       view_mode_t view_mode, Font font,
                       int vehicle_count, int active_count,
-                      int total_trail_points, Vector3 vehicle_pos)
+                      int total_trail_points, Vector3 vehicle_pos,
+                      bool ref_rejected)
 {
     if (!d->visible) return;
 
@@ -233,6 +234,11 @@ void debug_panel_draw(const debug_panel_t *d, int screen_w, int screen_h,
 
     // --- POSITION ---
     DrawTextEx(font, "POSITION", (Vector2){cx, cy}, fs_title, 0, accent);
+    if (ref_rejected) {
+        Vector2 pw = MeasureTextEx(font, "POSITION", fs_title, 0);
+        Color warn_col = (Color){255, 160, 40, 220};
+        DrawTextEx(font, " BAD REF", (Vector2){cx + pw.x, cy}, fs_title * 0.8f, 0, warn_col);
+    }
     cy += line_h;
 
     snprintf(buf, sizeof(buf), "X  %+.1f", vehicle_pos.x);

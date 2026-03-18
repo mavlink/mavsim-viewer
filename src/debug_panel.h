@@ -21,6 +21,7 @@ void debug_panel_update(debug_panel_t *d, float dt);
 void debug_panel_draw(const debug_panel_t *d, int screen_w, int screen_h,
                       view_mode_t view_mode, Font font,
                       int vehicle_count, int active_count,
-                      int total_trail_points, Vector3 vehicle_pos);
+                      int total_trail_points, Vector3 vehicle_pos,
+                      bool ref_rejected);
 
 #endif

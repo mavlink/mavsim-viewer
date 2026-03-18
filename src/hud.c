@@ -357,7 +357,7 @@ static void draw_secondary_row(const hud_t *h, const vehicle_t *pv, int pidx,
 void hud_draw(const hud_t *h, const vehicle_t *vehicles,
               const data_source_t *sources, int vehicle_count,
               int selected, int screen_w, int screen_h, view_mode_t view_mode,
-              bool ghost_mode, bool has_tier3) {
+              bool ghost_mode, bool has_tier3, bool has_awaiting_gps) {
 
     bool rez = (view_mode == VIEW_REZ);
     bool synth = (view_mode == VIEW_1988);
@@ -433,6 +433,18 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
         float est_y = (float)bar_y - est_w.y - 4 * s;
         float est_x = (float)(screen_w / 2) - est_w.x / 2.0f;
         DrawTextEx(h->font_label, est_text, (Vector2){est_x, est_y}, est_fs, 0.5f, warn);
+    }
+
+    // AWAITING GPS warning when a drone is parked at origin because
+    // GPOS data exists in the log but hasn't arrived in the stream yet
+    if (has_awaiting_gps && is_replay_source) {
+        const char *gps_text = "AWAITING GPS";
+        float gps_fs = 11 * s;
+        Vector2 gps_w = MeasureTextEx(h->font_label, gps_text, gps_fs, 0.5f);
+        float gps_y_off = (has_tier3 ? gps_w.y + 4 * s : 0);
+        float gps_y = (float)bar_y - gps_w.y - 4 * s - gps_y_off;
+        float gps_x = (float)(screen_w / 2) - gps_w.x / 2.0f;
+        DrawTextEx(h->font_label, gps_text, (Vector2){gps_x, gps_y}, gps_fs, 0.5f, warn);
     }
 
     // Replay transport row (above the main HUD bar)
@@ -840,6 +852,10 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
         snprintf(b, sizeof(b), "Pos: %.1f, %.1f, %.1f",
                  v->position.x, v->position.y, v->position.z);
         DrawTextEx(h->font_label, b, (Vector2){nav_group_x, (float)row2_y}, fs_dim, 0.5f, dim_color);
+        if (sources[selected].ref_rejected) {
+            Vector2 pw = MeasureTextEx(h->font_label, b, fs_dim, 0.5f);
+            DrawTextEx(h->font_label, "  BAD REF", (Vector2){nav_group_x + pw.x, (float)row2_y}, fs_dim, 0.5f, warn);
+        }
     }
 
     // Draw pinned vehicle secondary rows

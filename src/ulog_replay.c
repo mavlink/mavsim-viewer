@@ -170,18 +170,30 @@ static void process_message(ulog_replay_ctx_t *ctx, const ulog_data_msg_t *dmsg)
             if (!ctx->ref_set && ctx->cache.lpos_xy_global_offset >= 0) {
                 uint8_t xy_global = ulog_parser_get_uint8(dmsg, ctx->cache.lpos_xy_global_offset);
                 if (xy_global) {
-                    ctx->ref_lat = ulog_parser_get_double(dmsg, ctx->cache.lpos_ref_lat_offset);
-                    ctx->ref_lon = ulog_parser_get_double(dmsg, ctx->cache.lpos_ref_lon_offset);
-                    if (ctx->cache.lpos_z_global_offset >= 0 &&
-                        ulog_parser_get_uint8(dmsg, ctx->cache.lpos_z_global_offset)) {
-                        ctx->ref_alt = ulog_parser_get_float(dmsg, ctx->cache.lpos_ref_alt_offset);
+                    double rlat = ulog_parser_get_double(dmsg, ctx->cache.lpos_ref_lat_offset);
+                    double rlon = ulog_parser_get_double(dmsg, ctx->cache.lpos_ref_lon_offset);
+                    // Sanity check: reject garbage reference coordinates
+                    if (rlat < -90.0 || rlat > 90.0 || rlon < -180.0 || rlon > 180.0) {
+                        if (!ctx->ref_rejected) {
+                            printf("  Warning: LPOS ref out of range (lat=%.1f, lon=%.1f), ignoring\n", rlat, rlon);
+                            ctx->ref_rejected = true;
+                        }
+                    } else {
+                        ctx->ref_lat = rlat;
+                        ctx->ref_lon = rlon;
+                        if (ctx->cache.lpos_z_global_offset >= 0 &&
+                            ulog_parser_get_uint8(dmsg, ctx->cache.lpos_z_global_offset)) {
+                            ctx->ref_alt = ulog_parser_get_float(dmsg, ctx->cache.lpos_ref_alt_offset);
+                        }
+                        ctx->ref_set = true;
                     }
-                    ctx->ref_set = true;
                 }
             }
 
-            // Don't set home/position from LPOS if data is all zeros (no valid position)
-            bool has_pos = (x != 0.0f || y != 0.0f || z != 0.0f) || ctx->ref_set;
+            // Require horizontal position (x/y or reference frame) to produce
+            // a meaningful global position. z-only (baro) without a reference
+            // can't give valid lat/lon and would mix incompatible altitudes.
+            bool has_pos = (x != 0.0f || y != 0.0f) || ctx->ref_set;
 
             if (has_pos) {
                 local_to_global(ctx->ref_lat, ctx->ref_lon, ctx->ref_alt,

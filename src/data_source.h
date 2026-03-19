@@ -23,6 +23,10 @@ typedef struct {
     uint8_t current_nav_state;  // current flight mode (0xFF = unknown)
     const playback_mode_change_t *mode_changes;  // array of mode transitions (NULL for MAVLink)
     int mode_change_count;
+    float takeoff_conf;         // CUSUM confidence (0.0-1.0, -1 = N/A)
+    float correlation;          // Pearson r vs reference drone (NAN = N/A)
+    float rmse;                 // RMS position error vs reference (m) (NAN = N/A)
+    float time_offset_s;        // alignment offset for display
 } playback_state_t;
 
 typedef struct data_source data_source_t;

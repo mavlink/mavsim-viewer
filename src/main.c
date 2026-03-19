@@ -23,6 +23,39 @@
 
 #define MAX_VEHICLES 16
 
+// Incremental Pearson correlation (position only: x, y, z)
+#define CORR_CHANNELS 3
+#define CORR_MIN_SAMPLES 30
+
+typedef struct {
+    double sum_x, sum_y, sum_xy, sum_x2, sum_y2;
+} corr_channel_t;
+
+typedef struct {
+    corr_channel_t ch[CORR_CHANNELS];
+    double sum_sq_dist;  // running sum of squared Euclidean distances
+    int n;
+} corr_state_t;
+
+static float corr_compute(const corr_state_t *cs) {
+    if (cs->n < CORR_MIN_SAMPLES) return NAN;
+    float r_sum = 0.0f;
+    int valid = 0;
+    double n = cs->n;
+    for (int c = 0; c < CORR_CHANNELS; c++) {
+        const corr_channel_t *ch = &cs->ch[c];
+        double num = n * ch->sum_xy - ch->sum_x * ch->sum_y;
+        double d1  = n * ch->sum_x2 - ch->sum_x * ch->sum_x;
+        double d2  = n * ch->sum_y2 - ch->sum_y * ch->sum_y;
+        double den = sqrt(d1 * d2);
+        if (den > 1e-9) {
+            r_sum += (float)(num / den);
+            valid++;
+        }
+    }
+    return (valid > 0) ? r_sum / valid : 0.0f;
+}
+
 // Per-view-mode vehicle palettes. Slots 1-6 match trail directional colors.
 // Alternating warm/cool so adjacent drones are visually distinct.
 static const Color vehicle_palette_grid[MAX_VEHICLES] = {
@@ -191,6 +224,8 @@ int main(int argc, char *argv[]) {
     scene_init(&scene);
 
     vehicle_t vehicles[MAX_VEHICLES];
+    corr_state_t corr[MAX_VEHICLES];
+    memset(corr, 0, sizeof(corr));
     for (int i = 0; i < vehicle_count; i++) {
         vehicle_init(&vehicles[i], model_idx, scene.lighting_shader);
         vehicles[i].color = get_vehicle_palette(scene.view_mode)[i];
@@ -215,6 +250,17 @@ int main(int argc, char *argv[]) {
             vehicles[i].lon0 = lon0_rad;
             vehicles[i].alt0 = origin_alt;
             vehicles[i].origin_set = true;
+        }
+    }
+
+    // ── Takeoff alignment state (toggled by A key) ──
+    bool takeoff_aligned = false;
+    if (is_replay && num_replay_files > 1) {
+        // Set multi-file CONF for each source (always available)
+        for (int i = 0; i < num_replay_files; i++) {
+            ulog_replay_ctx_t *r = (ulog_replay_ctx_t *)sources[i].impl;
+            sources[i].playback.takeoff_conf = r->takeoff_conf;
+            sources[i].playback.time_offset_s = 0.0f;
         }
     }
 
@@ -458,6 +504,7 @@ int main(int argc, char *argv[]) {
     ortho_panel_init(&ortho);
 
     int selected = 0;
+    int prev_selected = 0;
     bool was_connected[MAX_VEHICLES];
     memset(was_connected, 0, sizeof(was_connected));
     Vector3 last_pos[MAX_VEHICLES];
@@ -506,6 +553,53 @@ int main(int argc, char *argv[]) {
 
         // Grid offsets for ghost/narrow-grid are now computed at init time
         // from home positions (see shared origin block above).
+
+        // Positional correlation vs selected drone (only while playing)
+        if (is_replay && num_replay_files > 1) {
+            // Reset accumulators when selection changes
+            if (selected != prev_selected) {
+                memset(corr, 0, sizeof(corr));
+                for (int i = 0; i < num_replay_files; i++) {
+                    sources[i].playback.correlation = NAN;
+                    sources[i].playback.rmse = NAN;
+                }
+                prev_selected = selected;
+            }
+
+            // Only accumulate while playback is active (not paused, not ended)
+            bool playing = sources[selected].connected && !sources[selected].playback.paused;
+            if (playing && vehicles[selected].origin_set) {
+                const vehicle_t *ref = &vehicles[selected];
+                double rx[CORR_CHANNELS] = {
+                    ref->position.z, ref->position.x, ref->position.y
+                };
+                for (int i = 0; i < num_replay_files; i++) {
+                    if (i == selected || !vehicles[i].origin_set) continue;
+                    const vehicle_t *v = &vehicles[i];
+                    double vx[CORR_CHANNELS] = {
+                        v->position.z, v->position.x, v->position.y
+                    };
+                    for (int c = 0; c < CORR_CHANNELS; c++) {
+                        corr[i].ch[c].sum_x  += rx[c];
+                        corr[i].ch[c].sum_y  += vx[c];
+                        corr[i].ch[c].sum_xy += rx[c] * vx[c];
+                        corr[i].ch[c].sum_x2 += rx[c] * rx[c];
+                        corr[i].ch[c].sum_y2 += vx[c] * vx[c];
+                    }
+                    // Euclidean distance squared for RMSE (subtract grid offsets)
+                    double dx = (v->position.x - v->grid_offset.x) - (ref->position.x - ref->grid_offset.x);
+                    double dy = (v->position.y - v->grid_offset.y) - (ref->position.y - ref->grid_offset.y);
+                    double dz = (v->position.z - v->grid_offset.z) - (ref->position.z - ref->grid_offset.z);
+                    corr[i].sum_sq_dist += dx*dx + dy*dy + dz*dz;
+                    corr[i].n++;
+                    sources[i].playback.correlation = corr_compute(&corr[i]);
+                    sources[i].playback.rmse = (corr[i].n >= CORR_MIN_SAMPLES)
+                        ? (float)sqrt(corr[i].sum_sq_dist / corr[i].n) : NAN;
+                }
+                sources[selected].playback.correlation = 1.0f;
+                sources[selected].playback.rmse = 0.0f;
+            }
+        }
 
         // Check if any source is connected (for HUD)
         bool any_connected = false;
@@ -691,6 +785,12 @@ int main(int argc, char *argv[]) {
                     }
                 }
             }
+            // Reset stats on mode switch
+            memset(corr, 0, sizeof(corr));
+            for (int i = 0; i < num_replay_files; i++) {
+                sources[i].playback.correlation = NAN;
+                sources[i].playback.rmse = NAN;
+            }
         }
 
         // Update vehicle colors when view mode changes
@@ -822,6 +922,7 @@ int main(int argc, char *argv[]) {
                         sources[i].playback.paused = false;
                         vehicle_reset_trail(&vehicles[i]);
                     }
+                    memset(corr, 0, sizeof(corr));
                 } else {
                     bool p = !sources[selected].playback.paused;
                     for (int i = 0; i < nrf; i++)
@@ -872,6 +973,33 @@ int main(int argc, char *argv[]) {
                     sources[i].playback.paused = false;
                     vehicle_reset_trail(&vehicles[i]);
                 }
+                memset(corr, 0, sizeof(corr));
+            }
+            // A key: toggle takeoff time alignment
+            if (IsKeyPressed(KEY_A) && num_replay_files > 1) {
+                takeoff_aligned = !takeoff_aligned;
+                const float takeoff_buffer = 5.0f;
+                for (int i = 0; i < nrf; i++) {
+                    ulog_replay_ctx_t *ctx = (ulog_replay_ctx_t *)sources[i].impl;
+                    if (takeoff_aligned) {
+                        float skip = ctx->takeoff_detected ? ctx->takeoff_time_s - takeoff_buffer : 0.0f;
+                        if (skip < 0.0f) skip = 0.0f;
+                        ctx->time_offset_s = (double)skip;
+                    } else {
+                        ctx->time_offset_s = 0.0;
+                    }
+                    sources[i].playback.time_offset_s = (float)ctx->time_offset_s;
+                    ulog_replay_seek(ctx, 0.0f);
+                    sources[i].connected = true;
+                    sources[i].playback.paused = false;
+                    vehicle_reset_trail(&vehicles[i]);
+                }
+                memset(corr, 0, sizeof(corr));
+                for (int i = 0; i < nrf; i++) {
+                    sources[i].playback.correlation = NAN;
+                    sources[i].playback.rmse = NAN;
+                }
+                hud_toast(&hud, takeoff_aligned ? "Auto Align On" : "Auto Align Off", 2.0f);
             }
             if (IsKeyPressed(KEY_RIGHT)) {
                 float step = (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT)) ? 30.0f : 5.0f;
@@ -882,6 +1010,7 @@ int main(int argc, char *argv[]) {
                     sources[i].playback.position_s = (float)ctx->wall_accum;
                     vehicle_reset_trail(&vehicles[i]);
                 }
+                memset(corr, 0, sizeof(corr));
             }
             if (IsKeyPressed(KEY_LEFT)) {
                 float step = (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT)) ? 30.0f : 5.0f;
@@ -893,6 +1022,7 @@ int main(int argc, char *argv[]) {
                     sources[i].playback.position_s = (float)ctx->wall_accum;
                     vehicle_reset_trail(&vehicles[i]);
                 }
+                memset(corr, 0, sizeof(corr));
             }
         }
 

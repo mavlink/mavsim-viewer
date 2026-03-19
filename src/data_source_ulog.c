@@ -3,6 +3,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 static void ulog_poll(data_source_t *ds, float dt) {
     ulog_replay_ctx_t *ctx = (ulog_replay_ctx_t *)ds->impl;
@@ -20,6 +21,8 @@ static void ulog_poll(data_source_t *ds, float dt) {
     ds->mav_type = ctx->vehicle_type;
     ds->playback.current_nav_state = ctx->current_nav_state;
     ds->ref_rejected = ctx->ref_rejected;
+    ds->playback.takeoff_conf = ctx->takeoff_conf;
+    ds->playback.time_offset_s = (float)ctx->time_offset_s;
     ds->playback.mode_changes = (const playback_mode_change_t *)ctx->mode_changes;
     ds->playback.mode_change_count = ctx->mode_change_count;
 
@@ -70,5 +73,8 @@ int data_source_ulog_create(data_source_t *ds, const char *filepath) {
     ds->playback.looping = false;
     ds->playback.paused = false;
     ds->playback.interpolation = true;
+    ds->playback.takeoff_conf = -1.0f;
+    ds->playback.correlation = NAN;
+    ds->playback.rmse = NAN;
     return 0;
 }

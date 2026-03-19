@@ -63,12 +63,19 @@ void hud_init(hud_t *h) {
 
 void hud_update(hud_t *h, uint64_t time_usec, bool connected, float dt) {
     if (time_usec > 0) {
-        // Use sim timestamp directly when available
         h->sim_time_s = (float)(time_usec / 1000000.0);
     } else if (connected) {
-        // Accumulate wall time while connected (fallback when sim doesn't send timestamps)
         h->sim_time_s += dt;
     }
+    // Tick toast timer
+    if (h->toast_timer > 0.0f)
+        h->toast_timer -= dt;
+}
+
+void hud_toast(hud_t *h, const char *text, float duration_s) {
+    snprintf(h->toast_text, sizeof(h->toast_text), "%s", text);
+    h->toast_timer = duration_s;
+    h->toast_total = duration_s;
 }
 
 static void draw_compass(float cx, float cy, float radius, float heading_deg, view_mode_t vm, Font font_value) {
@@ -280,6 +287,7 @@ static void draw_numpad(const hud_t *h, const vehicle_t *vehicles,
 }
 
 static void draw_secondary_row(const hud_t *h, const vehicle_t *pv, int pidx,
+                                const playback_state_t *pb, int selected,
                                 int row_y, int screen_w, float nav_start,
                                 float nav_step, float energy_start, float energy_step,
                                 Font font_label, Font font_value,
@@ -301,7 +309,39 @@ static void draw_secondary_row(const hud_t *h, const vehicle_t *pv, int pidx,
     // Vehicle number
     char vnum[4];
     snprintf(vnum, sizeof(vnum), "%d", pidx + 1);
-    DrawTextEx(font_value, vnum, (Vector2){8 * scale, (float)(row_y + (int)(10 * scale))}, fsv, 0.5f, pv->color);
+    float vnum_x = 8 * scale;
+    DrawTextEx(font_value, vnum, (Vector2){vnum_x, (float)(row_y + (int)(10 * scale))}, fsv, 0.5f, pv->color);
+
+    // CONF / PRSN / RMSE badges (skip for the selected/reference drone)
+    if (pb && pidx != selected && pb->takeoff_conf >= 0.0f) {
+        float badge_fs = fsl;
+        float bx = vnum_x + MeasureTextEx(font_value, vnum, fsv, 0.5f).x + 8 * scale;
+        float by = (float)(row_y + (int)(10 * scale));
+
+        char conf_buf[16];
+        snprintf(conf_buf, sizeof(conf_buf), "CONF %d%%", (int)(pb->takeoff_conf * 100));
+        Color conf_c = (pb->takeoff_conf >= 0.8f) ? climb_color :
+                       (pb->takeoff_conf >= 0.5f) ? value_color : warn_color;
+        DrawTextEx(font_label, conf_buf, (Vector2){bx, by}, badge_fs, 0.5f, conf_c);
+        bx += MeasureTextEx(font_label, conf_buf, badge_fs, 0.5f).x + 6 * scale;
+
+        if (!isnan(pb->correlation)) {
+            char prsn_buf[16];
+            snprintf(prsn_buf, sizeof(prsn_buf), "PRSN %.2f", pb->correlation);
+            Color prsn_c = (pb->correlation >= 0.7f) ? climb_color :
+                           (pb->correlation >= 0.4f) ? value_color : warn_color;
+            DrawTextEx(font_label, prsn_buf, (Vector2){bx, by}, badge_fs, 0.5f, prsn_c);
+            bx += MeasureTextEx(font_label, prsn_buf, badge_fs, 0.5f).x + 6 * scale;
+        }
+
+        if (!isnan(pb->rmse)) {
+            char rmse_buf[16];
+            snprintf(rmse_buf, sizeof(rmse_buf), "RMSE %.1fm", pb->rmse);
+            Color rmse_c = (pb->rmse <= 1.0f) ? climb_color :
+                           (pb->rmse <= 5.0f) ? value_color : warn_color;
+            DrawTextEx(font_label, rmse_buf, (Vector2){bx, by}, badge_fs, 0.5f, rmse_c);
+        }
+    }
 
     int text_y = row_y + (int)(10 * scale);
     float label_off_y = (float)(row_y + (int)(4 * scale));
@@ -425,12 +465,30 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
     DrawRectangle(0, bar_y, screen_w, total_bar_h, bg);
     DrawLineEx((Vector2){0, (float)bar_y}, (Vector2){(float)screen_w, (float)bar_y}, 1.0f, border);
 
+    // Toast notification (fades in/out, always above other notices)
+    float toast_h_used = 0.0f;
+    if (h->toast_timer > 0.0f) {
+        float toast_fs = 14 * s;
+        Vector2 tw = MeasureTextEx(h->font_label, h->toast_text, toast_fs, 0.5f);
+        // Fade: full opacity for most of duration, fade out in last 0.5s
+        float fade = 1.0f;
+        if (h->toast_timer < 0.5f)
+            fade = h->toast_timer / 0.5f;
+        Color toast_c = (Color){climb_color.r, climb_color.g, climb_color.b,
+                                (unsigned char)(fade * 255)};
+        float toast_y = (float)bar_y - tw.y - 8 * s;
+        float toast_x = (float)(screen_w / 2) - tw.x / 2.0f;
+        DrawTextEx(h->font_label, h->toast_text, (Vector2){toast_x, toast_y},
+                   toast_fs, 0.5f, toast_c);
+        toast_h_used = tw.y + 8 * s;
+    }
+
     // ESTIMATED POSITION warning above timeline when any drone is Tier 3
     if (has_tier3 && is_replay_source) {
         const char *est_text = "ESTIMATED POSITION";
         float est_fs = 11 * s;
         Vector2 est_w = MeasureTextEx(h->font_label, est_text, est_fs, 0.5f);
-        float est_y = (float)bar_y - est_w.y - 4 * s;
+        float est_y = (float)bar_y - est_w.y - 4 * s - toast_h_used;
         float est_x = (float)(screen_w / 2) - est_w.x / 2.0f;
         DrawTextEx(h->font_label, est_text, (Vector2){est_x, est_y}, est_fs, 0.5f, warn);
     }
@@ -442,7 +500,7 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
         float gps_fs = 11 * s;
         Vector2 gps_w = MeasureTextEx(h->font_label, gps_text, gps_fs, 0.5f);
         float gps_y_off = (has_tier3 ? gps_w.y + 4 * s : 0);
-        float gps_y = (float)bar_y - gps_w.y - 4 * s - gps_y_off;
+        float gps_y = (float)bar_y - gps_w.y - 4 * s - gps_y_off - toast_h_used;
         float gps_x = (float)(screen_w / 2) - gps_w.x / 2.0f;
         DrawTextEx(h->font_label, gps_text, (Vector2){gps_x, gps_y}, gps_fs, 0.5f, warn);
     }
@@ -863,7 +921,8 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
         int pidx = h->pinned[p];
         if (pidx < 0 || pidx >= vehicle_count) continue;
         int row_y = bar_y + primary_h + (int)(4 * s) + (p * secondary_h);
-        draw_secondary_row(h, &vehicles[pidx], pidx, row_y, screen_w,
+        draw_secondary_row(h, &vehicles[pidx], pidx, &sources[pidx].playback,
+                           selected, row_y, screen_w,
                            nav_start, nav_step, energy_start, energy_step,
                            h->font_label, h->font_value,
                            dim_color, value_color, warn, climb_color,
@@ -920,6 +979,7 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
             {"L",           "Toggle loop"},
             {"I",           "Interpolation"},
             {"R",           "Restart"},
+            {"A",           "Takeoff alignment"},
         };
 
         int left_count = sizeof(left_col) / sizeof(left_col[0]);

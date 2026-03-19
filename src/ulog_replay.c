@@ -347,6 +347,16 @@ int ulog_replay_init(ulog_replay_ctx_t *ctx, const char *filepath) {
             ? ctx->parser.subs[ctx->sub_home_pos].msg_id : 0xFFFF;
         uint16_t gpos_msg_id = (ctx->sub_global_pos >= 0)
             ? ctx->parser.subs[ctx->sub_global_pos].msg_id : 0xFFFF;
+        uint16_t lpos_msg_id = (ctx->sub_local_pos >= 0)
+            ? ctx->parser.subs[ctx->sub_local_pos].msg_id : 0xFFFF;
+
+        // CUSUM state for takeoff detection
+        float cusum_s = 0.0f;
+        const float cusum_k = 0.3f;    // drift allowance (m/s) — below this is noise
+        const float cusum_h = 2.0f;    // decision threshold
+        bool  cusum_triggered = false;
+        float cusum_trigger_time = -1.0f;
+        float cusum_peak = 0.0f;
 
         ulog_data_msg_t scan_msg;
         while (ulog_parser_next(&ctx->parser, &scan_msg)) {
@@ -401,6 +411,19 @@ int ulog_replay_init(ulog_replay_ctx_t *ctx, const char *filepath) {
                 }
             }
 
+            // CUSUM takeoff detection on upward velocity
+            if (!cusum_triggered && scan_msg.msg_id == lpos_msg_id && ctx->cache.lpos_vz_offset >= 0) {
+                float vz = ulog_parser_get_float(&scan_msg, ctx->cache.lpos_vz_offset);
+                float up = -vz;  // NED: -vz = upward
+                cusum_s += (up - cusum_k);
+                if (cusum_s < 0.0f) cusum_s = 0.0f;
+                if (cusum_s > cusum_h) {
+                    cusum_trigger_time = (float)((double)(scan_msg.timestamp - ctx->parser.start_timestamp) / 1e6);
+                    cusum_peak = cusum_s;
+                    cusum_triggered = true;
+                }
+            }
+
             // GPOS: track whether any data exists, and use as Tier 2 fallback
             if (scan_msg.msg_id == gpos_msg_id && gpos_msg_id != 0xFFFF)
                 seen_gpos_data = true;
@@ -426,6 +449,44 @@ int ulog_replay_init(ulog_replay_ctx_t *ctx, const char *filepath) {
             ctx->home_rejected = true;
         }
 
+        // Store CUSUM results
+        ctx->takeoff_detected = cusum_triggered;
+        ctx->takeoff_time_s = cusum_triggered ? cusum_trigger_time : 0.0f;
+        ctx->time_offset_s = 0.0;
+
+        // Confidence: CUSUM sharpness + nav_state corroboration
+        float conf = 0.0f;
+        if (cusum_triggered) {
+            float sharpness = (cusum_peak - cusum_h) / 8.0f;
+            if (sharpness < 0.0f) sharpness = 0.0f;
+            if (sharpness > 1.0f) sharpness = 1.0f;
+            conf = 0.3f + 0.4f * sharpness;  // 0.3–0.7 from CUSUM alone
+
+            // Corroboration: check if a flight nav_state was active at CUSUM trigger
+            // Find the mode that was active at cusum_trigger_time
+            uint8_t active_ns = 0xFF;
+            for (int m = ctx->mode_change_count - 1; m >= 0; m--) {
+                if (ctx->mode_changes[m].time_s <= cusum_trigger_time) {
+                    active_ns = ctx->mode_changes[m].nav_state;
+                    break;
+                }
+            }
+            // Takeoff(17) Mission(3) VTOL-Takeoff(22) Offboard(14) Position(2)
+            if (active_ns == 17 || active_ns == 3 || active_ns == 22 ||
+                active_ns == 14 || active_ns == 2) {
+                conf += 0.3f;
+            }
+            if (conf > 1.0f) conf = 1.0f;
+        } else {
+            // No CUSUM trigger — check if already airborne at log start
+            if (ctx->mode_change_count > 0) {
+                uint8_t ns = ctx->mode_changes[0].nav_state;
+                if (ns == 3 || ns == 4 || ns == 14)
+                    conf = 0.5f;
+            }
+        }
+        ctx->takeoff_conf = conf;
+
         if (ctx->mode_change_count > 0)
             ctx->current_nav_state = ctx->mode_changes[0].nav_state;
         ulog_parser_rewind(&ctx->parser);
@@ -441,6 +502,10 @@ int ulog_replay_init(ulog_replay_ctx_t *ctx, const char *filepath) {
         }
         printf("\n");
     }
+    if (ctx->takeoff_detected)
+        printf("  Takeoff: %.1fs (CUSUM conf=%.0f%%)\n", ctx->takeoff_time_s, ctx->takeoff_conf * 100);
+    else
+        printf("  Takeoff: not detected (offset=0)\n");
     if (ctx->sub_global_pos < 0) printf("  Note: vehicle_global_position not found (using local position)\n");
     if (ctx->sub_airspeed < 0) printf("  Note: airspeed_validated not found (no airspeed data)\n");
     if (ctx->sub_vehicle_status < 0) printf("  Note: vehicle_status not found (defaulting to quadrotor)\n");
@@ -455,7 +520,9 @@ int ulog_replay_init(ulog_replay_ctx_t *ctx, const char *filepath) {
 
 bool ulog_replay_advance(ulog_replay_ctx_t *ctx, float dt, float speed, bool looping, bool interpolation) {
     ctx->wall_accum += (double)dt * speed;
-    uint64_t target = ctx->parser.start_timestamp + (uint64_t)(ctx->wall_accum * 1e6);
+    double effective_time = ctx->wall_accum + ctx->time_offset_s;
+    if (effective_time < 0.0) effective_time = 0.0;
+    uint64_t target = ctx->parser.start_timestamp + (uint64_t)(effective_time * 1e6);
 
     // Clamp to end
     if (target > ctx->parser.end_timestamp) {
@@ -540,17 +607,19 @@ void ulog_replay_seek(ulog_replay_ctx_t *ctx, float target_s) {
 
     float max_s = (float)((double)(ctx->parser.end_timestamp -
                                     ctx->parser.start_timestamp) / 1e6);
-    if (target_s > max_s) target_s = max_s;
+    double effective_s = (double)target_s + ctx->time_offset_s;
+    if (effective_s < 0.0) effective_s = 0.0;
+    if (effective_s > (double)max_s) effective_s = (double)max_s;
 
     uint64_t target_usec = ctx->parser.start_timestamp +
-                           (uint64_t)(target_s * 1e6);
+                           (uint64_t)(effective_s * 1e6);
     ulog_parser_seek(&ctx->parser, target_usec);
-    ctx->wall_accum = (double)target_s;
+    ctx->wall_accum = (double)target_s;  // wall_accum stays in shared clock space
 
     // Update current_nav_state for the seek position
     ctx->current_nav_state = 0xFF;
     for (int i = ctx->mode_change_count - 1; i >= 0; i--) {
-        if (ctx->mode_changes[i].time_s <= target_s) {
+        if (ctx->mode_changes[i].time_s <= (float)effective_s) {
             ctx->current_nav_state = ctx->mode_changes[i].nav_state;
             break;
         }

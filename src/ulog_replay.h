@@ -102,6 +102,14 @@ typedef struct {
     bool first_pos_set;
     bool home_from_topic;  // true = home set from home_position topic (Tier 1)
     bool home_rejected;    // pre-scan rejected home (no GPOS data to confirm it)
+
+    // Takeoff detection (populated during pre-scan)
+    float takeoff_time_s;       // seconds from log start when CUSUM triggered (0 = not detected)
+    float takeoff_conf;         // 0.0-1.0 confidence in takeoff detection
+    bool  takeoff_detected;     // true if CUSUM found a clear takeoff event
+
+    // Time alignment (set by caller after all logs pre-scanned)
+    double time_offset_s;       // seconds to add when computing log target timestamp
 } ulog_replay_ctx_t;
 
 // Initialize replay context, parse file, build index. Returns 0 on success.
@@ -118,9 +126,5 @@ void ulog_replay_close(ulog_replay_ctx_t *ctx);
 
 // Return short display name for a PX4 nav_state value.
 const char *ulog_nav_state_name(uint8_t nav_state);
-
-// Future scope: multi-file swarm replay with time synchronization.
-// Each vehicle would get its own ulog_replay_ctx_t with a time_offset
-// to align different log start times to a common playback clock.
 
 #endif

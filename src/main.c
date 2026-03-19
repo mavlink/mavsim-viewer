@@ -513,6 +513,7 @@ int main(int argc, char *argv[]) {
     int trail_mode = 1;              // 0=off, 1=directional trail, 2=speed ribbon
     bool show_ground_track = false;  // ground projection off by default
     bool classic_colors = false;     // L key: toggle classic (red/blue) vs modern (yellow/purple)
+    bool corr_ribbon = false;        // Shift+T: correlation ribbon overlay
 
     // Main loop
     while (!WindowShouldClose()) {
@@ -810,8 +811,14 @@ int main(int argc, char *argv[]) {
             show_hud = !show_hud;
         }
 
+        // Shift+T: toggle correlation ribbon overlay (multi-file replay only)
+        if (IsKeyPressed(KEY_T) && (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT))
+            && is_replay && num_replay_files > 1) {
+            corr_ribbon = !corr_ribbon;
+            hud_toast(&hud, corr_ribbon ? "Correlation Ribbon On" : "Correlation Ribbon Off", 2.0f);
+        }
         // Cycle trail mode: off → trail → speed ribbon
-        if (IsKeyPressed(KEY_T)) {
+        else if (IsKeyPressed(KEY_T)) {
             int max_modes = (num_replay_files > 1) ? 4 : 3;
             trail_mode = (trail_mode + 1) % max_modes;
         }
@@ -1052,6 +1059,19 @@ int main(int argc, char *argv[]) {
                         vehicle_draw(&vehicles[i], scene.view_mode, i == selected,
                                      trail_mode, show_ground_track, scene.camera.position,
                                      classic_colors);
+                    }
+                }
+
+                // Correlation ribbon: between selected and each pinned drone
+                if (corr_ribbon && hud.pinned_count > 0) {
+                    for (int p = 0; p < hud.pinned_count; p++) {
+                        int pidx = hud.pinned[p];
+                        if (pidx >= 0 && pidx < vehicle_count && vehicles[pidx].active
+                            && pidx != selected) {
+                            vehicle_draw_correlation_ribbon(
+                                &vehicles[selected], &vehicles[pidx],
+                                scene.view_mode, scene.camera.position);
+                        }
                     }
                 }
             EndMode3D();

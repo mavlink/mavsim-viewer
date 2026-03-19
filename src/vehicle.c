@@ -866,6 +866,70 @@ void vehicle_set_ghost_alpha(vehicle_t *v, float alpha) {
     v->ghost_alpha = alpha;
 }
 
+void vehicle_draw_correlation_ribbon(
+    const vehicle_t *va, const vehicle_t *vb,
+    view_mode_t view_mode, Vector3 cam_pos) {
+    if (va->trail_count < 2 || vb->trail_count < 2) return;
+
+    int n = va->trail_count < vb->trail_count ? va->trail_count : vb->trail_count;
+    if (n < 2) return;
+
+    int start_a = (va->trail_count < va->trail_capacity) ? 0 : va->trail_head;
+    int start_b = (vb->trail_count < vb->trail_capacity) ? 0 : vb->trail_head;
+
+    Color ca = va->color;
+    Color cb = vb->color;
+
+    rlDisableDepthMask();
+    rlBegin(RL_TRIANGLES);
+    for (int i = 1; i < n; i++) {
+        // Map index through fractional position for trail length alignment
+        int idx_a0 = (start_a + (int)((float)(i - 1) / n * va->trail_count)) % va->trail_capacity;
+        int idx_a1 = (start_a + (int)((float)i / n * va->trail_count)) % va->trail_capacity;
+        int idx_b0 = (start_b + (int)((float)(i - 1) / n * vb->trail_count)) % vb->trail_capacity;
+        int idx_b1 = (start_b + (int)((float)i / n * vb->trail_count)) % vb->trail_capacity;
+
+        Vector3 pa0 = va->trail[idx_a0];
+        Vector3 pa1 = va->trail[idx_a1];
+        Vector3 pb0 = vb->trail[idx_b0];
+        Vector3 pb1 = vb->trail[idx_b1];
+
+        float t = (float)i / (float)n;
+        unsigned char alpha_a = (unsigned char)(t * 160 * va->ghost_alpha);
+        unsigned char alpha_b = (unsigned char)(t * 160 * vb->ghost_alpha);
+
+        // Front face: pa0 → pb0 → pa1, then pb0 → pb1 → pa1
+        rlColor4ub(ca.r, ca.g, ca.b, alpha_a);
+        rlVertex3f(pa0.x, pa0.y, pa0.z);
+        rlColor4ub(cb.r, cb.g, cb.b, alpha_b);
+        rlVertex3f(pb0.x, pb0.y, pb0.z);
+        rlColor4ub(ca.r, ca.g, ca.b, alpha_a);
+        rlVertex3f(pa1.x, pa1.y, pa1.z);
+
+        rlColor4ub(cb.r, cb.g, cb.b, alpha_b);
+        rlVertex3f(pb0.x, pb0.y, pb0.z);
+        rlVertex3f(pb1.x, pb1.y, pb1.z);
+        rlColor4ub(ca.r, ca.g, ca.b, alpha_a);
+        rlVertex3f(pa1.x, pa1.y, pa1.z);
+
+        // Back face: pa1 → pb0 → pa0, then pa1 → pb1 → pb0
+        rlColor4ub(ca.r, ca.g, ca.b, alpha_a);
+        rlVertex3f(pa1.x, pa1.y, pa1.z);
+        rlColor4ub(cb.r, cb.g, cb.b, alpha_b);
+        rlVertex3f(pb0.x, pb0.y, pb0.z);
+        rlColor4ub(ca.r, ca.g, ca.b, alpha_a);
+        rlVertex3f(pa0.x, pa0.y, pa0.z);
+
+        rlColor4ub(ca.r, ca.g, ca.b, alpha_a);
+        rlVertex3f(pa1.x, pa1.y, pa1.z);
+        rlColor4ub(cb.r, cb.g, cb.b, alpha_b);
+        rlVertex3f(pb1.x, pb1.y, pb1.z);
+        rlVertex3f(pb0.x, pb0.y, pb0.z);
+    }
+    rlEnd();
+    rlEnableDepthMask();
+}
+
 void vehicle_cleanup(vehicle_t *v) {
     UnloadModel(v->model);
     free(v->trail);

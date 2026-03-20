@@ -12,13 +12,18 @@ Built with [Raylib](https://www.raylib.com/) and [MAVLink](https://mavlink.io/).
 
 - Real-time 3D visualization of vehicle position and orientation
 - **Multi-vehicle swarm support** — up to 16 vehicles simultaneously
-- Multiple vehicle models: multicopter, fixed-wing, tailsitter
+- **Multi-drone ULog replay** — load multiple `.ulg` files and replay swarm flights side by side
+- **Ghost mode** — overlay flights with translucent non-primary drones for visual comparison
+- **Automatic deconfliction** — detects position conflicts and offers formation, ghost, or grid offset modes
+- **Correlation analysis** — real-time Pearson correlation and RMSE between pinned drones with visual overlays (line, curtain, ribbon)
+- **CUSUM takeoff detection** — automatically detects launch times and aligns multi-drone timelines for synchronized comparison
+- Multiple vehicle models: quadrotor, hexarotor, fixed-wing, tailsitter, VTOL, rover, ROV
 - Chase and FPV camera modes (press `C` to toggle)
-- Vehicle selection: TAB, `[`/`]`, or number keys `1`-`9`
+- Vehicle selection and pinning: TAB cycles, number keys select, Shift+number pins to HUD sidebar
 - Mouse orbit (left-drag) and FOV zoom (scroll wheel)
-- HUD with compass, telemetry readouts, vehicle selector indicator
-- Panoramic sky with ground texture
-- **ULog replay** — play back PX4 `.ulg` flight logs with transport controls and interpolation
+- HUD with compass, telemetry, CONF/PRSN/RMSE badges, and ESTIMATED POSITION warnings
+- Orthographic views: sidebar (Top/Front/Right) and fullscreen (Alt+2-7) with 2D trail rendering
+- Three view modes (Grid, Rez, Snow) with per-mode color palettes for drones, trails, and HUD
 - Cross-platform: macOS, Linux, and Windows supported out of the box thanks to Raylib
 
 ## Install
@@ -93,7 +98,8 @@ The binary will be at `build/Release/mavsim-viewer.exe`.
 | `-ts` | Tailsitter model |
 | `-w <width>` | Window width (default: 1280) |
 | `-h <height>` | Window height (default: 720) |
-| `--replay <file.ulg>` | Replay a PX4 ULog flight log |
+| `--replay <f1.ulg> [f2.ulg ...]` | Replay one or more PX4 ULog flight logs |
+| `--ghost <f1.ulg> [f2.ulg ...]` | Replay in ghost mode (non-primary drones at 35% opacity) |
 | `-d` | Debug output |
 
 Each vehicle listens on its own UDP port: `base_port`, `base_port+1`, ..., `base_port+n-1`.
@@ -163,6 +169,48 @@ The viewer parses `vehicle_attitude`, `vehicle_local_position`, and `vehicle_glo
 
 Position data in ULog files is typically logged at 5-10 Hz. Dead-reckoning interpolation (toggled with `I`) smooths playback to the render frame rate using velocity data.
 
+### Multi-Drone Replay
+
+Load multiple ULog files to replay swarm flights together:
+
+```bash
+# Formation mode — drones at real relative GPS positions
+./mavsim-viewer --replay drone1.ulg drone2.ulg drone3.ulg
+
+# Ghost mode — overlay flights for visual comparison
+./mavsim-viewer --ghost flight_before.ulg flight_after.ulg
+```
+
+On startup, the viewer pre-scans each log for home position data (`home_position` topic with GPOS fallback) and detects conflicts automatically. If drones share the same launch point, are too far apart (>1km), or lack position data, a deconfliction prompt offers resolution options:
+
+- **Formation** — shared NED origin, drones at real geographic positions. Home position markers show each launch site.
+- **Ghost** — non-primary drones render at 35% opacity with color tint. Useful for overlaying two flights of the same path (e.g. before/after PID tuning).
+- **Grid Offset** — shifts each drone +5m apart for visual separation when they'd otherwise overlap.
+- **Narrow Grid** — collapses drones from different geographic locations into the same view area with 1m spacing.
+
+Press `P` during replay to switch between modes.
+
+#### Takeoff Alignment
+
+Press `A` to align all drones to their detected takeoff times. Uses CUSUM (cumulative sum control chart) on vertical velocity to find the moment each drone lifts off, then shifts timelines so all takeoffs are synchronized. Useful when comparing flights that launched at different times.
+
+#### Correlation Analysis
+
+Pin a secondary drone (`Shift+1-9`) to see real-time correlation statistics in the HUD sidebar:
+
+- **PRSN** — Pearson correlation coefficient (0.0–1.0) measuring how closely the pinned drone's trajectory tracks the selected drone
+- **RMSE** — root mean square position error in meters
+- **CONF** — CUSUM takeoff detection confidence (%)
+
+Press `Shift+T` to cycle visual overlays between the selected and pinned drones:
+
+- **Correlation Line** — direct line between current positions (drawn in 2D in ortho views)
+- **Correlation Curtain** — semi-transparent 3D surface showing path divergence over time
+
+#### Drone Color Trails
+
+With multiple drones loaded, trail mode 3 (`T` to cycle) renders each drone's trail in its assigned fleet color. Three view-mode-aware palettes (Grid, Rez, Snow) provide 16 distinct colors with warm/cool alternation for adjacent drones.
+
 ## Controls
 
 | Key/Input | Action |
@@ -170,29 +218,36 @@ Position data in ULog files is typically logged at 5-10 Hz. Dead-reckoning inter
 | `C` | Toggle camera mode (Chase / FPV) |
 | `V` | Cycle view mode (Grid / Rez / Snow) |
 | `H` | Toggle HUD visibility |
-| `T` | Cycle trail mode (off / directional trail / speed ribbon) |
+| `T` | Cycle trail mode (off / directional / speed ribbon / drone color) |
+| `Shift+T` | Cycle correlation overlay: off / line / curtain (multi-drone) |
 | `G` | Toggle ground track projection |
 | `F` | Toggle terrain texture |
-| `M` | Cycle vehicle model (`Shift+M`: all models) |
-| `K` | Toggle classic/modern arm colors |
-| `Ctrl+D` | Toggle debug performance overlay |
+| `M` | Cycle vehicle model within group (`Shift+M`: all models) |
+| `K` | Toggle classic (red/blue) / modern (yellow/purple) arm colors |
+| `Z` | Toggle axis orientation gizmo |
+| `Ctrl+D` | Toggle debug panel (FPS, frame time, position tier) |
+| `Ctrl+L` | Toggle correlation distance labels |
 | `O` | Toggle orthographic side panel (Top / Front / Right) |
 | `Alt+1` | Return to perspective camera |
 | `Alt+2`-`7` | Fullscreen ortho view (Top / Front / Left / Right / Bottom / Back) |
 | `Alt+Scroll` | Zoom ortho view span |
-| `TAB` | Cycle to next vehicle |
-| `[` / `]` | Previous / next vehicle |
+| Right-drag | Pan in ortho mode |
+| `TAB` | Cycle to next vehicle (clears pins) |
+| `[` / `]` | Previous / next vehicle (clears pins) |
 | `1`-`9` | Select vehicle directly |
-| `Shift+1`-`9` | Toggle pin/unpin vehicle to HUD |
+| `Shift+1`-`9` | Toggle pin/unpin vehicle to HUD sidebar |
 | Left-drag | Orbit camera (chase mode) |
 | Scroll wheel | Zoom FOV (perspective) or span (ortho) |
 | **Replay** | |
 | `Space` | Pause / resume (or restart after end) |
 | `+` / `-` | Increase / decrease playback speed |
-| `←` / `→` | Seek 5s backward / forward (Shift: 30s) |
+| `←` / `→` | Seek 5s backward / forward (`Shift`: 30s) |
 | `L` | Toggle loop |
 | `I` | Toggle interpolation |
 | `R` | Restart from beginning |
+| `Y` | Toggle yaw display |
+| `A` | Toggle takeoff time alignment (multi-drone) |
+| `P` | Reopen deconfliction menu (multi-drone) |
 
 ### View Modes
 
@@ -204,12 +259,13 @@ Position data in ULog files is typically logged at 5-10 Hz. Dead-reckoning inter
 
 Press `Ctrl+D` to toggle a performance debug panel on the right side of the screen. It displays:
 
-- **FPS** — live value with color-coded graph (green/yellow/red) and min/max range
+- **FPS** — live value with color-coded graph and min/max range
 - **Frame time** — millisecond readout with graph, 16.67ms target line, and peak tracker
 - **Render stats** — active vehicle count and total trail points
 - **Memory estimates** — trail buffer usage and estimated total footprint
+- **Position** — XYZ coordinates, BAD REF warning, and position data tier (T1: home_position, T2: GPOS/LPOS ref, T3: estimated)
 
-Colors adapt to the active view mode (Grid / Rez / 1988).
+Colors adapt to the active view mode (Grid / Rez / Snow).
 
 ### Orthographic Views
 

@@ -70,7 +70,7 @@ void debug_panel_draw(const debug_panel_t *d, int screen_w, int screen_h,
                       view_mode_t view_mode, Font font,
                       int vehicle_count, int active_count,
                       int total_trail_points, Vector3 vehicle_pos,
-                      bool ref_rejected)
+                      bool ref_rejected, int position_tier)
 {
     if (!d->visible) return;
 
@@ -90,22 +90,48 @@ void debug_panel_draw(const debug_panel_t *d, int screen_w, int screen_h,
 
     // Colors per view mode
     Color accent, text_col, dim_col, bg, graph_bg, graph_grid;
-    if (view_mode == VIEW_1988) {
+    Color tier1_col, tier2_col, tier3_col;
+    if (view_mode == VIEW_SNOW) {
+        accent     = (Color){ 40, 50, 70, 220 };
+        text_col   = (Color){ 30, 35, 50, 230 };
+        dim_col    = (Color){ 100, 110, 130, 140 };
+        bg         = (Color){ 235, 237, 240, 230 };
+        graph_bg   = (Color){ 220, 222, 226, 220 };
+        graph_grid = (Color){ 180, 185, 195, 100 };
+        tier1_col  = (Color){ 20, 140, 60, 255 };
+        tier2_col  = (Color){ 180, 130, 0, 255 };
+        tier3_col  = (Color){ 200, 60, 20, 255 };
+    } else if (view_mode == VIEW_1988) {
         accent     = (Color){ 255, 20, 100, 220 };
         text_col   = (Color){ 255, 200, 210, 230 };
         dim_col    = (Color){ 255, 20, 100, 100 };
+        bg         = (Color){ 5, 5, 16, 210 };
+        graph_bg   = (Color){ 4, 4, 10, 200 };
+        graph_grid = (Color){ 60, 20, 40, 80 };
+        tier1_col  = (Color){ 40, 255, 80, 255 };
+        tier2_col  = (Color){ 255, 220, 60, 255 };
+        tier3_col  = (Color){ 255, 40, 80, 255 };
     } else if (view_mode == VIEW_REZ) {
         accent     = (Color){ 0, 204, 218, 220 };
         text_col   = (Color){ 180, 230, 235, 230 };
         dim_col    = (Color){ 0, 204, 218, 100 };
+        bg         = (Color){ 8, 8, 12, 210 };
+        graph_bg   = (Color){ 4, 4, 10, 200 };
+        graph_grid = (Color){ 0, 60, 70, 80 };
+        tier1_col  = (Color){ 30, 200, 80, 255 };
+        tier2_col  = (Color){ 220, 180, 30, 255 };
+        tier3_col  = (Color){ 255, 106, 0, 255 };
     } else {
         accent     = (Color){ 120, 180, 255, 220 };
         text_col   = (Color){ 200, 210, 225, 230 };
         dim_col    = (Color){ 120, 180, 255, 100 };
+        bg         = (Color){ 8, 8, 16, 210 };
+        graph_bg   = (Color){ 4, 4, 10, 200 };
+        graph_grid = (Color){ 40, 40, 60, 80 };
+        tier1_col  = (Color){ 80, 255, 120, 255 };
+        tier2_col  = (Color){ 255, 220, 40, 255 };
+        tier3_col  = (Color){ 255, 100, 40, 255 };
     }
-    bg         = (Color){ 8, 8, 16, 210 };
-    graph_bg   = (Color){ 4, 4, 10, 200 };
-    graph_grid = (Color){ 40, 40, 60, 80 };
 
     // Compute total panel height
     float total_h = 0;
@@ -117,7 +143,7 @@ void debug_panel_draw(const debug_panel_t *d, int screen_w, int screen_h,
     total_h += section_gap;
     total_h += line_h * 3;                               // Memory
     total_h += section_gap;
-    total_h += line_h * 4;                               // Position
+    total_h += line_h * 5;                               // Position + tier
     total_h += margin * 2;
 
     // Panel background
@@ -134,9 +160,9 @@ void debug_panel_draw(const debug_panel_t *d, int screen_w, int screen_h,
 
     int fps = GetFPS();
     snprintf(buf, sizeof(buf), "%d", fps);
-    Color fps_col = fps >= 55 ? (Color){80, 255, 120, 255} :
-                    fps >= 30 ? (Color){255, 220, 40, 255} :
-                                (Color){255, 60, 40, 255};
+    Color fps_col = fps >= 55 ? tier1_col :
+                    fps >= 30 ? tier2_col :
+                                tier3_col;
     DrawTextEx(font, buf, (Vector2){cx, cy}, fs * 1.4f, 0, fps_col);
     cy += line_h;
 
@@ -174,9 +200,9 @@ void debug_panel_draw(const debug_panel_t *d, int screen_w, int screen_h,
 
     float ft = GetFrameTime() * 1000.0f;
     snprintf(buf, sizeof(buf), "%.1f ms", ft);
-    Color ft_col = ft <= 17.0f ? (Color){80, 255, 120, 255} :
-                   ft <= 33.0f ? (Color){255, 220, 40, 255} :
-                                 (Color){255, 60, 40, 255};
+    Color ft_col = ft <= 17.0f ? tier1_col :
+                   ft <= 33.0f ? tier2_col :
+                                 tier3_col;
     DrawTextEx(font, buf, (Vector2){cx, cy}, fs * 1.2f, 0, ft_col);
     cy += line_h;
 
@@ -187,7 +213,7 @@ void debug_panel_draw(const debug_panel_t *d, int screen_w, int screen_h,
 
     // Target line at 16.67ms
     float target_y = cy + graph_h - (16.67f / 33.3f) * graph_h;
-    DrawLine((int)cx, (int)target_y, (int)(cx + graph_w), (int)target_y, (Color){80, 255, 120, 40});
+    DrawLine((int)cx, (int)target_y, (int)(cx + graph_w), (int)target_y, (Color){tier1_col.r, tier1_col.g, tier1_col.b, 40});
 
     snprintf(buf, sizeof(buf), "33ms");
     DrawTextEx(font, buf, (Vector2){cx + graph_w + 2, cy}, fs * 0.7f, 0, dim_col);
@@ -240,6 +266,19 @@ void debug_panel_draw(const debug_panel_t *d, int screen_w, int screen_h,
         DrawTextEx(font, " BAD REF", (Vector2){cx + pw.x, cy}, fs_title * 0.8f, 0, warn_col);
     }
     cy += line_h;
+
+    // Position data tier
+    {
+        const char *tier_str = position_tier == 1 ? "T1  home_position" :
+                               position_tier == 2 ? "T2  GPOS/LPOS ref" :
+                               position_tier == 3 ? "T3  estimated" : "—";
+        Color tier_col = position_tier == 1 ? tier1_col :
+                         position_tier == 2 ? tier2_col :
+                         position_tier == 3 ? tier3_col : dim_col;
+        snprintf(buf, sizeof(buf), "Tier        %s", tier_str);
+        DrawTextEx(font, buf, (Vector2){cx, cy}, fs, 0, tier_col);
+        cy += line_h;
+    }
 
     snprintf(buf, sizeof(buf), "X  %+.1f", vehicle_pos.x);
     DrawTextEx(font, buf, (Vector2){cx, cy}, fs, 0, text_col);

@@ -417,14 +417,9 @@ int main(int argc, char *argv[]) {
             if (choice == 1 || WindowShouldClose()) {
                 for (int i = 0; i < num_replay_files; i++)
                     data_source_close(&sources[i]);
-                num_replay_files = 0;
-                vehicle_count = 0;
-                is_replay = false;
-                if (WindowShouldClose()) {
-                    scene_cleanup(&scene);
-                    CloseWindow();
-                    return 0;
-                }
+                scene_cleanup(&scene);
+                CloseWindow();
+                return 0;
             } else if (choice == 2) {
                 ghost_mode = true;
             } else if (choice == 3) {
@@ -481,6 +476,18 @@ int main(int argc, char *argv[]) {
                    ref_lat_rad * (180.0 / M_PI), ref_lon_rad * (180.0 / M_PI), min_alt);
     }
 
+    // Compute position tier per vehicle (for debug panel)
+    int vehicle_tier[MAX_VEHICLES];
+    memset(vehicle_tier, 0, sizeof(vehicle_tier));
+    if (is_replay) {
+        for (int i = 0; i < num_replay_files; i++) {
+            ulog_replay_ctx_t *r = (ulog_replay_ctx_t *)sources[i].impl;
+            if (r->home_from_topic) vehicle_tier[i] = 1;
+            else if (r->home.valid) vehicle_tier[i] = 2;
+            else vehicle_tier[i] = 3;
+        }
+    }
+
     // Check for Tier 3 drones (no valid home = estimated position)
     bool has_tier3 = false;
     for (int i = 0; i < num_replay_files; i++) {
@@ -517,6 +524,10 @@ int main(int argc, char *argv[]) {
     int corr_mode = 0;               // Shift+T: 0=off, 1=ribbon, 2=line
     bool show_corr_labels = true;    // Ctrl+L: distance labels in ortho correlation
     bool show_axes = false;          // Z: axis orientation gizmo
+    bool insufficient_data[MAX_VEHICLES];  // drones with no position data
+    memset(insufficient_data, 0, sizeof(insufficient_data));
+    int insufficient_check_frames = 0;
+    bool insufficient_toasted = false;
 
     // Main loop
     while (!WindowShouldClose()) {
@@ -553,6 +564,22 @@ int main(int argc, char *argv[]) {
                 }
             }
             last_pos[i] = vehicles[i].position;
+        }
+
+        // Detect drones with insufficient position data (~2s after start)
+        if (is_replay && !insufficient_toasted) {
+            insufficient_check_frames++;
+            if (insufficient_check_frames > 120) {
+                for (int i = 0; i < vehicle_count; i++) {
+                    if (sources[i].connected && !sources[i].state.valid) {
+                        insufficient_data[i] = true;
+                        char msg[64];
+                        snprintf(msg, sizeof(msg), "DRONE %d: INSUFFICIENT DATA", i + 1);
+                        hud_toast_color(&hud, msg, 4.0f, vehicles[i].color);
+                    }
+                }
+                insufficient_toasted = true;
+            }
         }
 
         // Grid offsets for ghost/narrow-grid are now computed at init time
@@ -935,6 +962,17 @@ int main(int argc, char *argv[]) {
             }
         }
 
+        // Re-toast insufficient data warning when switching to a bad drone
+        {
+            static int last_selected_for_insuf = -1;
+            if (selected != last_selected_for_insuf && insufficient_data[selected]) {
+                char msg[64];
+                snprintf(msg, sizeof(msg), "DRONE %d: INSUFFICIENT DATA", selected + 1);
+                hud_toast_color(&hud, msg, 3.0f, vehicles[selected].color);
+            }
+            last_selected_for_insuf = selected;
+        }
+
         // Replay playback controls (apply to all sources)
         if (is_replay) {
             int nrf = num_replay_files > 0 ? num_replay_files : 1;
@@ -1168,7 +1206,8 @@ int main(int argc, char *argv[]) {
                                  scene.view_mode, hud.font_label,
                                  vehicle_count, active_count, total_trail,
                                  vehicles[selected].position,
-                                 sources[selected].ref_rejected);
+                                 sources[selected].ref_rejected,
+                                 vehicle_tier[selected]);
             }
 
             // Ortho panel overlay

@@ -21,6 +21,7 @@ typedef struct {
     char toast_text[64];
     float toast_timer;  // seconds remaining (0 = hidden)
     float toast_total;  // total duration for fade calc
+    Color toast_color;  // custom color (0,0,0,0 = use default)
 } hud_t;
 
 void hud_init(hud_t *h);
@@ -31,6 +32,7 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
               bool ghost_mode, bool has_tier3, bool has_awaiting_gps);
 void hud_cleanup(hud_t *h);
 void hud_toast(hud_t *h, const char *text, float duration_s);
+void hud_toast_color(hud_t *h, const char *text, float duration_s, Color color);
 
 // Returns the total height of the HUD bar in pixels (for layout by other panels).
 int hud_bar_height(const hud_t *h, int screen_h);

@@ -76,6 +76,14 @@ void hud_toast(hud_t *h, const char *text, float duration_s) {
     snprintf(h->toast_text, sizeof(h->toast_text), "%s", text);
     h->toast_timer = duration_s;
     h->toast_total = duration_s;
+    h->toast_color = (Color){0, 0, 0, 0};  // use default
+}
+
+void hud_toast_color(hud_t *h, const char *text, float duration_s, Color color) {
+    snprintf(h->toast_text, sizeof(h->toast_text), "%s", text);
+    h->toast_timer = duration_s;
+    h->toast_total = duration_s;
+    h->toast_color = color;
 }
 
 static void draw_compass(float cx, float cy, float radius, float heading_deg, view_mode_t vm, Font font_value) {
@@ -474,7 +482,8 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
         float fade = 1.0f;
         if (h->toast_timer < 0.5f)
             fade = h->toast_timer / 0.5f;
-        Color toast_c = (Color){climb_color.r, climb_color.g, climb_color.b,
+        Color base_tc = (h->toast_color.a > 0) ? h->toast_color : climb_color;
+        Color toast_c = (Color){base_tc.r, base_tc.g, base_tc.b,
                                 (unsigned char)(fade * 255)};
         float toast_y = (float)bar_y - tw.y - 8 * s;
         float toast_x = (float)(screen_w / 2) - tw.x / 2.0f;

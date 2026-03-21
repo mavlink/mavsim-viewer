@@ -226,6 +226,7 @@ void scene_init(scene_t *s) {
     s->view_mode = VIEW_GRID;
     s->ortho_mode = ORTHO_NONE;
     s->ortho_span = 60.0f;
+    s->ortho_pan = (Vector3){0};
     s->chase_distance = 3.0f;
     s->chase_yaw = 0.0f;
     s->chase_pitch = 0.4f;  // ~23° above horizontal
@@ -305,6 +306,11 @@ void scene_init(scene_t *s) {
     SetShaderValue(s->lighting_shader, s->loc_lightDir, &sun, SHADER_UNIFORM_VEC3);
     float ambient = 0.35f;
     SetShaderValue(s->lighting_shader, s->loc_ambient, &ambient, SHADER_UNIFORM_FLOAT);
+
+    // Default ghostAlpha to 1.0 — vehicle draw overrides per-vehicle
+    int loc_ghost = GetShaderLocation(s->lighting_shader, "ghostAlpha");
+    float ghost_default = 1.0f;
+    SetShaderValue(s->lighting_shader, loc_ghost, &ghost_default, SHADER_UNIFORM_FLOAT);
 }
 
 static void update_chase_camera(scene_t *s, Vector3 pos) {
@@ -351,35 +357,38 @@ static void update_ortho_camera(scene_t *s, Vector3 pos) {
     s->camera.projection = CAMERA_ORTHOGRAPHIC;
     s->camera.fovy = span;
 
+    // Apply pan offset
+    Vector3 p = { pos.x + s->ortho_pan.x, pos.y + s->ortho_pan.y, pos.z + s->ortho_pan.z };
+
     switch (s->ortho_mode) {
         case ORTHO_TOP:
-            s->camera.position = (Vector3){ pos.x, pos.y + 100.0f, pos.z };
-            s->camera.target = pos;
+            s->camera.position = (Vector3){ p.x, p.y + 100.0f, p.z };
+            s->camera.target = p;
             s->camera.up = (Vector3){ 0, 0, -1 };
             break;
         case ORTHO_BOTTOM:
-            s->camera.position = (Vector3){ pos.x, pos.y - 100.0f, pos.z };
-            s->camera.target = pos;
+            s->camera.position = (Vector3){ p.x, p.y - 100.0f, p.z };
+            s->camera.target = p;
             s->camera.up = (Vector3){ 0, 0, 1 };
             break;
         case ORTHO_FRONT:
-            s->camera.position = (Vector3){ pos.x, pos.y, pos.z - 100.0f };
-            s->camera.target = pos;
+            s->camera.position = (Vector3){ p.x, p.y, p.z - 100.0f };
+            s->camera.target = p;
             s->camera.up = (Vector3){ 0, 1, 0 };
             break;
         case ORTHO_BACK:
-            s->camera.position = (Vector3){ pos.x, pos.y, pos.z + 100.0f };
-            s->camera.target = pos;
+            s->camera.position = (Vector3){ p.x, p.y, p.z + 100.0f };
+            s->camera.target = p;
             s->camera.up = (Vector3){ 0, 1, 0 };
             break;
         case ORTHO_LEFT:
-            s->camera.position = (Vector3){ pos.x - 100.0f, pos.y, pos.z };
-            s->camera.target = pos;
+            s->camera.position = (Vector3){ p.x - 100.0f, p.y, p.z };
+            s->camera.target = p;
             s->camera.up = (Vector3){ 0, 1, 0 };
             break;
         case ORTHO_RIGHT:
-            s->camera.position = (Vector3){ pos.x + 100.0f, pos.y, pos.z };
-            s->camera.target = pos;
+            s->camera.position = (Vector3){ p.x + 100.0f, p.y, p.z };
+            s->camera.target = p;
             s->camera.up = (Vector3){ 0, 1, 0 };
             break;
         default:
@@ -415,6 +424,7 @@ void scene_handle_input(scene_t *s) {
         for (int i = 0; i < 7; i++) {
             if (IsKeyPressed(keys[i])) {
                 s->ortho_mode = modes[i];
+                s->ortho_pan = (Vector3){0};
                 printf("View: %s\n", names[i]);
                 break;
             }
@@ -429,7 +439,8 @@ void scene_handle_input(scene_t *s) {
     }
 
     if (IsKeyPressed(KEY_C)) {
-        s->ortho_mode = ORTHO_NONE;  // return to perspective on camera toggle
+        s->ortho_mode = ORTHO_NONE;
+        s->ortho_pan = (Vector3){0};
         s->cam_mode = (s->cam_mode + 1) % CAM_MODE_COUNT;
         const char *names[] = {"Chase", "FPV"};
         printf("Camera: %s\n", names[s->cam_mode]);
@@ -487,6 +498,38 @@ void scene_handle_input(scene_t *s) {
             // Full yaw, pitch only downward (0 = forward, -PI/2 = straight down)
             if (s->fpv_pitch < -1.57f) s->fpv_pitch = -1.57f;
             if (s->fpv_pitch > 0.0f) s->fpv_pitch = 0.0f;
+        }
+    }
+
+    // Right-click drag to pan in ortho mode
+    if (s->ortho_mode != ORTHO_NONE && IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
+        Vector2 delta = GetMouseDelta();
+        // Convert pixel delta to world units based on ortho span and screen size
+        int screen_h = GetScreenHeight();
+        float scale = s->ortho_span / (float)screen_h;
+        switch (s->ortho_mode) {
+            case ORTHO_TOP:
+            case ORTHO_BOTTOM:
+                s->ortho_pan.x -= delta.x * scale;
+                s->ortho_pan.z -= delta.y * scale * (s->ortho_mode == ORTHO_BOTTOM ? -1.0f : 1.0f);
+                break;
+            case ORTHO_FRONT:
+                s->ortho_pan.x -= delta.x * scale;
+                s->ortho_pan.y += delta.y * scale;
+                break;
+            case ORTHO_BACK:
+                s->ortho_pan.x += delta.x * scale;
+                s->ortho_pan.y += delta.y * scale;
+                break;
+            case ORTHO_LEFT:
+                s->ortho_pan.z += delta.x * scale;
+                s->ortho_pan.y += delta.y * scale;
+                break;
+            case ORTHO_RIGHT:
+                s->ortho_pan.z -= delta.x * scale;
+                s->ortho_pan.y += delta.y * scale;
+                break;
+            default: break;
         }
     }
 
@@ -584,59 +627,65 @@ void scene_draw(const scene_t *s) {
             SYNTH_GROUND, (Color){ 25, 25, 82, 255 });
     }
 
-    // Fullscreen ortho: distance grid + ground line
-    if (s->ortho_mode != ORTHO_NONE) {
+    // Fullscreen ortho: distance grid for side views (top/bottom use the shader ground grid)
+    if (s->ortho_mode >= ORTHO_FRONT && s->ortho_mode <= ORTHO_RIGHT) {
         float ext = s->ortho_span * 2.0f;
         float spacing = 10.0f;
         if (s->ortho_span > 200.0f) spacing = 50.0f;
         else if (s->ortho_span > 80.0f) spacing = 20.0f;
         else if (s->ortho_span < 20.0f) spacing = 2.0f;
 
-        Color grid_minor = { 40, 40, 55, 60 };
-        Color grid_major = { 60, 60, 80, 100 };
+        Color grid_minor, grid_major;
+        switch (s->view_mode) {
+            case VIEW_REZ:
+                grid_minor = (Color){  0, 204, 218,  70 };
+                grid_major = (Color){  0, 204, 218, 180 };
+                break;
+            case VIEW_1988:
+                grid_minor = (Color){ 255, 20, 100,  70 };
+                grid_major = (Color){ 255, 20, 100, 200 };
+                break;
+            case VIEW_SNOW:
+                grid_minor = (Color){ 140, 145, 155, 160 };
+                grid_major = (Color){  50,  55,  65, 220 };
+                break;
+            default: // VIEW_GRID
+                grid_minor = (Color){ 110, 110, 115, 180 };
+                grid_major = (Color){ 170, 170, 175, 220 };
+                break;
+        }
         Vector3 center = s->camera.target;
 
-        if (s->ortho_mode == ORTHO_TOP || s->ortho_mode == ORTHO_BOTTOM) {
-            float snap_x = floorf(center.x / spacing) * spacing;
-            float snap_z = floorf(center.z / spacing) * spacing;
-            for (float g = -ext; g <= ext; g += spacing) {
-                bool major = fabsf(fmodf(snap_x + g, spacing * 5)) < 0.1f;
-                DrawLine3D((Vector3){snap_x + g, 0.01f, center.z - ext},
-                           (Vector3){snap_x + g, 0.01f, center.z + ext}, major ? grid_major : grid_minor);
-            }
-            for (float g = -ext; g <= ext; g += spacing) {
-                bool major = fabsf(fmodf(snap_z + g, spacing * 5)) < 0.1f;
-                DrawLine3D((Vector3){center.x - ext, 0.01f, snap_z + g},
-                           (Vector3){center.x + ext, 0.01f, snap_z + g}, major ? grid_major : grid_minor);
-            }
-        } else if (s->ortho_mode == ORTHO_FRONT || s->ortho_mode == ORTHO_BACK) {
-            float snap_x = floorf(center.x / spacing) * spacing;
-            float snap_y = floorf(center.y / spacing) * spacing;
+        // Grid lines anchored to world origin (multiples of spacing from 0)
+        float start_h, start_v;  // horizontal and vertical axis start values
+        if (s->ortho_mode == ORTHO_FRONT || s->ortho_mode == ORTHO_BACK) {
             float z = center.z;
-            for (float g = -ext; g <= ext; g += spacing) {
-                bool major = fabsf(fmodf(snap_x + g, spacing * 5)) < 0.1f;
-                DrawLine3D((Vector3){snap_x + g, center.y - ext, z},
-                           (Vector3){snap_x + g, center.y + ext, z}, major ? grid_major : grid_minor);
+            start_h = floorf((center.x - ext) / spacing) * spacing;
+            start_v = floorf((center.y - ext) / spacing) * spacing;
+            for (float x = start_h; x <= center.x + ext; x += spacing) {
+                bool major = fabsf(fmodf(x, spacing * 5)) < 0.1f;
+                DrawLine3D((Vector3){x, center.y - ext, z},
+                           (Vector3){x, center.y + ext, z}, major ? grid_major : grid_minor);
             }
-            for (float g = -ext; g <= ext; g += spacing) {
-                bool major = fabsf(fmodf(snap_y + g, spacing * 5)) < 0.1f;
-                DrawLine3D((Vector3){center.x - ext, snap_y + g, z},
-                           (Vector3){center.x + ext, snap_y + g, z}, major ? grid_major : grid_minor);
+            for (float y = start_v; y <= center.y + ext; y += spacing) {
+                bool major = fabsf(fmodf(y, spacing * 5)) < 0.1f;
+                DrawLine3D((Vector3){center.x - ext, y, z},
+                           (Vector3){center.x + ext, y, z}, major ? grid_major : grid_minor);
             }
         } else {
             // Left / Right: ZY grid
-            float snap_z = floorf(center.z / spacing) * spacing;
-            float snap_y = floorf(center.y / spacing) * spacing;
             float x = center.x;
-            for (float g = -ext; g <= ext; g += spacing) {
-                bool major = fabsf(fmodf(snap_z + g, spacing * 5)) < 0.1f;
-                DrawLine3D((Vector3){x, center.y - ext, snap_z + g},
-                           (Vector3){x, center.y + ext, snap_z + g}, major ? grid_major : grid_minor);
+            start_h = floorf((center.z - ext) / spacing) * spacing;
+            start_v = floorf((center.y - ext) / spacing) * spacing;
+            for (float z = start_h; z <= center.z + ext; z += spacing) {
+                bool major = fabsf(fmodf(z, spacing * 5)) < 0.1f;
+                DrawLine3D((Vector3){x, center.y - ext, z},
+                           (Vector3){x, center.y + ext, z}, major ? grid_major : grid_minor);
             }
-            for (float g = -ext; g <= ext; g += spacing) {
-                bool major = fabsf(fmodf(snap_y + g, spacing * 5)) < 0.1f;
-                DrawLine3D((Vector3){x, snap_y + g, center.z - ext},
-                           (Vector3){x, snap_y + g, center.z + ext}, major ? grid_major : grid_minor);
+            for (float y = start_v; y <= center.y + ext; y += spacing) {
+                bool major = fabsf(fmodf(y, spacing * 5)) < 0.1f;
+                DrawLine3D((Vector3){x, y, center.z - ext},
+                           (Vector3){x, y, center.z + ext}, major ? grid_major : grid_minor);
             }
         }
 

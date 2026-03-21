@@ -13,6 +13,7 @@ typedef enum {
     GROUP_VTOL,
     GROUP_TAILSITTER,
     GROUP_ROVER,
+    GROUP_ROV,
     GROUP_COUNT,
 } model_group_t;
 
@@ -38,10 +39,12 @@ extern const int vehicle_model_count;
 #define MODEL_FPV_HEX     5
 #define MODEL_VTOL        6
 #define MODEL_ROVER       7
+#define MODEL_ROV         8
 
 typedef struct {
     Model model;
     Vector3 position;        // Raylib coords (Y-up, right-handed)
+    Vector3 grid_offset;     // spatial offset for deconfliction (meters, Raylib coords)
     Quaternion rotation;     // Raylib quaternion
     int model_idx;           // index into vehicle_models[]
     model_group_t model_group; // active group for M-key cycling
@@ -80,10 +83,15 @@ typedef struct {
     Vector3 trail_last_dir;  // direction of last recorded segment (for adaptive sampling)
     Shader lighting_shader;  // shared lighting shader (id=0 if none)
     int loc_matNormal;       // shader uniform for normal matrix
+    float ghost_alpha;       // 1.0 = fully opaque, 0.35 = ghost
+    int   loc_ghost_alpha;   // shader uniform location for ghostAlpha
 } vehicle_t;
 
 // Initialize vehicle state and load the model at model_idx. shader is optional lighting shader (id=0 to skip).
 void vehicle_init(vehicle_t *v, int model_idx, Shader lighting_shader);
+
+// Set ghost alpha for translucent rendering (1.0 = opaque, 0.35 = ghost).
+void vehicle_set_ghost_alpha(vehicle_t *v, float alpha);
 
 // Swap to a different model at runtime (unloads old, loads new).
 void vehicle_load_model(vehicle_t *v, int model_idx);
@@ -106,6 +114,15 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
 
 // Reset the path trail.
 void vehicle_reset_trail(vehicle_t *v);
+
+// Draw correlation curtain between two vehicles (cross-vehicle overlay).
+void vehicle_draw_correlation_curtain(
+    const vehicle_t *va, const vehicle_t *vb,
+    view_mode_t view_mode, Vector3 cam_pos);
+
+// Draw thick correlation line between two vehicles at current positions.
+void vehicle_draw_correlation_line(
+    const vehicle_t *va, const vehicle_t *vb);
 
 // Unload model resources.
 void vehicle_cleanup(vehicle_t *v);

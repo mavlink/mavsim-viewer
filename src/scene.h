@@ -64,6 +64,7 @@ typedef struct {
     int loc_matNormal;
     ortho_mode_t ortho_mode; // fullscreen ortho view (0 = perspective)
     float ortho_span;        // ortho view span in world units
+    Vector3 ortho_pan;       // pan offset in world units (right-click drag)
 } scene_t;
 
 // Initialize scene (ground plane, sky, camera, lighting).

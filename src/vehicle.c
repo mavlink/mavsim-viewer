@@ -285,8 +285,13 @@ void vehicle_init(vehicle_t *v, int model_idx, Shader lighting_shader) {
 
     v->lighting_shader = lighting_shader;
     v->loc_matNormal = -1;
+    v->ghost_alpha = 1.0f;
+    v->loc_ghost_alpha = -1;
     if (lighting_shader.id > 0) {
         v->loc_matNormal = GetShaderLocation(lighting_shader, "matNormal");
+        v->loc_ghost_alpha = GetShaderLocation(lighting_shader, "ghostAlpha");
+        float one = 1.0f;
+        SetShaderValue(lighting_shader, v->loc_ghost_alpha, &one, SHADER_UNIFORM_FLOAT);
     }
 
     vehicle_load_model(v, model_idx);
@@ -303,23 +308,18 @@ void vehicle_update(vehicle_t *v, const hil_state_t *state, const home_position_
         // Wait for HOME_POSITION so we get the correct ground altitude.
         // Fall back to current altitude after ~1 second (20 HIL updates at 22Hz).
         v->origin_wait_count++;
-        if (home && home->valid) {
-            double home_alt = home->alt * 1e-3;
+        if (home && home->valid && (lat != 0.0 || lon != 0.0)) {
             v->lat0 = lat;
             v->lon0 = lon;
-            // If vehicle is near home altitude, it's on the ground — use HIL alt
-            // to avoid the ~0.1m offset. If airborne, use home alt as ground ref.
-            if (fabs(alt - home_alt) < 1.0) {
-                v->alt0 = alt;
-            } else {
-                v->alt0 = home_alt;
-            }
+            v->alt0 = alt;
             v->origin_set = true;
+
         } else if (v->origin_wait_count > 20) {
             v->lat0 = lat;
             v->lon0 = lon;
             v->alt0 = alt;
             v->origin_set = true;
+
         } else {
             return;  // skip this update, wait for home
         }
@@ -332,11 +332,11 @@ void vehicle_update(vehicle_t *v, const hil_state_t *state, const home_position_
     double jmav_y = EARTH_RADIUS * (lon - v->lon0) * cos(v->lat0); // East
     double jmav_z = alt - v->alt0;                                   // Up
 
-    // NED frame → Raylib (X=right, Y=up, Z=back)
-    v->position.x = (float)jmav_y;
-    v->position.y = (float)jmav_z;
+    // NED frame → Raylib (X=right, Y=up, Z=back) + grid deconfliction offset
+    v->position.x = (float)jmav_y + v->grid_offset.x;
+    v->position.y = (float)jmav_z + v->grid_offset.y;
     if (v->position.y < 0.0f) v->position.y = 0.0f;
-    v->position.z = (float)(-jmav_x);
+    v->position.z = (float)(-jmav_x) + v->grid_offset.z;
 
     // MAVLink quaternion: w,x,y,z in NED frame → Raylib
     float qw = state->quaternion[0];
@@ -535,9 +535,24 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
         SetShaderValueMatrix(v->lighting_shader, v->loc_matNormal, rot_only);
     }
 
-    DrawModel(v->model, (Vector3){0}, 1.0f, WHITE);
+    // Set ghost alpha on shader
+    if (v->loc_ghost_alpha >= 0) {
+        SetShaderValue(v->lighting_shader, v->loc_ghost_alpha, &v->ghost_alpha, SHADER_UNIFORM_FLOAT);
+    }
 
-    // Draw path trail (mode 1) or speed ribbon (mode 2)
+    if (v->ghost_alpha < 1.0f) rlDisableDepthMask();
+    // Ghost drones get a 50% tint of their assigned color
+    Color model_tint = WHITE;
+    if (v->ghost_alpha < 1.0f) {
+        float t = 0.5f;
+        model_tint.r = (unsigned char)(255 * (1.0f - t) + v->color.r * t);
+        model_tint.g = (unsigned char)(255 * (1.0f - t) + v->color.g * t);
+        model_tint.b = (unsigned char)(255 * (1.0f - t) + v->color.b * t);
+    }
+    DrawModel(v->model, (Vector3){0}, 1.0f, model_tint);
+    if (v->ghost_alpha < 1.0f) rlEnableDepthMask();
+
+    // Draw path trail (mode 1), speed ribbon (mode 2), or drone color (mode 3)
     if (trail_mode > 0 && v->trail_count > 1) {
         int start = (v->trail_count < v->trail_capacity)
             ? 0
@@ -631,7 +646,7 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
             unsigned char ccr = (unsigned char)(cr > 255 ? 255 : cr);
             unsigned char ccg = (unsigned char)(cg > 255 ? 255 : cg);
             unsigned char ccb = (unsigned char)(cb > 255 ? 255 : cb);
-            unsigned char ca  = (unsigned char)(t * trail_color.a);
+            unsigned char ca  = (unsigned char)(t * trail_color.a * v->ghost_alpha);
             rlColor4ub(ccr, ccg, ccb, ca);
             if (!thick) {
                 rlVertex3f(v->trail[idx0].x, v->trail[idx0].y, v->trail[idx0].z);
@@ -654,6 +669,19 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
                 rlVertex3f(d.x, d.y, d.z); rlVertex3f(b.x, b.y, b.z); rlVertex3f(a.x, a.y, a.z);
                 rlVertex3f(d.x, d.y, d.z); rlVertex3f(e.x, e.y, e.z); rlVertex3f(b.x, b.y, b.z);
             }
+        }
+        rlEnd();
+      } else if (trail_mode == 3) {
+        // ── Drone-color trail: solid vehicle color with age fade ──
+        rlBegin(RL_LINES);
+        for (int i = 1; i < v->trail_count; i++) {
+            int idx0 = (start + i - 1) % v->trail_capacity;
+            int idx1 = (start + i) % v->trail_capacity;
+            float t = (float)i / (float)v->trail_count;
+            unsigned char ca = (unsigned char)(t * 200 * v->ghost_alpha);
+            rlColor4ub(v->color.r, v->color.g, v->color.b, ca);
+            rlVertex3f(v->trail[idx0].x, v->trail[idx0].y, v->trail[idx0].z);
+            rlVertex3f(v->trail[idx1].x, v->trail[idx1].y, v->trail[idx1].z);
         }
         rlEnd();
       } else {
@@ -735,6 +763,7 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
 
             float t = (float)i / (float)v->trail_count;
             Color c = heat_to_color(heat, (unsigned char)(t * 200), view_mode);
+            c.a = (unsigned char)(c.a * v->ghost_alpha);
 
             Vector3 a = { p0.x + perp.x*hw0, p0.y + perp.y*hw0, p0.z + perp.z*hw0 };
             Vector3 b = { p0.x - perp.x*hw0, p0.y - perp.y*hw0, p0.z - perp.z*hw0 };
@@ -831,6 +860,170 @@ void vehicle_reset_trail(vehicle_t *v) {
     v->trail_head = 0;
     v->trail_timer = 0.0f;
     v->trail_speed_max = 0.0f;
+}
+
+void vehicle_set_ghost_alpha(vehicle_t *v, float alpha) {
+    v->ghost_alpha = alpha;
+}
+
+void vehicle_draw_correlation_curtain(
+    const vehicle_t *va, const vehicle_t *vb,
+    view_mode_t view_mode, Vector3 cam_pos) {
+    if (va->trail_count < 2 || vb->trail_count < 2) return;
+
+    int n = va->trail_count < vb->trail_count ? va->trail_count : vb->trail_count;
+    if (n < 2) return;
+
+    int start_a = (va->trail_count < va->trail_capacity) ? 0 : va->trail_head;
+    int start_b = (vb->trail_count < vb->trail_capacity) ? 0 : vb->trail_head;
+
+    Color ca = va->color;
+    Color cb = vb->color;
+
+    rlDisableDepthMask();
+    rlBegin(RL_TRIANGLES);
+    for (int i = 1; i < n; i++) {
+        // Map index through fractional position for trail length alignment
+        int idx_a0 = (start_a + (int)((float)(i - 1) / n * va->trail_count)) % va->trail_capacity;
+        int idx_a1 = (start_a + (int)((float)i / n * va->trail_count)) % va->trail_capacity;
+        int idx_b0 = (start_b + (int)((float)(i - 1) / n * vb->trail_count)) % vb->trail_capacity;
+        int idx_b1 = (start_b + (int)((float)i / n * vb->trail_count)) % vb->trail_capacity;
+
+        Vector3 pa0 = va->trail[idx_a0];
+        Vector3 pa1 = va->trail[idx_a1];
+        Vector3 pb0 = vb->trail[idx_b0];
+        Vector3 pb1 = vb->trail[idx_b1];
+
+        float t = (float)i / (float)n;
+        unsigned char alpha_a = (unsigned char)(t * 255 * va->ghost_alpha);
+        unsigned char alpha_b = (unsigned char)(t * 255 * vb->ghost_alpha);
+
+        // Front face: pa0 → pb0 → pa1, then pb0 → pb1 → pa1
+        rlColor4ub(ca.r, ca.g, ca.b, alpha_a);
+        rlVertex3f(pa0.x, pa0.y, pa0.z);
+        rlColor4ub(cb.r, cb.g, cb.b, alpha_b);
+        rlVertex3f(pb0.x, pb0.y, pb0.z);
+        rlColor4ub(ca.r, ca.g, ca.b, alpha_a);
+        rlVertex3f(pa1.x, pa1.y, pa1.z);
+
+        rlColor4ub(cb.r, cb.g, cb.b, alpha_b);
+        rlVertex3f(pb0.x, pb0.y, pb0.z);
+        rlVertex3f(pb1.x, pb1.y, pb1.z);
+        rlColor4ub(ca.r, ca.g, ca.b, alpha_a);
+        rlVertex3f(pa1.x, pa1.y, pa1.z);
+
+        // Back face: pa1 → pb0 → pa0, then pa1 → pb1 → pb0
+        rlColor4ub(ca.r, ca.g, ca.b, alpha_a);
+        rlVertex3f(pa1.x, pa1.y, pa1.z);
+        rlColor4ub(cb.r, cb.g, cb.b, alpha_b);
+        rlVertex3f(pb0.x, pb0.y, pb0.z);
+        rlColor4ub(ca.r, ca.g, ca.b, alpha_a);
+        rlVertex3f(pa0.x, pa0.y, pa0.z);
+
+        rlColor4ub(ca.r, ca.g, ca.b, alpha_a);
+        rlVertex3f(pa1.x, pa1.y, pa1.z);
+        rlColor4ub(cb.r, cb.g, cb.b, alpha_b);
+        rlVertex3f(pb1.x, pb1.y, pb1.z);
+        rlVertex3f(pb0.x, pb0.y, pb0.z);
+    }
+    rlEnd();
+    rlEnableDepthMask();
+}
+
+void vehicle_draw_correlation_line(
+    const vehicle_t *va, const vehicle_t *vb) {
+    // Offset to model center of mass (model origin is at bottom)
+    float off_a = va->model_scale * 0.15f;
+    float off_b = vb->model_scale * 0.15f;
+    Vector3 pa = { va->position.x, va->position.y + off_a, va->position.z };
+    Vector3 pb = { vb->position.x, vb->position.y + off_b, vb->position.z };
+
+    Vector3 seg = { pb.x - pa.x, pb.y - pa.y, pb.z - pa.z };
+    float seg_len = sqrtf(seg.x*seg.x + seg.y*seg.y + seg.z*seg.z);
+    if (seg_len < 0.001f) return;
+
+    Vector3 dir = { seg.x/seg_len, seg.y/seg_len, seg.z/seg_len };
+
+    // Build two perpendicular vectors to form the cylinder cross-section
+    Vector3 perp1, perp2;
+    if (fabsf(dir.y) < 0.9f) {
+        Vector3 up = {0, 1, 0};
+        perp1 = (Vector3){ dir.y*up.z - dir.z*up.y,
+                           dir.z*up.x - dir.x*up.z,
+                           dir.x*up.y - dir.y*up.x };
+    } else {
+        Vector3 right = {1, 0, 0};
+        perp1 = (Vector3){ dir.y*right.z - dir.z*right.y,
+                           dir.z*right.x - dir.x*right.z,
+                           dir.x*right.y - dir.y*right.x };
+    }
+    float p1len = sqrtf(perp1.x*perp1.x + perp1.y*perp1.y + perp1.z*perp1.z);
+    perp1.x /= p1len; perp1.y /= p1len; perp1.z /= p1len;
+    perp2 = (Vector3){ dir.y*perp1.z - dir.z*perp1.y,
+                       dir.z*perp1.x - dir.x*perp1.z,
+                       dir.x*perp1.y - dir.y*perp1.x };
+
+    Color ca = va->color;
+    Color cb = vb->color;
+    unsigned char alpha_a = (unsigned char)(220 * va->ghost_alpha);
+    unsigned char alpha_b = (unsigned char)(220 * vb->ghost_alpha);
+    float radius = 0.04f;
+    int slices = 8;
+    int rings = 6;
+
+    // Precompute sin/cos for the circle
+    float sin_t[9], cos_t[9];  // slices + 1
+    for (int s = 0; s <= slices; s++) {
+        float a = (float)s / slices * 2.0f * M_PI;
+        sin_t[s] = sinf(a);
+        cos_t[s] = cosf(a);
+    }
+
+    rlBegin(RL_TRIANGLES);
+    for (int r = 0; r < rings; r++) {
+        float t0 = (float)r / rings;
+        float t1 = (float)(r + 1) / rings;
+
+        // Interpolated positions along axis
+        Vector3 c0 = { pa.x + seg.x*t0, pa.y + seg.y*t0, pa.z + seg.z*t0 };
+        Vector3 c1 = { pa.x + seg.x*t1, pa.y + seg.y*t1, pa.z + seg.z*t1 };
+
+        // Interpolated colors
+        unsigned char r0 = (unsigned char)(ca.r + (cb.r - ca.r) * t0);
+        unsigned char g0 = (unsigned char)(ca.g + (cb.g - ca.g) * t0);
+        unsigned char b0 = (unsigned char)(ca.b + (cb.b - ca.b) * t0);
+        unsigned char a0 = (unsigned char)(alpha_a + (alpha_b - alpha_a) * t0);
+        unsigned char r1 = (unsigned char)(ca.r + (cb.r - ca.r) * t1);
+        unsigned char g1 = (unsigned char)(ca.g + (cb.g - ca.g) * t1);
+        unsigned char b1 = (unsigned char)(ca.b + (cb.b - ca.b) * t1);
+        unsigned char a1 = (unsigned char)(alpha_a + (alpha_b - alpha_a) * t1);
+
+        for (int s = 0; s < slices; s++) {
+            // Four corners of this quad on the cylinder surface
+            float ox0 = radius * (perp1.x*cos_t[s]   + perp2.x*sin_t[s]);
+            float oy0 = radius * (perp1.y*cos_t[s]   + perp2.y*sin_t[s]);
+            float oz0 = radius * (perp1.z*cos_t[s]   + perp2.z*sin_t[s]);
+            float ox1 = radius * (perp1.x*cos_t[s+1] + perp2.x*sin_t[s+1]);
+            float oy1 = radius * (perp1.y*cos_t[s+1] + perp2.y*sin_t[s+1]);
+            float oz1 = radius * (perp1.z*cos_t[s+1] + perp2.z*sin_t[s+1]);
+
+            // Triangle 1
+            rlColor4ub(r0, g0, b0, a0);
+            rlVertex3f(c0.x+ox0, c0.y+oy0, c0.z+oz0);
+            rlColor4ub(r1, g1, b1, a1);
+            rlVertex3f(c1.x+ox0, c1.y+oy0, c1.z+oz0);
+            rlColor4ub(r0, g0, b0, a0);
+            rlVertex3f(c0.x+ox1, c0.y+oy1, c0.z+oz1);
+
+            // Triangle 2
+            rlColor4ub(r0, g0, b0, a0);
+            rlVertex3f(c0.x+ox1, c0.y+oy1, c0.z+oz1);
+            rlColor4ub(r1, g1, b1, a1);
+            rlVertex3f(c1.x+ox0, c1.y+oy0, c1.z+oz0);
+            rlVertex3f(c1.x+ox1, c1.y+oy1, c1.z+oz1);
+        }
+    }
+    rlEnd();
 }
 
 void vehicle_cleanup(vehicle_t *v) {

@@ -3,6 +3,7 @@
 
 #include "vehicle.h"
 #include "data_source.h"
+#include "theme.h"
 #include <stdbool.h>
 
 #define HUD_MAX_PINNED 15
@@ -28,7 +29,7 @@ void hud_init(hud_t *h);
 void hud_update(hud_t *h, uint64_t time_usec, bool connected, float dt);
 void hud_draw(const hud_t *h, const vehicle_t *vehicles,
               const data_source_t *sources, int vehicle_count,
-              int selected, int screen_w, int screen_h, view_mode_t view_mode,
+              int selected, int screen_w, int screen_h, const theme_t *theme,
               bool ghost_mode, bool has_tier3, bool has_awaiting_gps);
 void hud_cleanup(hud_t *h);
 void hud_toast(hud_t *h, const char *text, float duration_s);

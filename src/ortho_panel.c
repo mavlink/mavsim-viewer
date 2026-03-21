@@ -1,4 +1,5 @@
 #include "ortho_panel.h"
+#include "theme.h"
 #include "rlgl.h"
 #include "raymath.h"
 #include <stdio.h>
@@ -11,49 +12,6 @@ static const char *view_labels[ORTHO_VIEW_COUNT] = { "TOP", "FRONT", "RIGHT" };
 // Forward declarations
 static void draw_axis_gizmo_at(float ox, float oy, float sc, int ortho_mode, Font font);
 
-// ── Sky / ground colors per view mode ────────────────────────────────────────
-
-static void get_sky_ground(view_mode_t vm, Color *sky, Color *gnd) {
-    switch (vm) {
-        case VIEW_REZ:
-            *sky = (Color){ 12,  12,  18, 255 };
-            *gnd = (Color){  2,   2,   4, 240 };
-            break;
-        case VIEW_1988:
-            *sky = (Color){  8,   8,  20, 255 };
-            *gnd = (Color){  5,   5,  16, 240 };
-            break;
-        case VIEW_SNOW:
-            *sky = (Color){ 240, 242, 245, 255 };
-            *gnd = (Color){ 210, 212, 216, 240 };
-            break;
-        default: // VIEW_GRID
-            *sky = (Color){ 56,  56,  60, 255 };
-            *gnd = (Color){ 32,  32,  34, 240 };
-            break;
-    }
-}
-
-static void get_grid_colors(view_mode_t vm, Color *minor, Color *major) {
-    switch (vm) {
-        case VIEW_REZ:
-            *minor = (Color){  0, 204, 218,  80 };
-            *major = (Color){  0, 204, 218, 190 };
-            break;
-        case VIEW_1988:
-            *minor = (Color){ 255, 20, 100,  80 };
-            *major = (Color){ 255, 20, 100, 200 };
-            break;
-        case VIEW_SNOW:
-            *minor = (Color){ 140, 145, 155, 180 };
-            *major = (Color){  50,  55,  65, 230 };
-            break;
-        default:
-            *minor = (Color){ 115, 115, 120, 200 };
-            *major = (Color){ 175, 175, 180, 240 };
-            break;
-    }
-}
 
 // ── Projection helpers ───────────────────────────────────────────────────────
 
@@ -91,105 +49,10 @@ static Vector2 world_to_screen_ortho(Vector3 w, Vector3 center, float span,
     return (Vector2){ screen_w * 0.5f + dx * scale, screen_h * 0.5f + dy * scale };
 }
 
-// ── Heat-to-color palette (copy from vehicle.c) ─────────────────────────────
-
-static Color heat_to_color(float heat, unsigned char alpha, view_mode_t mode) {
-    float cr, cg, cb;
-
-    if (mode == VIEW_1988) {
-        if (heat < 0.16f) {
-            float s = heat / 0.16f;
-            cr = 100 + 40 * s; cg = 10 * s; cb = 120 + 50 * s;
-        } else if (heat < 0.33f) {
-            float s = (heat - 0.16f) / 0.17f;
-            cr = 140 + 115 * s; cg = 10; cb = 170 - 70 * s;
-        } else if (heat < 0.5f) {
-            float s = (heat - 0.33f) / 0.17f;
-            cr = 255; cg = 10 + 30 * s; cb = 100 - 100 * s;
-        } else if (heat < 0.66f) {
-            float s = (heat - 0.5f) / 0.16f;
-            cr = 255; cg = 40 + 130 * s; cb = 0;
-        } else if (heat < 0.83f) {
-            float s = (heat - 0.66f) / 0.17f;
-            cr = 255; cg = 170 + 85 * s; cb = 50 * s;
-        } else {
-            float s = (heat - 0.83f) / 0.17f;
-            cr = 255; cg = 255; cb = 50 + 205 * s;
-        }
-    } else if (mode == VIEW_REZ) {
-        if (heat < 0.16f) {
-            float s = heat / 0.16f;
-            cr = 50 + 20 * s; cg = 20 + 30 * s; cb = 140 + 40 * s;
-        } else if (heat < 0.33f) {
-            float s = (heat - 0.16f) / 0.17f;
-            cr = 70 + 100 * s; cg = 50 + 10 * s; cb = 180 - 60 * s;
-        } else if (heat < 0.5f) {
-            float s = (heat - 0.33f) / 0.17f;
-            cr = 170 + 85 * s; cg = 60 - 20 * s; cb = 120 - 120 * s;
-        } else if (heat < 0.66f) {
-            float s = (heat - 0.5f) / 0.16f;
-            cr = 255; cg = 40 + 120 * s; cb = 20 * s;
-        } else if (heat < 0.83f) {
-            float s = (heat - 0.66f) / 0.17f;
-            cr = 255; cg = 160 + 90 * s; cb = 20 + 40 * s;
-        } else {
-            float s = (heat - 0.83f) / 0.17f;
-            cr = 255; cg = 250 + 5 * s; cb = 60 + 195 * s;
-        }
-    } else if (mode == VIEW_SNOW) {
-        if (heat < 0.16f) {
-            float s = heat / 0.16f;
-            cr = 10 + 10 * s; cg = 20 + 20 * s; cb = 100 + 40 * s;
-        } else if (heat < 0.33f) {
-            float s = (heat - 0.16f) / 0.17f;
-            cr = 20 - 10 * s; cg = 40 + 80 * s; cb = 140 + 40 * s;
-        } else if (heat < 0.5f) {
-            float s = (heat - 0.33f) / 0.17f;
-            cr = 10 - 10 * s; cg = 120 + 40 * s; cb = 180 - 100 * s;
-        } else if (heat < 0.66f) {
-            float s = (heat - 0.5f) / 0.16f;
-            cr = 0 + 60 * s; cg = 160 + 40 * s; cb = 80 - 80 * s;
-        } else if (heat < 0.83f) {
-            float s = (heat - 0.66f) / 0.17f;
-            cr = 60 + 180 * s; cg = 200 + 20 * s; cb = 0;
-        } else {
-            float s = (heat - 0.83f) / 0.17f;
-            cr = 240; cg = 220 - 180 * s; cb = 0;
-        }
-    } else {
-        // Grid (default): purple -> magenta -> red -> orange -> yellow -> white
-        if (heat < 0.16f) {
-            float s = heat / 0.16f;
-            cr = 80 + 40 * s; cg = 20 * s; cb = 140 + 40 * s;
-        } else if (heat < 0.33f) {
-            float s = (heat - 0.16f) / 0.17f;
-            cr = 120 + 80 * s; cg = 20 - 20 * s; cb = 180 - 60 * s;
-        } else if (heat < 0.5f) {
-            float s = (heat - 0.33f) / 0.17f;
-            cr = 200 + 55 * s; cg = 20 * s; cb = 120 - 120 * s;
-        } else if (heat < 0.66f) {
-            float s = (heat - 0.5f) / 0.16f;
-            cr = 255; cg = 20 + 140 * s; cb = 0;
-        } else if (heat < 0.83f) {
-            float s = (heat - 0.66f) / 0.17f;
-            cr = 255; cg = 160 + 95 * s; cb = 40 * s;
-        } else {
-            float s = (heat - 0.83f) / 0.17f;
-            cr = 255; cg = 255; cb = 40 + 215 * s;
-        }
-    }
-
-    return (Color){
-        (unsigned char)(cr > 255 ? 255 : (cr < 0 ? 0 : cr)),
-        (unsigned char)(cg > 255 ? 255 : (cg < 0 ? 0 : cg)),
-        (unsigned char)(cb > 255 ? 255 : (cb < 0 ? 0 : cb)),
-        alpha
-    };
-}
 
 // ── 2D trail drawing (sidebar) ───────────────────────────────────────────────
 
-static void draw_trail_2d(const vehicle_t *v, view_mode_t view_mode,
+static void draw_trail_2d(const vehicle_t *v, const theme_t *theme,
                            int trail_mode, Vector3 center, float span,
                            float px, float py, float ps, int view) {
     if (trail_mode <= 0 || v->trail_count < 2) return;
@@ -198,37 +61,12 @@ static void draw_trail_2d(const vehicle_t *v, view_mode_t view_mode,
 
     if (trail_mode == 1) {
         // ── Normal directional trail ──
-        Color trail_color;
-        Color col_back, col_up, col_down, col_roll_pos, col_roll_neg;
-        if (view_mode == VIEW_SNOW) {
-            trail_color  = (Color){ 200, 140,  20, 200 };
-            col_back     = (Color){ 140,  20, 200, 255 };
-            col_up       = (Color){   0, 150,  60, 255 };
-            col_down     = (Color){ 200,  50,   0, 255 };
-            col_roll_pos = (Color){  20, 160,  40, 255 };
-            col_roll_neg = (Color){ 200,  20,  60, 255 };
-        } else if (view_mode == VIEW_1988) {
-            trail_color  = (Color){ 255, 220,  60, 160 };
-            col_back     = (Color){ 180,  40, 255, 255 };
-            col_up       = (Color){   0, 240, 255, 255 };
-            col_down     = (Color){ 255, 140,   0, 255 };
-            col_roll_pos = (Color){  40, 255,  80, 255 };
-            col_roll_neg = (Color){ 255,  40,  80, 255 };
-        } else if (view_mode == VIEW_REZ) {
-            trail_color  = (Color){ 220, 180,  30, 160 };
-            col_back     = (Color){ 160,  40, 240, 255 };
-            col_up       = (Color){   0, 200, 255, 255 };
-            col_down     = (Color){ 255, 160,   0, 255 };
-            col_roll_pos = (Color){  40, 255, 100, 255 };
-            col_roll_neg = (Color){ 255,  40,  80, 255 };
-        } else {
-            trail_color  = (Color){ 255, 200,  50, 180 };
-            col_back     = (Color){ 160,  60, 255, 255 };
-            col_up       = (Color){   0, 220, 255, 255 };
-            col_down     = (Color){ 255, 140,   0, 255 };
-            col_roll_pos = (Color){  40, 255,  80, 255 };
-            col_roll_neg = (Color){ 255,  40,  80, 255 };
-        }
+        Color trail_color = theme->trail_forward;
+        Color col_back     = theme->trail_backward;
+        Color col_up       = theme->trail_climb;
+        Color col_down     = theme->trail_descend;
+        Color col_roll_pos = theme->trail_roll_pos;
+        Color col_roll_neg = theme->trail_roll_neg;
 
         for (int i = 1; i < v->trail_count; i++) {
             int idx0 = (start + i - 1) % v->trail_capacity;
@@ -320,7 +158,7 @@ static void draw_trail_2d(const vehicle_t *v, view_mode_t view_mode,
             if (heat < 0.0f) heat = 0.0f;
 
             float t = (float)i / (float)v->trail_count;
-            Color c = heat_to_color(heat, (unsigned char)(t * 200), view_mode);
+            Color c = theme_heat_color(theme, heat, (unsigned char)(t * 200));
             c.a = (unsigned char)(c.a * v->ghost_alpha);
 
             Vector2 s0 = world_to_panel(v->trail[idx0], center, span, px, py, ps, view);
@@ -332,7 +170,7 @@ static void draw_trail_2d(const vehicle_t *v, view_mode_t view_mode,
 
 // ── 2D trail drawing (fullscreen ortho) ──────────────────────────────────────
 
-static void draw_trail_2d_fullscreen(const vehicle_t *v, view_mode_t view_mode,
+static void draw_trail_2d_fullscreen(const vehicle_t *v, const theme_t *theme,
                                       int trail_mode, Vector3 center, float span,
                                       int screen_w, int screen_h, int ortho_mode) {
     if (trail_mode <= 0 || v->trail_count < 2) return;
@@ -341,37 +179,12 @@ static void draw_trail_2d_fullscreen(const vehicle_t *v, view_mode_t view_mode,
 
     if (trail_mode == 1) {
         // ── Normal directional trail ──
-        Color trail_color;
-        Color col_back, col_up, col_down, col_roll_pos, col_roll_neg;
-        if (view_mode == VIEW_SNOW) {
-            trail_color  = (Color){ 200, 140,  20, 200 };
-            col_back     = (Color){ 140,  20, 200, 255 };
-            col_up       = (Color){   0, 150,  60, 255 };
-            col_down     = (Color){ 200,  50,   0, 255 };
-            col_roll_pos = (Color){  20, 160,  40, 255 };
-            col_roll_neg = (Color){ 200,  20,  60, 255 };
-        } else if (view_mode == VIEW_1988) {
-            trail_color  = (Color){ 255, 220,  60, 160 };
-            col_back     = (Color){ 180,  40, 255, 255 };
-            col_up       = (Color){   0, 240, 255, 255 };
-            col_down     = (Color){ 255, 140,   0, 255 };
-            col_roll_pos = (Color){  40, 255,  80, 255 };
-            col_roll_neg = (Color){ 255,  40,  80, 255 };
-        } else if (view_mode == VIEW_REZ) {
-            trail_color  = (Color){ 220, 180,  30, 160 };
-            col_back     = (Color){ 160,  40, 240, 255 };
-            col_up       = (Color){   0, 200, 255, 255 };
-            col_down     = (Color){ 255, 160,   0, 255 };
-            col_roll_pos = (Color){  40, 255, 100, 255 };
-            col_roll_neg = (Color){ 255,  40,  80, 255 };
-        } else {
-            trail_color  = (Color){ 255, 200,  50, 180 };
-            col_back     = (Color){ 160,  60, 255, 255 };
-            col_up       = (Color){   0, 220, 255, 255 };
-            col_down     = (Color){ 255, 140,   0, 255 };
-            col_roll_pos = (Color){  40, 255,  80, 255 };
-            col_roll_neg = (Color){ 255,  40,  80, 255 };
-        }
+        Color trail_color = theme->trail_forward;
+        Color col_back     = theme->trail_backward;
+        Color col_up       = theme->trail_climb;
+        Color col_down     = theme->trail_descend;
+        Color col_roll_pos = theme->trail_roll_pos;
+        Color col_roll_neg = theme->trail_roll_neg;
 
         for (int i = 1; i < v->trail_count; i++) {
             int idx0 = (start + i - 1) % v->trail_capacity;
@@ -463,7 +276,7 @@ static void draw_trail_2d_fullscreen(const vehicle_t *v, view_mode_t view_mode,
             if (heat < 0.0f) heat = 0.0f;
 
             float t = (float)i / (float)v->trail_count;
-            Color c = heat_to_color(heat, (unsigned char)(t * 200), view_mode);
+            Color c = theme_heat_color(theme, heat, (unsigned char)(t * 200));
             c.a = (unsigned char)(c.a * v->ghost_alpha);
 
             Vector2 s0 = world_to_screen_ortho(v->trail[idx0], center, span, screen_w, screen_h, ortho_mode);
@@ -528,14 +341,10 @@ void ortho_panel_update(ortho_panel_t *op, Vector3 pos) {
 // ── Render (SLIM 3D: models + correlation curtain ONLY) ──────────────────────
 
 void ortho_panel_render(ortho_panel_t *op, const vehicle_t *vehicles,
-                        int vehicle_count, int selected, view_mode_t view_mode,
+                        int vehicle_count, int selected, const theme_t *theme,
                         int corr_mode, const int *pinned, int pinned_count)
 {
-    Color bg_col;
-    {
-        Color gnd_dummy;
-        get_sky_ground(view_mode, &bg_col, &gnd_dummy);
-    }
+    Color bg_col = theme->sky;
 
     for (int v = 0; v < ORTHO_VIEW_COUNT; v++) {
         BeginTextureMode(op->targets[v]);
@@ -544,7 +353,7 @@ void ortho_panel_render(ortho_panel_t *op, const vehicle_t *vehicles,
                 // Draw vehicle models only (trail_mode=0, no trails in 3D)
                 for (int i = 0; i < vehicle_count; i++) {
                     if (vehicles[i].active || vehicle_count == 1) {
-                        vehicle_draw((vehicle_t *)&vehicles[i], view_mode, i == selected,
+                        vehicle_draw((vehicle_t *)&vehicles[i], theme, i == selected,
                                      0, false, op->cameras[v].position, false);
                     }
                 }
@@ -557,7 +366,7 @@ void ortho_panel_render(ortho_panel_t *op, const vehicle_t *vehicles,
                             && pidx != selected) {
                             vehicle_draw_correlation_curtain(
                                 &vehicles[selected], &vehicles[pidx],
-                                view_mode, op->cameras[v].position);
+                                theme, op->cameras[v].position);
                         }
                     }
                 }
@@ -694,7 +503,7 @@ static void draw_grid_2d(Vector3 center, float span, float px, float py,
 // ── Draw (2D overlays after texture composite) ───────────────────────────────
 
 void ortho_panel_draw(const ortho_panel_t *op, int screen_h, int hud_bar_h,
-                      view_mode_t view_mode, Font font,
+                      const theme_t *theme, Font font,
                       const vehicle_t *vehicles, int vehicle_count,
                       int selected, int trail_mode,
                       int corr_mode, const int *pinned, int pinned_count,
@@ -713,34 +522,21 @@ void ortho_panel_draw(const ortho_panel_t *op, int screen_h, int hud_bar_h,
     int total_h = ps * ORTHO_VIEW_COUNT + gap * (ORTHO_VIEW_COUNT - 1);
     int start_y = screen_h - hud_bar_h - total_h - margin;
 
-    Color border_col, label_col, scale_col, cross_col;
-    if (view_mode == VIEW_1988) {
-        border_col = (Color){ 255, 20, 100, 120 };
-        label_col  = (Color){ 255, 20, 100, 200 };
-        scale_col  = (Color){ 255, 20, 100, 160 };
-        cross_col  = (Color){ 255, 20, 100, 60 };
-    } else if (view_mode == VIEW_REZ) {
-        border_col = (Color){ 0, 204, 218, 120 };
-        label_col  = (Color){ 0, 204, 218, 200 };
-        scale_col  = (Color){ 0, 204, 218, 160 };
-        cross_col  = (Color){ 0, 204, 218, 60 };
-    } else {
-        border_col = (Color){ 180, 180, 200, 120 };
-        label_col  = (Color){ 200, 200, 220, 200 };
-        scale_col  = (Color){ 180, 180, 200, 160 };
-        cross_col  = (Color){ 180, 180, 200, 60 };
-    }
+    Color accent = theme->hud_accent;
+    Color border_col = (Color){ accent.r, accent.g, accent.b, 120 };
+    Color label_col  = (Color){ accent.r, accent.g, accent.b, 200 };
+    Color scale_col  = (Color){ accent.r, accent.g, accent.b, 160 };
+    Color cross_col  = (Color){ accent.r, accent.g, accent.b, 60 };
 
     // Match HUD scaling: powf(screen_h / 720.0f, 0.7f)
     float s = powf(screen_h / 720.0f, 0.7f);
     if (s < 1.0f) s = 1.0f;
     float font_size = 12 * s;
 
-    Color sky_col, gnd_col;
-    get_sky_ground(view_mode, &sky_col, &gnd_col);
+    Color gnd_col = theme->ground;
 
-    Color grid_minor, grid_major;
-    get_grid_colors(view_mode, &grid_minor, &grid_major);
+    Color grid_minor = theme->ortho_grid_minor;
+    Color grid_major = theme->ortho_grid_major;
 
     for (int i = 0; i < ORTHO_VIEW_COUNT; i++) {
         float x = (float)margin;
@@ -785,7 +581,7 @@ void ortho_panel_draw(const ortho_panel_t *op, int screen_h, int hud_bar_h,
         // 2D trails
         for (int vi = 0; vi < vehicle_count; vi++) {
             if (vehicles[vi].active || vehicle_count == 1) {
-                draw_trail_2d(&vehicles[vi], view_mode, trail_mode,
+                draw_trail_2d(&vehicles[vi], theme, trail_mode,
                               center, op->ortho_span, x, y, (float)ps, i);
             }
         }
@@ -890,7 +686,7 @@ void ortho_draw_fullscreen_2d(const scene_t *s, const vehicle_t *vehicles,
     // 2D trails
     for (int i = 0; i < vehicle_count; i++) {
         if (vehicles[i].active || vehicle_count == 1) {
-            draw_trail_2d_fullscreen(&vehicles[i], s->view_mode, trail_mode,
+            draw_trail_2d_fullscreen(&vehicles[i], s->theme, trail_mode,
                                       center, span, screen_w, screen_h, ortho_mode);
         }
     }
@@ -974,8 +770,8 @@ void ortho_draw_fullscreen_2d(const scene_t *s, const vehicle_t *vehicles,
 // ── Fullscreen ortho label / scale bar / crosshair ───────────────────────────
 
 void ortho_panel_draw_fullscreen_label(int screen_w, int screen_h, int ortho_mode,
-                                       float ortho_span, int view_mode, Font font,
-                                       bool show_axes)
+                                       float ortho_span, const theme_t *theme,
+                                       Font font, bool show_axes)
 {
     if (ortho_mode == 0) return;  // ORTHO_NONE
 
@@ -986,13 +782,8 @@ void ortho_panel_draw_fullscreen_label(int screen_w, int screen_h, int ortho_mod
     if (s < 1.0f) s = 1.0f;
     float fs = 16 * s;
 
-    Color col;
-    if (view_mode == 2)       // VIEW_1988
-        col = (Color){ 255, 20, 100, 200 };
-    else if (view_mode == 1)  // VIEW_REZ
-        col = (Color){ 0, 204, 218, 200 };
-    else
-        col = (Color){ 200, 200, 220, 200 };
+    Color col = theme->hud_accent;
+    col.a = 200;
 
     // View name top-right
     Vector2 ts = MeasureTextEx(font, name, fs, 0);

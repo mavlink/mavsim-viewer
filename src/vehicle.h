@@ -4,6 +4,7 @@
 #include "raylib.h"
 #include "mavlink_receiver.h"
 #include "scene.h"
+#include "theme.h"
 
 // Model group — determines which models M-key cycles through
 typedef enum {
@@ -108,7 +109,7 @@ void vehicle_update(vehicle_t *v, const hil_state_t *state, const home_position_
 
 // trail_mode: 0=off, 1=normal trail, 2=speed ribbon
 // classic_colors: false = modern (yellow/purple), true = classic (red/blue)
-void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
+void vehicle_draw(vehicle_t *v, const theme_t *theme, bool selected,
                   int trail_mode, bool show_ground_track, Vector3 cam_pos,
                   bool classic_colors);
 
@@ -118,7 +119,7 @@ void vehicle_reset_trail(vehicle_t *v);
 // Draw correlation curtain between two vehicles (cross-vehicle overlay).
 void vehicle_draw_correlation_curtain(
     const vehicle_t *va, const vehicle_t *vb,
-    view_mode_t view_mode, Vector3 cam_pos);
+    const theme_t *theme, Vector3 cam_pos);
 
 // Draw thick correlation line between two vehicles at current positions.
 void vehicle_draw_correlation_line(

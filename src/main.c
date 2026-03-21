@@ -19,6 +19,7 @@
 #include "hud.h"
 #include "debug_panel.h"
 #include "ortho_panel.h"
+#include "theme.h"
 #include "asset_path.h"
 
 #define MAX_VEHICLES 16
@@ -55,60 +56,6 @@ static float corr_compute(const corr_state_t *cs) {
         }
     }
     return (valid > 0) ? r_sum / valid : 0.0f;
-}
-
-// Per-view-mode vehicle palettes. Slots 1-6 match trail directional colors.
-// Alternating warm/cool so adjacent drones are visually distinct.
-static const Color vehicle_palette_grid[MAX_VEHICLES] = {
-    {230, 230, 230, 255}, // 0: white (primary)
-    { 40, 120, 255, 255}, // 1: blue (cool)
-    {255,  40,  80, 255}, // 2: red (warm)
-    {255, 200,  50, 255}, // 3: yellow (warm)
-    { 40, 255,  80, 255}, // 4: green (cool)
-    {255, 140,   0, 255}, // 5: orange (warm)
-    {160,  60, 255, 255}, // 6: purple (cool)
-    {255, 100, 180, 255}, // 7: pink (warm)
-    {  0, 180, 140, 255}, // 8: teal (cool)
-    {200, 180,  80, 255}, // 9: gold (warm)
-    {100, 100, 255, 255}, // 10: indigo (cool)
-    {255, 180, 100, 255}, // 11: peach (warm)
-    {100, 220, 200, 255}, // 12: mint (cool)
-    {220,  80, 180, 255}, // 13: magenta (warm)
-    {120, 200, 255, 255}, // 14: sky blue (cool)
-    {180, 255,  60, 255}, // 15: lime (cool)
-};
-static const Color vehicle_palette_rez[MAX_VEHICLES] = {
-    {200, 208, 218, 255}, { 30, 100, 240, 255}, {255,  40,  80, 255},
-    {220, 180,  30, 255}, { 40, 255, 100, 255}, {255, 160,   0, 255},
-    {160,  40, 240, 255}, {255,  80, 160, 255}, {  0, 160, 130, 255},
-    {180, 160,  60, 255}, { 80,  90, 240, 255}, {240, 170,  90, 255},
-    { 80, 200, 180, 255}, {200,  60, 160, 255}, {100, 180, 240, 255},
-    {160, 240,  50, 255},
-};
-static const Color vehicle_palette_snow[MAX_VEHICLES] = {
-    { 40,  40,  50, 255}, { 20,  80, 160, 255}, {200,  20,  60, 255},
-    {200, 140,  20, 255}, { 20, 160,  40, 255}, {160,  20,  80, 255},
-    {140,  20, 200, 255}, {180,  40, 100, 255}, {  0, 120, 100, 255},
-    {180, 120,  40, 255}, { 60,  60, 180, 255}, {140, 120,  40, 255},
-    { 40, 140, 120, 255}, {160,  40, 120, 255}, { 60, 130, 180, 255},
-    {120, 160,  20, 255},
-};
-static const Color vehicle_palette_1988[MAX_VEHICLES] = {
-    {255, 255, 255, 255}, { 60, 100, 255, 255}, {255,  40,  80, 255},
-    {255, 220,  60, 255}, { 40, 255,  80, 255}, {255, 140,   0, 255},
-    {180,  40, 255, 255}, {255,  20, 100, 255}, {  0, 200, 160, 255},
-    {255, 180,  60, 255}, {120,  60, 255, 255}, {255, 255, 100, 255},
-    { 60, 255, 200, 255}, {255,  60, 200, 255}, { 60, 200, 255, 255},
-    {200, 255,  40, 255},
-};
-
-static const Color *get_vehicle_palette(view_mode_t vm) {
-    switch (vm) {
-        case VIEW_SNOW: return vehicle_palette_snow;
-        case VIEW_REZ:  return vehicle_palette_rez;
-        case VIEW_1988: return vehicle_palette_1988;
-        default:        return vehicle_palette_grid;
-    }
 }
 
 static void print_usage(const char *prog) {
@@ -229,7 +176,7 @@ int main(int argc, char *argv[]) {
     memset(corr, 0, sizeof(corr));
     for (int i = 0; i < vehicle_count; i++) {
         vehicle_init(&vehicles[i], model_idx, scene.lighting_shader);
-        vehicles[i].color = get_vehicle_palette(scene.view_mode)[i];
+        vehicles[i].color = scene.theme->drone_palette[i];
     }
 
     // For multi-vehicle MAVLink or explicit origin: pre-set the NED origin
@@ -324,29 +271,15 @@ int main(int argc, char *argv[]) {
                 else if (key == KEY_TWO) choice = 2;
                 else if (key == KEY_THREE) choice = 3;
 
-                // View-mode colors
-                Color scrim_col, box_bg, box_border, subtitle_col, hint_col, key_col, text_col, title_col;
-                if (scene.view_mode == VIEW_SNOW) {
-                    scrim_col=(Color){255,255,255,140}; box_bg=(Color){248,248,250,240};
-                    box_border=(Color){15,15,20,120}; subtitle_col=(Color){60,65,75,255};
-                    hint_col=(Color){120,125,135,200}; key_col=(Color){15,15,20,220};
-                    text_col=(Color){10,10,15,255}; title_col=(Color){200,140,0,255};
-                } else if (scene.view_mode == VIEW_1988) {
-                    scrim_col=(Color){5,0,15,160}; box_bg=(Color){5,5,16,240};
-                    box_border=(Color){255,20,100,140}; subtitle_col=(Color){255,20,100,200};
-                    hint_col=(Color){180,60,120,160}; key_col=(Color){255,220,60,255};
-                    text_col=(Color){255,220,60,255}; title_col=(Color){255,20,100,255};
-                } else if (scene.view_mode == VIEW_REZ) {
-                    scrim_col=(Color){0,0,0,150}; box_bg=(Color){8,8,12,235};
-                    box_border=(Color){0,204,218,100}; subtitle_col=(Color){0,140,150,160};
-                    hint_col=(Color){0,140,150,160}; key_col=(Color){0,204,218,220};
-                    text_col=(Color){200,208,218,255}; title_col=YELLOW;
-                } else {
-                    scrim_col=(Color){0,0,0,140}; box_bg=(Color){10,14,20,235};
-                    box_border=(Color){0,180,204,100}; subtitle_col=(Color){140,150,170,255};
-                    hint_col=(Color){90,95,110,200}; key_col=(Color){0,255,255,220};
-                    text_col=WHITE; title_col=YELLOW;
-                }
+                // Theme colors
+                Color scrim_col = scene.theme->prompt_scrim;
+                Color box_bg = scene.theme->prompt_box_bg;
+                Color box_border = scene.theme->prompt_border;
+                Color subtitle_col = scene.theme->prompt_subtitle;
+                Color hint_col = scene.theme->prompt_hint;
+                Color key_col = scene.theme->prompt_key;
+                Color text_col = scene.theme->prompt_text;
+                Color title_col = scene.theme->prompt_title;
 
                 float fs_title=15*s, fs_option=20*s, fs_hint=12*s;
                 float line_h=36*s, pad=16*s, inner_gap=20*s;
@@ -661,28 +594,14 @@ int main(int argc, char *argv[]) {
                 else if (pk == KEY_TWO) ch = 2;
                 else if (pk == KEY_THREE) ch = 3;
 
-                Color pscrim, pbbg, pbbd, psub, phint_c, pkc, ptc, pttl;
-                if (scene.view_mode == VIEW_SNOW) {
-                    pscrim=(Color){255,255,255,140}; pbbg=(Color){248,248,250,240};
-                    pbbd=(Color){15,15,20,120}; psub=(Color){60,65,75,255};
-                    phint_c=(Color){120,125,135,200}; pkc=(Color){15,15,20,220};
-                    ptc=(Color){10,10,15,255}; pttl=(Color){200,140,0,255};
-                } else if (scene.view_mode == VIEW_1988) {
-                    pscrim=(Color){5,0,15,160}; pbbg=(Color){5,5,16,240};
-                    pbbd=(Color){255,20,100,140}; psub=(Color){255,20,100,200};
-                    phint_c=(Color){180,60,120,160}; pkc=(Color){255,220,60,255};
-                    ptc=(Color){255,220,60,255}; pttl=(Color){255,20,100,255};
-                } else if (scene.view_mode == VIEW_REZ) {
-                    pscrim=(Color){0,0,0,150}; pbbg=(Color){8,8,12,235};
-                    pbbd=(Color){0,204,218,100}; psub=(Color){0,140,150,160};
-                    phint_c=(Color){0,140,150,160}; pkc=(Color){0,204,218,220};
-                    ptc=(Color){200,208,218,255}; pttl=YELLOW;
-                } else {
-                    pscrim=(Color){0,0,0,140}; pbbg=(Color){10,14,20,235};
-                    pbbd=(Color){0,180,204,100}; psub=(Color){140,150,170,255};
-                    phint_c=(Color){90,95,110,200}; pkc=(Color){0,255,255,220};
-                    ptc=WHITE; pttl=YELLOW;
-                }
+                Color pscrim = scene.theme->prompt_scrim;
+                Color pbbg = scene.theme->prompt_box_bg;
+                Color pbbd = scene.theme->prompt_border;
+                Color psub = scene.theme->prompt_subtitle;
+                Color phint_c = scene.theme->prompt_hint;
+                Color pkc = scene.theme->prompt_key;
+                Color ptc = scene.theme->prompt_text;
+                Color pttl = scene.theme->prompt_title;
 
                 // Menu labels and title depend on conflict state
                 const char *title;
@@ -826,9 +745,8 @@ int main(int argc, char *argv[]) {
 
         // Update vehicle colors when view mode changes
         {
-            const Color *pal = get_vehicle_palette(scene.view_mode);
             for (int i = 0; i < vehicle_count; i++)
-                vehicles[i].color = pal[i];
+                vehicles[i].color = scene.theme->drone_palette[i];
         }
 
         // Help overlay toggle (? key = Shift+/)
@@ -1099,7 +1017,7 @@ int main(int argc, char *argv[]) {
         if (ortho.visible) {
             ortho_panel_update(&ortho, vehicles[selected].position);
             ortho_panel_render(&ortho, vehicles, vehicle_count,
-                               selected, scene.view_mode,
+                               selected, scene.theme,
                                corr_mode, hud.pinned, hud.pinned_count);
         }
 
@@ -1117,7 +1035,7 @@ int main(int argc, char *argv[]) {
                 scene_draw(&scene);
                 for (int i = 0; i < vehicle_count; i++) {
                     if (vehicles[i].active || vehicle_count == 1) {
-                        vehicle_draw(&vehicles[i], scene.view_mode, i == selected,
+                        vehicle_draw(&vehicles[i], scene.theme, i == selected,
                                      tm_3d, show_ground_track, scene.camera.position,
                                      classic_colors);
                     }
@@ -1168,7 +1086,7 @@ int main(int argc, char *argv[]) {
                             } else if (corr_mode == 2) {
                                 vehicle_draw_correlation_curtain(
                                     &vehicles[selected], &vehicles[pidx],
-                                    scene.view_mode, scene.camera.position);
+                                    scene.theme, scene.camera.position);
                             }
                         }
                     }
@@ -1191,7 +1109,7 @@ int main(int argc, char *argv[]) {
                     !vehicles[selected].origin_set && sources[selected].home.valid;
                 hud_draw(&hud, vehicles, sources, vehicle_count,
                          selected, GetScreenWidth(), GetScreenHeight(),
-                         scene.view_mode, ghost_mode, has_tier3, has_awaiting_gps);
+                         scene.theme, ghost_mode, has_tier3, has_awaiting_gps);
             }
 
             // Debug panel
@@ -1203,7 +1121,7 @@ int main(int argc, char *argv[]) {
                     total_trail += vehicles[i].trail_count;
                 }
                 debug_panel_draw(&dbg_panel, GetScreenWidth(), GetScreenHeight(),
-                                 scene.view_mode, hud.font_label,
+                                 scene.theme, hud.font_label,
                                  vehicle_count, active_count, total_trail,
                                  vehicles[selected].position,
                                  sources[selected].ref_rejected,
@@ -1212,14 +1130,14 @@ int main(int argc, char *argv[]) {
 
             // Ortho panel overlay
             int bar_h = show_hud ? hud_bar_height(&hud, GetScreenHeight()) : 0;
-            ortho_panel_draw(&ortho, GetScreenHeight(), bar_h, scene.view_mode, hud.font_label,
+            ortho_panel_draw(&ortho, GetScreenHeight(), bar_h, scene.theme, hud.font_label,
                              vehicles, vehicle_count, selected, trail_mode,
                              corr_mode, hud.pinned, hud.pinned_count,
                              show_axes);
 
             // Fullscreen ortho view label
             ortho_panel_draw_fullscreen_label(GetScreenWidth(), GetScreenHeight(),
-                scene.ortho_mode, scene.ortho_span, scene.view_mode, hud.font_label,
+                scene.ortho_mode, scene.ortho_span, scene.theme, hud.font_label,
                 show_axes);
 
         EndDrawing();

@@ -1,4 +1,5 @@
 #include "debug_panel.h"
+#include "theme.h"
 #include "rlgl.h"
 #include <stdio.h>
 #include <math.h>
@@ -63,11 +64,11 @@ static void draw_graph(float x, float y, float w, float h,
     }
 
     // Border
-    DrawRectangleLines((int)x, (int)y, (int)w, (int)h, (Color){ 60, 60, 80, 100 });
+    DrawRectangleLines((int)x, (int)y, (int)w, (int)h, grid_col);
 }
 
 void debug_panel_draw(const debug_panel_t *d, int screen_w, int screen_h,
-                      view_mode_t view_mode, Font font,
+                      const theme_t *theme, Font font,
                       int vehicle_count, int active_count,
                       int total_trail_points, Vector3 vehicle_pos,
                       bool ref_rejected, int position_tier)
@@ -88,50 +89,16 @@ void debug_panel_draw(const debug_panel_t *d, int screen_w, int screen_h,
     float graph_w = panel_w - 16 * s;
     float section_gap = 8 * s;
 
-    // Colors per view mode
-    Color accent, text_col, dim_col, bg, graph_bg, graph_grid;
-    Color tier1_col, tier2_col, tier3_col;
-    if (view_mode == VIEW_SNOW) {
-        accent     = (Color){ 40, 50, 70, 220 };
-        text_col   = (Color){ 30, 35, 50, 230 };
-        dim_col    = (Color){ 100, 110, 130, 140 };
-        bg         = (Color){ 235, 237, 240, 230 };
-        graph_bg   = (Color){ 220, 222, 226, 220 };
-        graph_grid = (Color){ 180, 185, 195, 100 };
-        tier1_col  = (Color){ 20, 140, 60, 255 };
-        tier2_col  = (Color){ 180, 130, 0, 255 };
-        tier3_col  = (Color){ 200, 60, 20, 255 };
-    } else if (view_mode == VIEW_1988) {
-        accent     = (Color){ 255, 20, 100, 220 };
-        text_col   = (Color){ 255, 200, 210, 230 };
-        dim_col    = (Color){ 255, 20, 100, 100 };
-        bg         = (Color){ 5, 5, 16, 210 };
-        graph_bg   = (Color){ 4, 4, 10, 200 };
-        graph_grid = (Color){ 60, 20, 40, 80 };
-        tier1_col  = (Color){ 40, 255, 80, 255 };
-        tier2_col  = (Color){ 255, 220, 60, 255 };
-        tier3_col  = (Color){ 255, 40, 80, 255 };
-    } else if (view_mode == VIEW_REZ) {
-        accent     = (Color){ 0, 204, 218, 220 };
-        text_col   = (Color){ 180, 230, 235, 230 };
-        dim_col    = (Color){ 0, 204, 218, 100 };
-        bg         = (Color){ 8, 8, 12, 210 };
-        graph_bg   = (Color){ 4, 4, 10, 200 };
-        graph_grid = (Color){ 0, 60, 70, 80 };
-        tier1_col  = (Color){ 30, 200, 80, 255 };
-        tier2_col  = (Color){ 220, 180, 30, 255 };
-        tier3_col  = (Color){ 255, 106, 0, 255 };
-    } else {
-        accent     = (Color){ 120, 180, 255, 220 };
-        text_col   = (Color){ 200, 210, 225, 230 };
-        dim_col    = (Color){ 120, 180, 255, 100 };
-        bg         = (Color){ 8, 8, 16, 210 };
-        graph_bg   = (Color){ 4, 4, 10, 200 };
-        graph_grid = (Color){ 40, 40, 60, 80 };
-        tier1_col  = (Color){ 80, 255, 120, 255 };
-        tier2_col  = (Color){ 255, 220, 40, 255 };
-        tier3_col  = (Color){ 255, 100, 40, 255 };
-    }
+    // Colors from theme
+    Color accent     = theme->dbg_accent;
+    Color text_col   = theme->dbg_text;
+    Color dim_col    = theme->dbg_dim;
+    Color bg         = theme->dbg_bg;
+    Color graph_bg   = theme->dbg_graph_bg;
+    Color graph_grid = theme->dbg_graph_grid;
+    Color tier1_col  = theme->dbg_tier1;
+    Color tier2_col  = theme->dbg_tier2;
+    Color tier3_col  = theme->dbg_tier3;
 
     // Compute total panel height
     float total_h = 0;

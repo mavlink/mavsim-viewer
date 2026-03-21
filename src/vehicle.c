@@ -1,4 +1,5 @@
 #include "vehicle.h"
+#include "theme.h"
 #include "asset_path.h"
 #include "raymath.h"
 #include "rlgl.h"
@@ -174,102 +175,7 @@ void vehicle_set_type(vehicle_t *v, uint8_t mav_type) {
 }
 
 // ── Thermal palette (per-theme) ─────────────────────────────────────────────
-static Color heat_to_color(float heat, unsigned char alpha, view_mode_t mode) {
-    float cr, cg, cb;
-
-    if (mode == VIEW_1988) {
-        // 1988: neon pink → hot magenta → red → orange → yellow → white
-        if (heat < 0.16f) {
-            float s = heat / 0.16f;
-            cr = 100 + 40 * s; cg = 10 * s; cb = 120 + 50 * s;
-        } else if (heat < 0.33f) {
-            float s = (heat - 0.16f) / 0.17f;
-            cr = 140 + 115 * s; cg = 10; cb = 170 - 70 * s;
-        } else if (heat < 0.5f) {
-            float s = (heat - 0.33f) / 0.17f;
-            cr = 255; cg = 10 + 30 * s; cb = 100 - 100 * s;
-        } else if (heat < 0.66f) {
-            float s = (heat - 0.5f) / 0.16f;
-            cr = 255; cg = 40 + 130 * s; cb = 0;
-        } else if (heat < 0.83f) {
-            float s = (heat - 0.66f) / 0.17f;
-            cr = 255; cg = 170 + 85 * s; cb = 50 * s;
-        } else {
-            float s = (heat - 0.83f) / 0.17f;
-            cr = 255; cg = 255; cb = 50 + 205 * s;
-        }
-    } else if (mode == VIEW_REZ) {
-        // Rez: indigo → teal-purple → cyan-red → orange → amber → white
-        if (heat < 0.16f) {
-            float s = heat / 0.16f;
-            cr = 50 + 20 * s; cg = 20 + 30 * s; cb = 140 + 40 * s;
-        } else if (heat < 0.33f) {
-            float s = (heat - 0.16f) / 0.17f;
-            cr = 70 + 100 * s; cg = 50 + 10 * s; cb = 180 - 60 * s;
-        } else if (heat < 0.5f) {
-            float s = (heat - 0.33f) / 0.17f;
-            cr = 170 + 85 * s; cg = 60 - 20 * s; cb = 120 - 120 * s;
-        } else if (heat < 0.66f) {
-            float s = (heat - 0.5f) / 0.16f;
-            cr = 255; cg = 40 + 120 * s; cb = 20 * s;
-        } else if (heat < 0.83f) {
-            float s = (heat - 0.66f) / 0.17f;
-            cr = 255; cg = 160 + 90 * s; cb = 20 + 40 * s;
-        } else {
-            float s = (heat - 0.83f) / 0.17f;
-            cr = 255; cg = 250 + 5 * s; cb = 60 + 195 * s;
-        }
-    } else if (mode == VIEW_SNOW) {
-        // Snow: deep navy → royal blue → teal → green → yellow → red
-        if (heat < 0.16f) {
-            float s = heat / 0.16f;
-            cr = 10 + 10 * s; cg = 20 + 20 * s; cb = 100 + 40 * s;
-        } else if (heat < 0.33f) {
-            float s = (heat - 0.16f) / 0.17f;
-            cr = 20 - 10 * s; cg = 40 + 80 * s; cb = 140 + 40 * s;
-        } else if (heat < 0.5f) {
-            float s = (heat - 0.33f) / 0.17f;
-            cr = 10 - 10 * s; cg = 120 + 40 * s; cb = 180 - 100 * s;
-        } else if (heat < 0.66f) {
-            float s = (heat - 0.5f) / 0.16f;
-            cr = 0 + 60 * s; cg = 160 + 40 * s; cb = 80 - 80 * s;
-        } else if (heat < 0.83f) {
-            float s = (heat - 0.66f) / 0.17f;
-            cr = 60 + 180 * s; cg = 200 + 20 * s; cb = 0;
-        } else {
-            float s = (heat - 0.83f) / 0.17f;
-            cr = 240; cg = 220 - 180 * s; cb = 0;
-        }
-    } else {
-        // Grid (default): purple → magenta → red → orange → yellow → white
-        if (heat < 0.16f) {
-            float s = heat / 0.16f;
-            cr = 80 + 40 * s; cg = 20 * s; cb = 140 + 40 * s;
-        } else if (heat < 0.33f) {
-            float s = (heat - 0.16f) / 0.17f;
-            cr = 120 + 80 * s; cg = 20 - 20 * s; cb = 180 - 60 * s;
-        } else if (heat < 0.5f) {
-            float s = (heat - 0.33f) / 0.17f;
-            cr = 200 + 55 * s; cg = 20 * s; cb = 120 - 120 * s;
-        } else if (heat < 0.66f) {
-            float s = (heat - 0.5f) / 0.16f;
-            cr = 255; cg = 20 + 140 * s; cb = 0;
-        } else if (heat < 0.83f) {
-            float s = (heat - 0.66f) / 0.17f;
-            cr = 255; cg = 160 + 95 * s; cb = 40 * s;
-        } else {
-            float s = (heat - 0.83f) / 0.17f;
-            cr = 255; cg = 255; cb = 40 + 215 * s;
-        }
-    }
-
-    return (Color){
-        (unsigned char)(cr > 255 ? 255 : (cr < 0 ? 0 : cr)),
-        (unsigned char)(cg > 255 ? 255 : (cg < 0 ? 0 : cg)),
-        (unsigned char)(cb > 255 ? 255 : (cb < 0 ? 0 : cb)),
-        alpha
-    };
-}
+// heat_to_color removed — use theme_heat_color(theme, heat, alpha) instead
 
 // ── Init / update / draw ────────────────────────────────────────────────────
 void vehicle_init(vehicle_t *v, int model_idx, Shader lighting_shader) {
@@ -438,7 +344,7 @@ void vehicle_update(vehicle_t *v, const hil_state_t *state, const home_position_
     }
 }
 
-void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
+void vehicle_draw(vehicle_t *v, const theme_t *theme, bool selected,
                   int trail_mode, bool show_ground_track, Vector3 cam_pos,
                   bool classic_colors) {
     // Per-mode arm recoloring: front/back arms match trail forward/backward colors
@@ -447,46 +353,14 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
     if (recolor_arms) {
         Color front_col, back_col, side_col, red_col = {0}, green_col = {0};
         if (classic_colors) {
-            // Classic: red front, blue back, body-dark sides (light grey for VTOL winglets)
-            Color classic_side = (Color){ 14, 31, 47, 255 };  // body dark
-            if (view_mode == VIEW_1988) {
-                front_col = (Color){ 255,  20, 100, 255 };  // hot pink
-                back_col  = (Color){  39,  47, 197, 255 };  // blue
-            } else if (view_mode == VIEW_REZ) {
-                front_col = (Color){ 255, 106,   0, 255 };  // orange-red
-                back_col  = (Color){  39,  47, 197, 255 };  // blue
-            } else if (view_mode == VIEW_SNOW) {
-                front_col = (Color){ 200,  30,  30, 255 };  // bold red
-                back_col  = (Color){  30,  60, 180, 255 };  // blue
-                classic_side = (Color){ 160, 160, 170, 255 }; // light grey
-            } else {
-                front_col = (Color){ 255,  47,  43, 255 };  // red
-                back_col  = (Color){  39,  47, 197, 255 };  // blue
-            }
-            side_col = classic_side;
+            front_col = theme->arm_classic_front;
+            back_col  = theme->arm_classic_back;
+            side_col  = theme->arm_classic_side;
         } else {
-            // Modern: yellow front, purple back, red port, green starboard
-            if (view_mode == VIEW_1988) {
-                front_col = (Color){ 255, 220,  60, 255 };  // warm yellow
-                back_col  = (Color){ 180,  40, 255, 255 };  // violet
-                red_col   = (Color){ 255,  20, 100, 255 };  // hot pink
-                green_col = (Color){  40, 255, 100, 255 };  // neon green
-            } else if (view_mode == VIEW_REZ) {
-                front_col = (Color){ 220, 180,  30, 255 };  // muted gold
-                back_col  = (Color){ 160,  40, 240, 255 };  // purple
-                red_col   = (Color){ 255, 106,   0, 255 };  // orange-red
-                green_col = (Color){  30, 200,  80, 255 };  // muted green
-            } else if (view_mode == VIEW_SNOW) {
-                front_col = (Color){ 200, 140,  20, 255 };  // dark amber
-                back_col  = (Color){ 140,  20, 200, 255 };  // purple
-                red_col   = (Color){ 180,  30,  30, 255 };  // dark red
-                green_col = (Color){  20, 160,  50, 255 };  // dark green
-            } else {
-                front_col = (Color){ 255, 200,  50, 255 };  // yellow
-                back_col  = (Color){ 160,  60, 255, 255 };  // purple
-                red_col   = (Color){ 204,  33,  33, 255 };  // red
-                green_col = (Color){  41, 255,  79, 255 };  // green
-            }
+            front_col = theme->arm_front;
+            back_col  = theme->arm_back;
+            red_col   = theme->arm_port;
+            green_col = theme->arm_starboard;
             side_col = (Color){ 0, 0, 0, 0 };  // unused in modern
         }
         if (v->front_material_idx >= 0) {
@@ -571,38 +445,15 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
 
       if (trail_mode == 1) {
         // ── Normal directional trail ──
-        Color trail_color;
-        Color col_back, col_up, col_down, col_roll_pos, col_roll_neg;
-        if (view_mode == VIEW_SNOW) {
-            trail_color  = (Color){ 200, 140,  20, 200 };  // dark amber
-            col_back     = (Color){ 140,  20, 200, 255 };  // purple
-            col_up       = (Color){   0, 150,  60, 255 };  // dark green
-            col_down     = (Color){ 200,  50,   0, 255 };  // dark red
-            col_roll_pos = (Color){  20, 160,  40, 255 };  // green
-            col_roll_neg = (Color){ 200,  20,  60, 255 };  // red
-        } else if (view_mode == VIEW_1988) {
-            trail_color  = (Color){ 255, 220,  60, 160 };  // warm yellow forward
-            col_back     = (Color){ 180,  40, 255, 255 };  // violet
-            col_up       = (Color){   0, 240, 255, 255 };  // cyan
-            col_down     = (Color){ 255, 140,   0, 255 };  // orange
-            col_roll_pos = (Color){  40, 255,  80, 255 };  // green (starboard)
-            col_roll_neg = (Color){ 255,  40,  80, 255 };  // red (port)
-        } else if (view_mode == VIEW_REZ) {
-            trail_color  = (Color){ 220, 180,  30, 160 };  // muted gold forward
-            col_back     = (Color){ 160,  40, 240, 255 };  // purple
-            col_up       = (Color){   0, 200, 255, 255 };  // cyan
-            col_down     = (Color){ 255, 160,   0, 255 };  // amber
-            col_roll_pos = (Color){  40, 255, 100, 255 };  // green (starboard)
-            col_roll_neg = (Color){ 255,  40,  80, 255 };  // red (port)
-        } else {
-            trail_color  = (Color){ 255, 200,  50, 180 };  // yellow forward
-            col_back     = (Color){ 160,  60, 255, 255 };  // purple
-            col_up       = (Color){   0, 220, 255, 255 };  // cyan
-            col_down     = (Color){ 255, 140,   0, 255 };  // orange
-            col_roll_pos = (Color){  40, 255,  80, 255 };  // green (starboard)
-            col_roll_neg = (Color){ 255,  40,  80, 255 };  // red (port)
-        }
-        bool thick = (view_mode == VIEW_SNOW);
+        Color trail_color = theme->trail_forward;
+        // Keep original alpha for trail_forward (varies by theme)
+        Color col_back     = theme->trail_backward;
+        Color col_up       = theme->trail_climb;
+        Color col_down     = theme->trail_descend;
+        Color col_roll_pos = theme->trail_roll_pos;
+        Color col_roll_neg = theme->trail_roll_neg;
+        // Light themes (snow) use thick ribbon trails for visibility
+        bool thick = (theme->sky.r > 200 && theme->sky.g > 200 && theme->sky.b > 200);
 
         // Batched trail: single rlBegin/rlEnd instead of per-segment DrawLine3D
         rlBegin(thick ? RL_TRIANGLES : RL_LINES);
@@ -773,7 +624,7 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
             if (heat < 0.0f) heat = 0.0f;
 
             float t = (float)i / (float)v->trail_count;
-            Color c = heat_to_color(heat, (unsigned char)(t * 200), view_mode);
+            Color c = theme_heat_color(theme, heat, (unsigned char)(t * 200));
             c.a = (unsigned char)(c.a * v->ghost_alpha);
 
             Vector3 a = { p0.x + perp.x*hw0, p0.y + perp.y*hw0, p0.z + perp.z*hw0 };
@@ -803,20 +654,9 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
         float gap = 0.12f;
         Color drop;
 
-        Color fill_col, edge_col;
-        if (view_mode == VIEW_GRID) {
-            fill_col = (Color){ 0, 0, 0, 100 };
-            edge_col = (Color){ 80, 80, 80, 180 };
-            drop = (Color){ 150, 150, 150, 120 };
-        } else if (view_mode == VIEW_1988) {
-            fill_col = (Color){ 255, 20, 100, 80 };
-            edge_col = (Color){ 255, 20, 100, 200 };
-            drop = (Color){ 255, 20, 100, 140 };
-        } else {
-            fill_col = (Color){ 0, 204, 218, 80 };
-            edge_col = (Color){ 0, 204, 218, 200 };
-            drop = (Color){ 0, 204, 218, 140 };
-        }
+        Color fill_col = theme->ground_track_fill;
+        Color edge_col = theme->ground_track_edge;
+        drop = theme->ground_track_shadow;
 
         // Filled disc: concentric rings when close, cylinder when far
         float dx = cam_pos.x - ground.x;
@@ -879,7 +719,8 @@ void vehicle_set_ghost_alpha(vehicle_t *v, float alpha) {
 
 void vehicle_draw_correlation_curtain(
     const vehicle_t *va, const vehicle_t *vb,
-    view_mode_t view_mode, Vector3 cam_pos) {
+    const theme_t *theme, Vector3 cam_pos) {
+    (void)theme;  // colors come from vehicle->color, theme kept for API consistency
     if (va->trail_count < 2 || vb->trail_count < 2) return;
 
     int n = va->trail_count < vb->trail_count ? va->trail_count : vb->trail_count;

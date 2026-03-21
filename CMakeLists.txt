@@ -51,6 +51,7 @@ if(NOT BUILD_TESTING_ONLY)
         src/debug_panel.c
         src/ortho_panel.c
         src/asset_path.c
+        src/theme.c
     )
 
     target_include_directories(mavsim-viewer PRIVATE

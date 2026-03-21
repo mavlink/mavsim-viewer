@@ -4,6 +4,7 @@
 #include "raylib.h"
 #include "vehicle.h"
 #include "scene.h"
+#include "theme.h"
 
 #define ORTHO_VIEW_COUNT 3
 #define ORTHO_TEX_SIZE 512   // max render texture size
@@ -18,10 +19,10 @@ typedef struct {
 void ortho_panel_init(ortho_panel_t *op);
 void ortho_panel_update(ortho_panel_t *op, Vector3 vehicle_pos);
 void ortho_panel_render(ortho_panel_t *op, const vehicle_t *vehicles,
-                        int vehicle_count, int selected, view_mode_t view_mode,
+                        int vehicle_count, int selected, const theme_t *theme,
                         int corr_mode, const int *pinned, int pinned_count);
 void ortho_panel_draw(const ortho_panel_t *op, int screen_h, int hud_bar_h,
-                      view_mode_t view_mode, Font font,
+                      const theme_t *theme, Font font,
                       const vehicle_t *vehicles, int vehicle_count,
                       int selected, int trail_mode,
                       int corr_mode, const int *pinned, int pinned_count,
@@ -32,8 +33,8 @@ void ortho_draw_fullscreen_2d(const scene_t *s, const vehicle_t *vehicles,
                               int screen_w, int screen_h, Font font,
                               bool show_labels);
 void ortho_panel_draw_fullscreen_label(int screen_w, int screen_h, int ortho_mode,
-                                       float ortho_span, int view_mode, Font font,
-                                       bool show_axes);
+                                       float ortho_span, const theme_t *theme,
+                                       Font font, bool show_axes);
 void ortho_panel_cleanup(ortho_panel_t *op);
 
 // Draw XYZ axis gizmo at a world position, rotated by quaternion (call inside BeginMode3D).

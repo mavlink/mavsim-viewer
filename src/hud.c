@@ -1,4 +1,5 @@
 #include "hud.h"
+#include "theme.h"
 #include "asset_path.h"
 #include "ulog_replay.h"
 #include "raylib.h"
@@ -18,26 +19,6 @@
 #define NUMPAD_BTN_SIZE 22
 #define NUMPAD_GAP 2
 
-// Rez HUD accent colors
-#define REZ_ACCENT (Color){ 0, 204, 218, 255 }
-#define REZ_ACCENT_DIM (Color){ 0, 204, 218, 140 }
-#define REZ_ORANGE (Color){ 255, 106, 0, 255 }
-#define REZ_BG (Color){ 8, 8, 12, 220 }
-#define REZ_BORDER (Color){ 0, 204, 218, 100 }
-
-// 1988 HUD accent colors
-#define SYNTH_ACCENT (Color){ 255, 20, 100, 255 }
-#define SYNTH_ACCENT_DIM (Color){ 255, 20, 100, 140 }
-#define SYNTH_HIGHLIGHT (Color){ 21, 190, 254, 255 }
-#define SYNTH_BG (Color){ 5, 5, 16, 220 }
-#define SYNTH_BORDER (Color){ 255, 20, 100, 100 }
-
-// Snow HUD accent colors (dark on bright, black outlines)
-#define SNOW_ACCENT (Color){ 15, 15, 20, 255 }
-#define SNOW_ACCENT_DIM (Color){ 60, 65, 75, 200 }
-#define SNOW_ORANGE (Color){ 200, 40, 0, 255 }
-#define SNOW_BG (Color){ 248, 248, 250, 235 }
-#define SNOW_BORDER (Color){ 15, 15, 20, 140 }
 
 void hud_init(hud_t *h) {
     h->sim_time_s = 0.0f;
@@ -86,17 +67,14 @@ void hud_toast_color(hud_t *h, const char *text, float duration_s, Color color) 
     h->toast_color = color;
 }
 
-static void draw_compass(float cx, float cy, float radius, float heading_deg, view_mode_t vm, Font font_value) {
-    bool rez = (vm == VIEW_REZ);
-    bool synth = (vm == VIEW_1988);
-    bool snow = (vm == VIEW_SNOW);
-    Color bg = snow ? SNOW_BG : rez ? REZ_BG : synth ? SYNTH_BG : (Color){30, 30, 30, 220};
-    Color border = snow ? SNOW_BORDER : rez ? REZ_BORDER : synth ? SYNTH_BORDER : (Color){100, 100, 100, 255};
-    Color tick_major = snow ? SNOW_ACCENT : rez ? REZ_ACCENT : synth ? SYNTH_HIGHLIGHT : WHITE;
-    Color tick_minor = snow ? SNOW_ACCENT_DIM : rez ? REZ_ACCENT_DIM : synth ? (Color){ 10, 120, 160, 255 } : (Color){160, 160, 160, 255};
-    Color text_color = snow ? SNOW_ACCENT : rez ? REZ_ACCENT : synth ? SYNTH_HIGHLIGHT : WHITE;
-    Color north_color = snow ? SNOW_ORANGE : rez ? REZ_ORANGE : synth ? SYNTH_ACCENT : RED;
-    Color pointer_color = snow ? SNOW_ORANGE : rez ? REZ_ORANGE : synth ? SYNTH_ACCENT : RED;
+static void draw_compass(float cx, float cy, float radius, float heading_deg, const theme_t *theme, Font font_value) {
+    Color bg = theme->hud_bg;
+    Color border = theme->hud_border;
+    Color tick_major = theme->hud_highlight;
+    Color tick_minor = theme->hud_accent_dim;
+    Color text_color = theme->hud_highlight;
+    Color north_color = theme->hud_warn;
+    Color pointer_color = theme->hud_warn;
 
     DrawCircle((int)cx, (int)cy, radius, bg);
     DrawCircleLines((int)cx, (int)cy, radius, border);
@@ -135,18 +113,15 @@ static void draw_compass(float cx, float cy, float radius, float heading_deg, vi
     DrawTextEx(font_value, hdg_buf, (Vector2){cx - tw.x / 2, cy + radius * 0.6f}, 14, 0.5f, text_color);
 }
 
-static void draw_attitude(float cx, float cy, float radius, float roll_deg, float pitch_deg, view_mode_t vm) {
-    bool rez = (vm == VIEW_REZ);
-    bool synth = (vm == VIEW_1988);
-    bool snow = (vm == VIEW_SNOW);
-    Color bg = snow ? SNOW_BG : rez ? REZ_BG : synth ? SYNTH_BG : (Color){30, 30, 30, 220};
-    Color border = snow ? SNOW_BORDER : rez ? REZ_BORDER : synth ? SYNTH_BORDER : (Color){100, 100, 100, 255};
-    Color horizon_color = snow ? WHITE : rez ? REZ_ACCENT : synth ? (Color){ 112, 40, 21, 255 } : WHITE;
-    Color pitch_bar_color = snow ? (Color){ 80, 90, 110, 180 } : rez ? REZ_ACCENT_DIM : synth ? SYNTH_ACCENT_DIM : (Color){200, 200, 200, 160};
-    Color wing_color = snow ? SNOW_ORANGE : rez ? REZ_ORANGE : synth ? SYNTH_HIGHLIGHT : YELLOW;
-    Color roll_tri_color = snow ? SNOW_ACCENT : rez ? REZ_ACCENT : synth ? SYNTH_ACCENT : WHITE;
-    Color sky_color = snow ? (Color){ 160, 185, 215, 220 } : rez ? (Color){ 0, 40, 45, 200 } : synth ? (Color){ 0, 4, 12, 200 } : (Color){ 80, 140, 200, 200 };
-    Color gnd_color = snow ? (Color){ 20, 30, 55, 220 } : rez ? (Color){ 20, 10, 2, 200 } : synth ? (Color){ 251, 153, 54, 200 } : (Color){ 120, 85, 50, 200 };
+static void draw_attitude(float cx, float cy, float radius, float roll_deg, float pitch_deg, const theme_t *theme) {
+    Color bg = theme->hud_bg;
+    Color border = theme->hud_border;
+    Color horizon_color = theme->adi_horizon;
+    Color pitch_bar_color = theme->hud_accent_dim;
+    Color wing_color = theme->adi_wing;
+    Color roll_tri_color = theme->hud_accent;
+    Color sky_color = theme->adi_sky;
+    Color gnd_color = theme->adi_ground;
 
     DrawCircle((int)cx, (int)cy, radius, bg);
 
@@ -404,43 +379,27 @@ static void draw_secondary_row(const hud_t *h, const vehicle_t *pv, int pidx,
 
 void hud_draw(const hud_t *h, const vehicle_t *vehicles,
               const data_source_t *sources, int vehicle_count,
-              int selected, int screen_w, int screen_h, view_mode_t view_mode,
+              int selected, int screen_w, int screen_h, const theme_t *theme,
               bool ghost_mode, bool has_tier3, bool has_awaiting_gps) {
 
-    bool rez = (view_mode == VIEW_REZ);
-    bool synth = (view_mode == VIEW_1988);
-    bool snow = (view_mode == VIEW_SNOW);
+    // Semantic color variables from theme
+    Color accent = theme->hud_accent;
+    Color accent_dim = theme->hud_accent_dim;
+    Color bg = theme->hud_bg;
+    Color border = theme->hud_border;
+    Color warn = theme->hud_warn;
+    Color label_color = accent_dim;
 
-    // Semantic color variables
-    Color accent, accent_dim, bg, border, warn;
-    Color label_color, value_color, dim_color;
-    Color climb_color, connected_color;
-
-    if (snow) {
-        accent = SNOW_ACCENT;  accent_dim = SNOW_ACCENT_DIM;
-        bg = SNOW_BG;  border = SNOW_BORDER;  warn = SNOW_ORANGE;
-    } else if (rez) {
-        accent = REZ_ACCENT;  accent_dim = REZ_ACCENT_DIM;
-        bg = REZ_BG;  border = REZ_BORDER;  warn = REZ_ORANGE;
-    } else if (synth) {
-        accent = SYNTH_ACCENT;  accent_dim = SYNTH_ACCENT_DIM;
-        bg = SYNTH_BG;  border = SYNTH_BORDER;  warn = SYNTH_ACCENT;
-    } else {
-        accent = (Color){0, 180, 204, 255};
-        accent_dim = (Color){0, 180, 204, 140};
-        bg = (Color){10, 14, 20, 220};
-        border = (Color){0, 180, 204, 64};
-        warn = (Color){255, 106, 0, 255};
-    }
-
-    if (snow) {
-        label_color = SNOW_ACCENT_DIM;
+    // Snow-like themes have a bright background, so text colors must be dark.
+    // Detect by checking if the background is bright (high luminance).
+    bool bright_bg = (bg.r + bg.g + bg.b) > 400;
+    Color value_color, dim_color, climb_color, connected_color;
+    if (bright_bg) {
         value_color = (Color){10, 10, 15, 255};
         dim_color = (Color){80, 85, 95, 160};
         climb_color = (Color){ 0, 120, 50, 255 };
         connected_color = (Color){ 0, 130, 60, 255 };
     } else {
-        label_color = accent_dim;
         value_color = (Color){200, 208, 218, 255};
         dim_color = (Color){200, 208, 218, 100};
         climb_color = GREEN;
@@ -676,10 +635,10 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
     float inst_pad = INSTRUMENT_PADDING * s;
     float inst_y = bar_y + primary_h / 2.0f - 5 * s;
     float comp_cx = inst_pad + inst_radius + 8 * s;
-    draw_compass(comp_cx, inst_y, inst_radius, v->heading_deg, view_mode, h->font_value);
+    draw_compass(comp_cx, inst_y, inst_radius, v->heading_deg, theme, h->font_value);
 
     float adi_cx = comp_cx + inst_radius * 2 + inst_pad + 8 * s;
-    draw_attitude(adi_cx, inst_y, inst_radius, v->roll_deg, v->pitch_deg, view_mode);
+    draw_attitude(adi_cx, inst_y, inst_radius, v->roll_deg, v->pitch_deg, theme);
 
     // Separator drawing helper
     Color sep_color = (Color){accent.r, accent.g, accent.b, 50};

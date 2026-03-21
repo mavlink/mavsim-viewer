@@ -2,6 +2,7 @@
 #define SCENE_H
 
 #include "raylib.h"
+#include "theme.h"
 #include <stdbool.h>
 
 typedef enum {
@@ -65,6 +66,7 @@ typedef struct {
     ortho_mode_t ortho_mode; // fullscreen ortho view (0 = perspective)
     float ortho_span;        // ortho view span in world units
     Vector3 ortho_pan;       // pan offset in world units (right-click drag)
+    const theme_t *theme;    // active color theme (set from view_mode)
 } scene_t;
 
 // Initialize scene (ground plane, sky, camera, lighting).

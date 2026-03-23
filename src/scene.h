@@ -58,9 +58,6 @@ typedef struct {
     Texture2D ground_tex; // procedural terrain texture
     bool ground_tex_on;  // F key toggle state (terrain mode)
     int seq_1988;        // key sequence tracker
-    // LMS terrain
-    Shader lms_shader;
-    Model lms;
     // Vehicle lighting shader
     Shader lighting_shader;
     int loc_lightDir;

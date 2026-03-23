@@ -221,169 +221,6 @@ static Texture2D gen_ground_texture(void) {
     return tex;
 }
 
-// LMS terrain settings
-#define LMS_COLOR      (Color){ 1, 156, 227, 255 }    // #019CE3 teal
-#define LMS_COLS       40       // subdivisions along edge
-#define LMS_ROWS       12       // subdivisions deep
-#define LMS_DEPTH      400.0f   // how far lms extend from grid edge
-#define LMS_PEAK       350.0f   // max lms height
-
-static float lms_hash(int x, int y) {
-    unsigned int h = (unsigned int)(x * 7919 + y * 104729 + 31337);
-    h ^= h >> 13;
-    h *= 0x5bd1e995;
-    h ^= h >> 15;
-    return (float)(h & 0xFFFF) / 65535.0f;
-}
-
-static float lms_vnoise(float x, float y) {
-    int ix = (int)floorf(x), iy = (int)floorf(y);
-    float fx = x - ix, fy = y - iy;
-    fx = fx * fx * (3.0f - 2.0f * fx);
-    fy = fy * fy * (3.0f - 2.0f * fy);
-    float a = lms_hash(ix, iy), b = lms_hash(ix+1, iy);
-    float c = lms_hash(ix, iy+1), d = lms_hash(ix+1, iy+1);
-    return a + (b-a)*fx + (c-a)*fy + (a-b-c+d)*fx*fy;
-}
-
-static float lms_fbm(float x, float y) {
-    float v = 0.0f;
-    v += lms_vnoise(x, y) * 1.0f;
-    v += lms_vnoise(x*2.0f + 5.3f, y*2.0f + 1.7f) * 0.5f;
-    v += lms_vnoise(x*4.0f + 9.1f, y*4.0f + 3.2f) * 0.25f;
-    return v / 1.75f;
-}
-
-static float lms_get_height(float along, float deep, int edge) {
-    float env = sinf(deep * 3.14159f);
-    env = powf(env, 0.6f);
-
-    float edge_taper = 1.0f;
-    if (along < 0.15f) edge_taper = along / 0.15f;
-    else if (along > 0.85f) edge_taper = (1.0f - along) / 0.15f;
-    edge_taper = edge_taper * edge_taper;
-    env *= edge_taper;
-
-    float ox = along * 5.0f + edge * 13.7f;
-    float oy = deep * 3.0f + edge * 7.3f;
-    float n = lms_fbm(ox, oy);
-    float ridge = 1.0f - fabsf(n * 2.0f - 1.0f);
-    ridge = powf(ridge, 2.0f);
-    float variation = lms_vnoise(along * 3.0f + edge * 5.1f, deep * 1.5f + edge * 2.3f);
-    variation = 0.3f + 0.7f * variation;
-    float h = env * ridge * variation * LMS_PEAK;
-    if (h < LMS_PEAK * 0.15f) h *= 0.7f;
-    return h;
-}
-
-static void lms_vert(Mesh *m, int vi, float x, float y, float z,
-                     float bx, float by, unsigned char r, unsigned char g, unsigned char b) {
-    m->vertices[vi*3+0] = x;  m->vertices[vi*3+1] = y;  m->vertices[vi*3+2] = z;
-    m->texcoords[vi*2+0] = bx; m->texcoords[vi*2+1] = by;
-    m->colors[vi*4+0] = r; m->colors[vi*4+1] = g; m->colors[vi*4+2] = b; m->colors[vi*4+3] = 255;
-}
-
-static Mesh gen_lms(void) {
-    // 4 edges of lms ranges + 4 corner fill patches
-    #define CORNER_SUBDIVS 8
-    int corner_tris = 4 * CORNER_SUBDIVS * CORNER_SUBDIVS * 2;
-    int total_tris = 4 * LMS_COLS * LMS_ROWS * 2 + corner_tris;
-    int vert_count = total_tris * 3;
-
-    Mesh mesh = { 0 };
-    mesh.triangleCount = total_tris;
-    mesh.vertexCount = vert_count;
-    mesh.vertices = RL_CALLOC(vert_count * 3, sizeof(float));
-    mesh.texcoords = RL_CALLOC(vert_count * 2, sizeof(float));
-    mesh.colors = RL_CALLOC(vert_count * 4, sizeof(unsigned char));
-
-    float ext = GRID_EXTENT;
-    unsigned char cr = LMS_COLOR.r, cg = LMS_COLOR.g, cb = LMS_COLOR.b;
-
-    float edges[4][6] = {
-        { -ext, -ext,  1,  0,  0, -1 },
-        {  ext, -ext,  0,  1,  1,  0 },
-        {  ext,  ext, -1,  0,  0,  1 },
-        { -ext,  ext,  0, -1, -1,  0 },
-    };
-
-    int vi = 0;
-    for (int e = 0; e < 4; e++) {
-        float sx = edges[e][0], sz = edges[e][1];
-        float adx = edges[e][2], adz = edges[e][3];
-        float onx = edges[e][4], onz = edges[e][5];
-        float elen = 2.0f * ext;
-
-        for (int col = 0; col < LMS_COLS; col++) {
-            for (int row = 0; row < LMS_ROWS; row++) {
-                float a0 = (float)col / LMS_COLS, a1 = (float)(col+1) / LMS_COLS;
-                float d0 = (float)row / LMS_ROWS, d1 = (float)(row+1) / LMS_ROWS;
-
-                float x00 = sx + adx*a0*elen + onx*d0*LMS_DEPTH;
-                float z00 = sz + adz*a0*elen + onz*d0*LMS_DEPTH;
-                float y00 = lms_get_height(a0, d0, e);
-
-                float x10 = sx + adx*a1*elen + onx*d0*LMS_DEPTH;
-                float z10 = sz + adz*a1*elen + onz*d0*LMS_DEPTH;
-                float y10 = lms_get_height(a1, d0, e);
-
-                float x01 = sx + adx*a0*elen + onx*d1*LMS_DEPTH;
-                float z01 = sz + adz*a0*elen + onz*d1*LMS_DEPTH;
-                float y01 = lms_get_height(a0, d1, e);
-
-                float x11 = sx + adx*a1*elen + onx*d1*LMS_DEPTH;
-                float z11 = sz + adz*a1*elen + onz*d1*LMS_DEPTH;
-                float y11 = lms_get_height(a1, d1, e);
-
-                lms_vert(&mesh, vi++, x00,y00,z00, 1,0, cr,cg,cb);
-                lms_vert(&mesh, vi++, x10,y10,z10, 0,1, cr,cg,cb);
-                lms_vert(&mesh, vi++, x01,y01,z01, 0,0, cr,cg,cb);
-                lms_vert(&mesh, vi++, x10,y10,z10, 1,0, cr,cg,cb);
-                lms_vert(&mesh, vi++, x11,y11,z11, 0,1, cr,cg,cb);
-                lms_vert(&mesh, vi++, x01,y01,z01, 0,0, cr,cg,cb);
-            }
-        }
-    }
-
-    // Corner fill patches — flat grid to fill gaps between lms ranges
-    float corner_pts[4][2] = {
-        { -ext, -ext }, {  ext, -ext }, {  ext,  ext }, { -ext,  ext },
-    };
-    float csigns[4][2] = {
-        { -1, -1 }, {  1, -1 }, {  1,  1 }, { -1,  1 },
-    };
-    for (int c = 0; c < 4; c++) {
-        float cx0 = corner_pts[c][0];
-        float cz0 = corner_pts[c][1];
-        float csx = csigns[c][0], csz = csigns[c][1];
-        for (int ci = 0; ci < CORNER_SUBDIVS; ci++) {
-            for (int cj = 0; cj < CORNER_SUBDIVS; cj++) {
-                float u0 = (float)ci / CORNER_SUBDIVS;
-                float u1 = (float)(ci + 1) / CORNER_SUBDIVS;
-                float v0 = (float)cj / CORNER_SUBDIVS;
-                float v1 = (float)(cj + 1) / CORNER_SUBDIVS;
-
-                float x0 = cx0 + csx * u0 * LMS_DEPTH;
-                float x1 = cx0 + csx * u1 * LMS_DEPTH;
-                float z0 = cz0 + csz * v0 * LMS_DEPTH;
-                float z1 = cz0 + csz * v1 * LMS_DEPTH;
-
-                float cy = 0.7f;
-                lms_vert(&mesh, vi++, x0, cy, z0, 1, 0, cr, cg, cb);
-                lms_vert(&mesh, vi++, x1, cy, z0, 0, 1, cr, cg, cb);
-                lms_vert(&mesh, vi++, x1, cy, z1, 0, 0, cr, cg, cb);
-
-                lms_vert(&mesh, vi++, x0, cy, z0, 1, 0, cr, cg, cb);
-                lms_vert(&mesh, vi++, x1, cy, z1, 0, 1, cr, cg, cb);
-                lms_vert(&mesh, vi++, x0, cy, z1, 0, 0, cr, cg, cb);
-            }
-        }
-    }
-
-    UploadMesh(&mesh, false);
-    return mesh;
-}
-
 void scene_init(scene_t *s) {
     s->cam_mode = CAM_MODE_CHASE;
     s->view_mode = VIEW_GRID;
@@ -471,13 +308,6 @@ void scene_init(scene_t *s) {
     float ambient = 0.35f;
     SetShaderValue(s->lighting_shader, s->loc_ambient, &ambient, SHADER_UNIFORM_FLOAT);
 
-    // LMS wireframe terrain
-    asset_path("shaders/lms.vs", vs_path, sizeof(vs_path));
-    asset_path("shaders/lms.fs", fs_path, sizeof(fs_path));
-    s->lms_shader = LoadShader(vs_path, fs_path);
-    Mesh lms_mesh = gen_lms();
-    s->lms = LoadModelFromMesh(lms_mesh);
-    s->lms.materials[0].shader = s->lms_shader;
 }
 
 static void update_chase_camera(scene_t *s, Vector3 pos) {
@@ -821,11 +651,6 @@ void scene_draw(const scene_t *s) {
     } else if (s->view_mode == VIEW_1988) {
         draw_shader_grid(s, SYNTH_GROUND, SYNTH_MINOR, SYNTH_MAJOR, SYNTH_AXIS_X, SYNTH_AXIS_Z,
             SYNTH_GROUND, (Color){ 25, 25, 82, 255 }, 800.0f, 1200.0f);
-
-        // Wireframe lms — pushed back by 1.4x to match extended grid
-        rlDisableBackfaceCulling();
-        DrawModel(s->lms, (Vector3){0, 0, 0}, 1.4f, WHITE);
-        rlEnableBackfaceCulling();
     }
 
     // Fullscreen ortho: distance grid + ground line
@@ -930,7 +755,5 @@ void scene_cleanup(scene_t *s) {
     UnloadTexture(s->ground_tex);
     UnloadModel(s->grid_plane);
     UnloadShader(s->grid_shader);
-    UnloadModel(s->lms);
-    UnloadShader(s->lms_shader);
     UnloadShader(s->lighting_shader);
 }

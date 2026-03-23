@@ -169,6 +169,7 @@ int main(int argc, char *argv[]) {
     int trail_mode = 1;              // 0=off, 1=directional trail, 2=speed ribbon
     bool show_ground_track = false;  // ground projection off by default
     bool classic_colors = false;     // L key: toggle classic (red/blue) vs modern (yellow/purple)
+    bool show_edge_indicators = true; // Ctrl+L: screen edge drone indicators
 
     // Main loop
     while (!WindowShouldClose()) {
@@ -242,6 +243,11 @@ int main(int argc, char *argv[]) {
         // Toggle debug panel (Ctrl+D)
         if (IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_D)) {
             dbg_panel.visible = !dbg_panel.visible;
+        }
+
+        // Toggle screen edge indicators (Ctrl+L)
+        if (IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_L)) {
+            show_edge_indicators = !show_edge_indicators;
         }
 
         // Toggle ortho panel
@@ -425,6 +431,78 @@ int main(int argc, char *argv[]) {
 
             // Ortho ground fill (2D overlay)
             scene_draw_ortho_ground(&scene, GetScreenWidth(), GetScreenHeight());
+
+            // Screen edge indicators for off-screen drones
+            if (vehicle_count > 1 && show_edge_indicators) {
+                int ei_sw = GetScreenWidth();
+                int ei_sh = GetScreenHeight();
+                float ei_margin = 40.0f;
+                float ei_scale = powf(ei_sh / 720.0f, 0.7f);
+                if (ei_scale < 1.0f) ei_scale = 1.0f;
+                Vector3 cam_fwd = Vector3Normalize(Vector3Subtract(
+                    scene.camera.target, scene.camera.position));
+
+                for (int i = 0; i < vehicle_count; i++) {
+                    if (i == selected || !vehicles[i].active) continue;
+
+                    Vector3 to_drone = Vector3Subtract(vehicles[i].position, scene.camera.position);
+                    float dot = to_drone.x * cam_fwd.x + to_drone.y * cam_fwd.y + to_drone.z * cam_fwd.z;
+
+                    Vector2 sp = GetWorldToScreen(vehicles[i].position, scene.camera);
+
+                    if (sp.x >= ei_margin && sp.x <= ei_sw - ei_margin &&
+                        sp.y >= ei_margin && sp.y <= ei_sh - ei_margin) continue;
+
+                    float ei_cx = ei_sw / 2.0f;
+                    float ei_cy = ei_sh / 2.0f;
+                    float ei_dx = sp.x - ei_cx;
+                    float ei_dy = sp.y - ei_cy;
+
+                    if (dot < 0.5f) {
+                        ei_dx = -(vehicles[i].position.x - scene.camera.position.x);
+                        ei_dy = (vehicles[i].position.z - scene.camera.position.z);
+                        float len = sqrtf(ei_dx * ei_dx + ei_dy * ei_dy);
+                        if (len > 0.01f) { ei_dx /= len; ei_dy /= len; }
+                        ei_dx *= ei_sw; ei_dy *= ei_sh;
+                    }
+
+                    float sx = (ei_dx != 0) ? ((ei_dx > 0 ? ei_sw - ei_margin : ei_margin) - ei_cx) / ei_dx : 1e9f;
+                    float sy = (ei_dy != 0) ? ((ei_dy > 0 ? ei_sh - ei_margin : ei_margin) - ei_cy) / ei_dy : 1e9f;
+                    float se = fminf(fabsf(sx), fabsf(sy));
+                    if (se < 0) se = -se;
+                    float ex = ei_cx + ei_dx * se;
+                    float ey = ei_cy + ei_dy * se;
+                    if (ex < ei_margin) ex = ei_margin;
+                    if (ex > ei_sw - ei_margin) ex = ei_sw - ei_margin;
+                    if (ey < ei_margin) ey = ei_margin;
+                    if (ey > ei_sh - ei_margin) ey = ei_sh - ei_margin;
+
+                    Color col = vehicles[i].color;
+                    col.a = 220;
+                    float angle = atan2f(ei_dy, ei_dx);
+                    float sz = 14.0f * ei_scale;
+
+                    // Chevron
+                    float chev_len = sz * 1.2f;
+                    float chev_spread = 0.5f;
+                    Vector2 tip = { ex + cosf(angle) * chev_len, ey + sinf(angle) * chev_len };
+                    Vector2 cl = { ex + cosf(angle + chev_spread) * sz * 0.6f,
+                                   ey + sinf(angle + chev_spread) * sz * 0.6f };
+                    Vector2 cr = { ex + cosf(angle - chev_spread) * sz * 0.6f,
+                                   ey + sinf(angle - chev_spread) * sz * 0.6f };
+                    DrawLineEx(tip, cl, 2.5f * ei_scale, col);
+                    DrawLineEx(tip, cr, 2.5f * ei_scale, col);
+
+                    // Drone number
+                    char num[4];
+                    snprintf(num, sizeof(num), "%d", i + 1);
+                    float lfs = 18.0f * ei_scale;
+                    Vector2 tw = MeasureTextEx(hud.font_value, num, lfs, 0.5f);
+                    float lx = ex - cosf(angle) * (sz * 0.3f) - tw.x / 2;
+                    float ly = ey - sinf(angle) * (sz * 0.3f) - tw.y / 2;
+                    DrawTextEx(hud.font_value, num, (Vector2){ lx, ly }, lfs, 0.5f, col);
+                }
+            }
 
             // HUD
             if (show_hud) {

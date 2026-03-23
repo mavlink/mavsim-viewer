@@ -53,6 +53,7 @@ typedef struct {
     int loc_groundTex;   // terrain texture sampler uniform
     int loc_colFog;      // fog/distance color uniform
     int loc_colTint;     // terrain tint color uniform
+    int loc_camPos;      // camera position for LOD
     Model grid_plane;    // separate ground plane for grid modes
     Texture2D ground_tex; // procedural terrain texture
     bool ground_tex_on;  // F key toggle state (terrain mode)

@@ -260,6 +260,7 @@ void scene_init(scene_t *s) {
     s->loc_groundTex  = GetShaderLocation(s->grid_shader, "groundTex");
     s->loc_colFog     = GetShaderLocation(s->grid_shader, "colFog");
     s->loc_colTint    = GetShaderLocation(s->grid_shader, "colTint");
+    s->loc_camPos     = GetShaderLocation(s->grid_shader, "camPos");
 
     // Load terrain texture from pre-baked PNG
     double t0 = GetTime();
@@ -559,6 +560,10 @@ static void draw_shader_grid(const scene_t *s,
     // Pass identity model matrix (plane is at origin)
     Matrix model = MatrixIdentity();
     SetShaderValueMatrix(s->grid_shader, s->loc_matModel, model);
+
+    // Pass camera position for distance-based LOD
+    float cp[3] = { s->camera.position.x, s->camera.position.y, s->camera.position.z };
+    SetShaderValue(s->grid_shader, s->loc_camPos, cp, SHADER_UNIFORM_VEC3);
 
     DrawModel(s->grid_plane, (Vector3){0, 0, 0}, 1.0f, WHITE);
 

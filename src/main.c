@@ -345,7 +345,7 @@ int main(int argc, char *argv[]) {
                     sources[0].playback.paused = !sources[0].playback.paused;
                 }
             }
-            if (IsKeyPressed(KEY_L)) {
+            if (IsKeyPressed(KEY_L) && !IsKeyDown(KEY_LEFT_CONTROL) && !IsKeyDown(KEY_RIGHT_CONTROL)) {
                 sources[0].playback.looping = !sources[0].playback.looping;
             }
             if (IsKeyPressed(KEY_I)) {

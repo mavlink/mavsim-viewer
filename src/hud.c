@@ -1022,35 +1022,28 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
         // Dim the background
         DrawRectangle(0, 0, screen_w, screen_h, (Color){0, 0, 0, 160});
 
-        float help_fs_title = 22 * s;
-        float help_fs = 16 * s;
-        float line_h = 24 * s;
-        float col_gap = 24 * s;
-
         // Grouped shortcut entries: NULL key = section header
         typedef struct { const char *key; const char *action; } shortcut_entry_t;
 
-        // Left column: VIEW + VEHICLE
-        shortcut_entry_t left_col[] = {
+        // 3 balanced columns
+        shortcut_entry_t col1[] = {
             {NULL,          "VIEW"},
-            {"C",           "Camera mode (Chase / FPV / Free)"},
-            {"V",           "View mode (Grid / Rez / Snow)"},
+            {"C",           "Camera mode (Chase/FPV/Free)"},
+            {"V",           "View mode (Grid/Rez/Snow)"},
             {"F",           "Terrain texture"},
-            {"K",           "Arm colors (classic / modern)"},
+            {"K",           "Arm colors (classic/modern)"},
             {"O",           "Orthographic side panel"},
             {"Ctrl+D",      "Debug overlay"},
             {"Alt+1-7",     "Ortho views (1=perspective)"},
-            {NULL,          "VEHICLE MODEL"},
-            {"M",           "Switch variant (Shift: all)"},
+            {NULL,          "VEHICLE"},
+            {"M",           "Switch variant (Sh: all)"},
             {NULL,          "MULTI-VEHICLE"},
             {"TAB",         "Next vehicle"},
             {"[ / ]",       "Prev / next vehicle"},
             {"1-9",         "Select vehicle"},
             {"Sh+1-9",      "Pin / unpin to HUD"},
         };
-
-        // Right column: HUD + CAMERA + REPLAY
-        shortcut_entry_t right_col[] = {
+        shortcut_entry_t col2[] = {
             {NULL,          "HUD"},
             {"H",           "Toggle HUD"},
             {"T",           "Cycle trail mode"},
@@ -1062,6 +1055,10 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
             {"Scroll",      "Zoom FOV / distance"},
             {"WASDQE",      "Fly (free cam)"},
             {"Alt+Scrl",    "Zoom ortho span"},
+            {NULL,          "EDGE INDICATORS"},
+            {"Ctrl+L",      "Toggle edge indicators"},
+        };
+        shortcut_entry_t col3[] = {
             {NULL,          "REPLAY"},
             {"Space",       "Pause / resume"},
             {"+/-",         "Playback speed"},
@@ -1076,43 +1073,77 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
             {"B",           "Drop marker"},
             {"B then L",    "Drop + label marker"},
             {"Sh+B",        "Delete current marker"},
-            {"[ / ]",       "Jump to prev / next marker"},
-            {"Sh+[ / ]",    "Track drone from marker"},
+            {"[ / ]",       "Jump to prev/next marker"},
+            {"Sh+[ / ]",    "Track from marker"},
             {"A",           "Takeoff alignment"},
         };
 
-        int left_count = sizeof(left_col) / sizeof(left_col[0]);
-        int right_count = sizeof(right_col) / sizeof(right_col[0]);
-        int max_rows = left_count > right_count ? left_count : right_count;
+        int counts[3] = {
+            sizeof(col1) / sizeof(col1[0]),
+            sizeof(col2) / sizeof(col2[0]),
+            sizeof(col3) / sizeof(col3[0]),
+        };
+        shortcut_entry_t *cols[3] = { col1, col2, col3 };
 
-        float help_fs_group = 14 * s;
-        float group_top_pad = 6 * s;
+        // Find tallest column (entries + headers)
+        int max_rows = 0;
+        int max_headers = 0;
+        for (int c = 0; c < 3; c++) {
+            if (counts[c] > max_rows) max_rows = counts[c];
+            int hdr = 0;
+            for (int i = 0; i < counts[c]; i++) if (!cols[c][i].key) hdr++;
+            if (hdr > max_headers) max_headers = hdr;
+        }
 
-        // Measure max key width across both columns
+        // Scale font to fit screen height
+        float base_fs = 14 * s;
+        float base_line_h = 20 * s;
+        float base_group_pad = 5 * s;
+        float title_h = 36 * s;
+        float margin = 20 * s;
+        float needed_h = title_h + max_rows * base_line_h + max_headers * base_group_pad + margin * 2;
+        float scale_down = 1.0f;
+        if (needed_h > screen_h * 0.95f) {
+            scale_down = (screen_h * 0.95f) / needed_h;
+            if (scale_down < 0.6f) scale_down = 0.6f;
+        }
+
+        float help_fs_title = 20 * s * scale_down;
+        float help_fs = base_fs * scale_down;
+        float help_fs_group = 12 * s * scale_down;
+        float line_h = base_line_h * scale_down;
+        float group_top_pad = base_group_pad * scale_down;
+        float col_gap = 16 * s * scale_down;
+
+        // Measure max key width across all columns
         float max_key_w = 0;
-        for (int i = 0; i < left_count; i++) {
-            if (!left_col[i].key) continue;
-            Vector2 kw = MeasureTextEx(h->font_value, left_col[i].key, help_fs, 0.5f);
-            if (kw.x > max_key_w) max_key_w = kw.x;
-        }
-        for (int i = 0; i < right_count; i++) {
-            if (!right_col[i].key) continue;
-            Vector2 kw = MeasureTextEx(h->font_value, right_col[i].key, help_fs, 0.5f);
-            if (kw.x > max_key_w) max_key_w = kw.x;
+        for (int c = 0; c < 3; c++) {
+            for (int i = 0; i < counts[c]; i++) {
+                if (!cols[c][i].key) continue;
+                Vector2 kw = MeasureTextEx(h->font_value, cols[c][i].key, help_fs, 0.5f);
+                if (kw.x > max_key_w) max_key_w = kw.x;
+            }
         }
 
-        // Count group headers for extra padding
-        int left_headers = 0, right_headers = 0;
-        for (int i = 0; i < left_count; i++) if (!left_col[i].key) left_headers++;
-        for (int i = 0; i < right_count; i++) if (!right_col[i].key) right_headers++;
-        int max_headers = left_headers > right_headers ? left_headers : right_headers;
+        // Measure max action text width across all columns
+        float max_action_w = 0;
+        for (int c = 0; c < 3; c++) {
+            for (int i = 0; i < counts[c]; i++) {
+                if (!cols[c][i].key) continue;
+                Vector2 aw = MeasureTextEx(h->font_label, cols[c][i].action, help_fs, 0.5f);
+                if (aw.x > max_action_w) max_action_w = aw.x;
+            }
+        }
 
-        float col_w = max_key_w + col_gap + 220 * s;
-        float mid_gap = 32 * s;
-        float panel_w = col_w * 2 + mid_gap + 40 * s;
-        float panel_h = 40 * s + max_rows * line_h + max_headers * group_top_pad + 20 * s;
+        float col_w = max_key_w + col_gap + max_action_w;
+        float mid_gap = 24 * s * scale_down;
+        float panel_w = col_w * 3 + mid_gap * 2 + margin * 2;
+        // Clamp panel width to screen
+        if (panel_w > screen_w * 0.98f) panel_w = screen_w * 0.98f;
+        float panel_h = title_h * scale_down + max_rows * line_h + max_headers * group_top_pad + margin * 2;
         float panel_x = (screen_w - panel_w) / 2.0f;
         float panel_y = (screen_h - panel_h) / 2.0f;
+        if (panel_y < 4) panel_y = 4;
 
         // Panel background
         DrawRectangleRounded(
@@ -1126,16 +1157,17 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
         const char *title = "Keyboard Shortcuts";
         Vector2 tw = MeasureTextEx(h->font_label, title, help_fs_title, 0.5f);
         DrawTextEx(h->font_label, title,
-                   (Vector2){panel_x + (panel_w - tw.x) / 2, panel_y + 12 * s},
+                   (Vector2){panel_x + (panel_w - tw.x) / 2, panel_y + 10 * s * scale_down},
                    help_fs_title, 0.5f, accent);
 
-        // Draw a column of grouped entries
-        float ey_start = panel_y + 40 * s;
-        shortcut_entry_t *cols[] = { left_col, right_col };
-        int counts[] = { left_count, right_count };
+        // Draw 3 columns
+        float ey_start = panel_y + title_h * scale_down;
+        // Recompute col_w to distribute evenly within actual panel
+        float usable_w = panel_w - margin * 2 - mid_gap * 2;
+        float actual_col_w = usable_w / 3.0f;
 
-        for (int c = 0; c < 2; c++) {
-            float key_x = panel_x + 20 * s + c * (col_w + mid_gap);
+        for (int c = 0; c < 3; c++) {
+            float key_x = panel_x + margin + c * (actual_col_w + mid_gap);
             float action_x = key_x + max_key_w + col_gap;
             float ey = ey_start;
             for (int i = 0; i < counts[c]; i++) {

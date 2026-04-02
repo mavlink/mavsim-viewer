@@ -166,6 +166,12 @@ int main(int argc, char *argv[]) {
     Vector3 last_pos[MAX_VEHICLES];
     memset(last_pos, 0, sizeof(last_pos));
     bool show_hud = true;
+
+    // Key chord state for two-digit drone selection (10-16)
+    #define CHORD_TIMEOUT 0.3
+    int chord_first = -1;       // first digit pressed (-1 = no chord in progress)
+    double chord_time = 0.0;    // when first digit was pressed
+    bool chord_shift = false;   // whether shift was held on first digit
     int trail_mode = 1;              // 0=off, 1=directional trail, 2=speed ribbon
     bool show_ground_track = false;  // ground projection off by default
     bool classic_colors = false;     // L key: toggle classic (red/blue) vs modern (yellow/purple)
@@ -293,38 +299,107 @@ int main(int argc, char *argv[]) {
                 hud.pinned_count = 0;
                 memset(hud.pinned, -1, sizeof(hud.pinned));
             }
-            // Number keys 1-9: plain = select + clear pins, SHIFT = toggle pin
-            for (int k = KEY_ONE; k <= KEY_NINE; k++) {
-                if (IsKeyPressed(k)) {
-                    int idx = k - KEY_ONE;
-                    if (idx >= vehicle_count) continue;
+            // Number keys 0-9: single digit or two-digit chord for drones 10-16
+            // Chord: press first digit, then second within 300ms (e.g. 1+0 = drone 10)
+            {
+                int digit = -1;
+                for (int k = KEY_ZERO; k <= KEY_NINE; k++) {
+                    if (IsKeyPressed(k)) { digit = k - KEY_ZERO; break; }
+                }
 
-                    if (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT)) {
-                        // SHIFT+number: toggle pin
-                        if (idx == selected) continue;  // can't pin the primary
+                bool shift_held = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
+                bool ctrl_held = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
 
-                        // Check if already pinned
-                        int found = -1;
-                        for (int p = 0; p < hud.pinned_count; p++) {
-                            if (hud.pinned[p] == idx) { found = p; break; }
+                // Check chord timeout
+                if (chord_first >= 0 && GetTime() - chord_time > CHORD_TIMEOUT) {
+                    // Timeout: apply first digit as single-digit selection
+                    int idx = chord_first - 1;  // digit 1 = drone index 0
+                    if (idx >= 0 && idx < vehicle_count) {
+                        if (chord_shift) {
+                            if (idx != selected) {
+                                int found = -1;
+                                for (int p = 0; p < hud.pinned_count; p++)
+                                    if (hud.pinned[p] == idx) { found = p; break; }
+                                if (found >= 0) {
+                                    for (int p = found; p < hud.pinned_count - 1; p++)
+                                        hud.pinned[p] = hud.pinned[p + 1];
+                                    hud.pinned_count--;
+                                    hud.pinned[hud.pinned_count] = -1;
+                                } else if (hud.pinned_count < HUD_MAX_PINNED && hud.pinned_count < vehicle_count - 1) {
+                                    hud.pinned[hud.pinned_count++] = idx;
+                                }
+                            }
+                        } else {
+                            selected = idx;
+                            hud.pinned_count = 0;
+                            memset(hud.pinned, -1, sizeof(hud.pinned));
                         }
-
-                        if (found >= 0) {
-                            // Unpin: shift remaining
-                            for (int p = found; p < hud.pinned_count - 1; p++)
-                                hud.pinned[p] = hud.pinned[p + 1];
-                            hud.pinned_count--;
-                            hud.pinned[hud.pinned_count] = -1;
-                        } else if (hud.pinned_count < HUD_MAX_PINNED && hud.pinned_count < vehicle_count - 1) {
-                            hud.pinned[hud.pinned_count++] = idx;
-                        }
-                    } else if (!IsKeyDown(KEY_LEFT_CONTROL) && !IsKeyDown(KEY_RIGHT_CONTROL)) {
-                        // Plain number: switch primary, clear pins
-                        selected = idx;
-                        hud.pinned_count = 0;
-                        memset(hud.pinned, -1, sizeof(hud.pinned));
                     }
-                    // Note: Ctrl+number is reserved for 1988 easter egg
+                    chord_first = -1;
+                }
+
+                if (digit >= 0 && !ctrl_held) {
+                    if (chord_first >= 0) {
+                        // Second digit of chord: combine into two-digit number
+                        int two_digit = chord_first * 10 + digit;
+                        int idx = two_digit - 1;  // drone 10 = index 9
+                        chord_first = -1;
+
+                        if (idx >= 0 && idx < vehicle_count) {
+                            if (chord_shift) {
+                                if (idx != selected) {
+                                    int found = -1;
+                                    for (int p = 0; p < hud.pinned_count; p++)
+                                        if (hud.pinned[p] == idx) { found = p; break; }
+                                    if (found >= 0) {
+                                        for (int p = found; p < hud.pinned_count - 1; p++)
+                                            hud.pinned[p] = hud.pinned[p + 1];
+                                        hud.pinned_count--;
+                                        hud.pinned[hud.pinned_count] = -1;
+                                    } else if (hud.pinned_count < HUD_MAX_PINNED && hud.pinned_count < vehicle_count - 1) {
+                                        hud.pinned[hud.pinned_count++] = idx;
+                                    }
+                                }
+                            } else {
+                                selected = idx;
+                                hud.pinned_count = 0;
+                                memset(hud.pinned, -1, sizeof(hud.pinned));
+                            }
+                        }
+                    } else if (digit >= 1 && digit <= 9) {
+                        // First digit: start chord or apply immediately if vehicle_count <= 9
+                        if (vehicle_count > 9) {
+                            // Could be start of two-digit chord
+                            chord_first = digit;
+                            chord_time = GetTime();
+                            chord_shift = shift_held;
+                        } else {
+                            // No need for chords, apply single digit immediately
+                            int idx = digit - 1;
+                            if (idx < vehicle_count) {
+                                if (shift_held) {
+                                    if (idx != selected) {
+                                        int found = -1;
+                                        for (int p = 0; p < hud.pinned_count; p++)
+                                            if (hud.pinned[p] == idx) { found = p; break; }
+                                        if (found >= 0) {
+                                            for (int p = found; p < hud.pinned_count - 1; p++)
+                                                hud.pinned[p] = hud.pinned[p + 1];
+                                            hud.pinned_count--;
+                                            hud.pinned[hud.pinned_count] = -1;
+                                        } else if (hud.pinned_count < HUD_MAX_PINNED && hud.pinned_count < vehicle_count - 1) {
+                                            hud.pinned[hud.pinned_count++] = idx;
+                                        }
+                                    }
+                                } else {
+                                    selected = idx;
+                                    hud.pinned_count = 0;
+                                    memset(hud.pinned, -1, sizeof(hud.pinned));
+                                }
+                            }
+                        }
+                    }
+                    // Note: digit 0 alone is ignored (no drone 0); only valid as chord second digit
                 }
             }
         }

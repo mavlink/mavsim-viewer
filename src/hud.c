@@ -381,15 +381,8 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
               const data_source_t *sources, int vehicle_count,
               int selected, int screen_w, int screen_h, const theme_t *theme,
               int trail_mode,
-              const float *marker_times, const char (*marker_labels)[48],
-              int marker_count, int current_marker,
-              const float *marker_roll, const float *marker_pitch,
-              const float *marker_vert, const float *marker_speed,
-              float marker_speed_max,
-              const float *sys_marker_times, const char (*sys_marker_labels)[48],
-              int sys_marker_count, int current_sys_marker, bool sys_marker_selected,
-              const float *sys_marker_roll, const float *sys_marker_pitch,
-              const float *sys_marker_vert, const float *sys_marker_speed,
+              const hud_marker_data_t *markers,
+              const hud_marker_data_t *sys_markers,
               bool ghost_mode, bool has_tier3, bool has_awaiting_gps) {
 
     // Semantic color variables from theme
@@ -595,19 +588,19 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
         }
 
         // Frame markers on timeline (colored diamonds with labels)
-        if (marker_times && marker_count > 0 && pb->duration_s > 0.0f) {
+        if (markers && markers->times && markers->count > 0 && pb->duration_s > 0.0f) {
             float fs_mlabel = 9 * s;
             float last_mlabel_x = -100.0f;
-            for (int i = 0; i < marker_count; i++) {
-                float t = marker_times[i] / pb->duration_s;
+            for (int i = 0; i < markers->count; i++) {
+                float t = markers->times[i] / pb->duration_s;
                 if (t < 0.0f || t > 1.0f) continue;
                 float mx = prog_x + prog_w * t;
                 float my = prog_y + prog_h / 2.0f;
 
-                bool is_cur = (i == current_marker);
-                Color mc = vehicle_marker_color(marker_roll[i], marker_pitch[i],
-                                                marker_vert[i], marker_speed[i],
-                                                marker_speed_max, theme, trail_mode);
+                bool is_cur = (i == markers->current);
+                Color mc = vehicle_marker_color(markers->roll[i], markers->pitch[i],
+                                                markers->vert[i], markers->speed[i],
+                                                markers->speed_max, theme, trail_mode);
                 if (is_cur) {
                     if (theme->thick_trails) {
                         mc.r = (unsigned char)(mc.r * 0.55f);
@@ -630,8 +623,8 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
 
                 {
                     char mlbl[56];
-                    if (marker_labels && marker_labels[i][0] != '\0')
-                        snprintf(mlbl, sizeof(mlbl), "%d:%s", i + 1, marker_labels[i]);
+                    if (markers->labels && markers->labels[i][0] != '\0')
+                        snprintf(mlbl, sizeof(mlbl), "%d:%s", i + 1, markers->labels[i]);
                     else
                         snprintf(mlbl, sizeof(mlbl), "%d", i + 1);
                     Vector2 mlw = MeasureTextEx(h->font_label, mlbl, fs_mlabel, 0.5f);
@@ -656,19 +649,19 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
         }
 
         // System markers on timeline (squares)
-        if (sys_marker_times && sys_marker_count > 0 && pb->duration_s > 0.0f) {
+        if (sys_markers && sys_markers->times && sys_markers->count > 0 && pb->duration_s > 0.0f) {
             float fs_mlabel = 9 * s;
             float last_slabel_x = -100.0f;
-            for (int i = 0; i < sys_marker_count; i++) {
-                float t = sys_marker_times[i] / pb->duration_s;
+            for (int i = 0; i < sys_markers->count; i++) {
+                float t = sys_markers->times[i] / pb->duration_s;
                 if (t < 0.0f || t > 1.0f) continue;
                 float mx = prog_x + prog_w * t;
                 float my = prog_y + prog_h / 2.0f;
 
-                bool is_cur = sys_marker_selected && (i == current_sys_marker);
-                Color mc = vehicle_marker_color(sys_marker_roll[i], sys_marker_pitch[i],
-                                                sys_marker_vert[i], sys_marker_speed[i],
-                                                marker_speed_max, theme, trail_mode);
+                bool is_cur = sys_markers->selected && (i == sys_markers->current);
+                Color mc = vehicle_marker_color(sys_markers->roll[i], sys_markers->pitch[i],
+                                                sys_markers->vert[i], sys_markers->speed[i],
+                                                sys_markers->speed_max, theme, trail_mode);
                 if (is_cur) {
                     if (theme->thick_trails) {
                         mc.r = (unsigned char)(mc.r * 0.55f);
@@ -687,8 +680,8 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
 
                 {
                     char mlbl[56];
-                    if (sys_marker_labels && sys_marker_labels[i][0] != '\0')
-                        snprintf(mlbl, sizeof(mlbl), "S:%s", sys_marker_labels[i]);
+                    if (sys_markers->labels && sys_markers->labels[i][0] != '\0')
+                        snprintf(mlbl, sizeof(mlbl), "S:%s", sys_markers->labels[i]);
                     else
                         snprintf(mlbl, sizeof(mlbl), "S%d", i + 1);
                     Vector2 mlw = MeasureTextEx(h->font_label, mlbl, fs_mlabel, 0.5f);

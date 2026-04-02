@@ -15,7 +15,6 @@
 #include "raylib.h"
 #include "raymath.h"
 #include "data_source.h"
-#include "ulog_replay.h"
 #include "vehicle.h"
 #include "scene.h"
 #include "hud.h"
@@ -186,12 +185,9 @@ static int draw_prompt_dialog(const char *title, const char *subtitle,
     return choice;
 }
 
-static void replay_sync_after_seek(ulog_replay_ctx_t *ctx, data_source_t *src, vehicle_t *veh) {
-    src->state = ctx->state;
-    src->home = ctx->home;
-    src->playback.position_s = (float)ctx->wall_accum;
-    uint64_t range = ctx->parser.end_timestamp - ctx->parser.start_timestamp;
-    if (range > 0) src->playback.progress = src->playback.position_s / ((float)((double)range / 1e6));
+// After data_source_seek() has synced state/home/position/progress,
+// update the vehicle to match and truncate its trail.
+static void replay_sync_vehicle(data_source_t *src, vehicle_t *veh) {
     veh->current_time = src->playback.position_s;
     vehicle_update(veh, &src->state, &src->home);
     vehicle_truncate_trail(veh, src->playback.position_s);
@@ -423,8 +419,7 @@ int main(int argc, char *argv[]) {
     if (is_replay && num_replay_files > 1) {
         // Set multi-file CONF for each source (always available)
         for (int i = 0; i < num_replay_files; i++) {
-            ulog_replay_ctx_t *r = (ulog_replay_ctx_t *)sources[i].impl;
-            sources[i].playback.takeoff_conf = r->takeoff_conf;
+            // takeoff_conf already populated by data_source_ulog_create
             sources[i].playback.time_offset_s = 0.0f;
         }
     }
@@ -438,10 +433,9 @@ int main(int argc, char *argv[]) {
         // Tier assignment
         int tier3_count = 0;
         for (int i = 0; i < num_replay_files; i++) {
-            ulog_replay_ctx_t *r = (ulog_replay_ctx_t *)sources[i].impl;
-            if (r->home_from_topic) {
+            if (sources[i].playback.home_from_topic) {
                 // Tier 1
-            } else if (r->home.valid) {
+            } else if (sources[i].home.valid) {
                 // Tier 2
             } else {
                 tier3_count++;  // Tier 3
@@ -562,9 +556,8 @@ int main(int argc, char *argv[]) {
     memset(vehicle_tier, 0, sizeof(vehicle_tier));
     if (is_replay) {
         for (int i = 0; i < num_replay_files; i++) {
-            ulog_replay_ctx_t *r = (ulog_replay_ctx_t *)sources[i].impl;
-            if (r->home_from_topic) vehicle_tier[i] = 1;
-            else if (r->home.valid) vehicle_tier[i] = 2;
+            if (sources[i].playback.home_from_topic) vehicle_tier[i] = 1;
+            else if (sources[i].home.valid) vehicle_tier[i] = 2;
             else vehicle_tier[i] = 3;
         }
     }
@@ -618,7 +611,7 @@ int main(int argc, char *argv[]) {
 
     // Frame markers for replay
     #define MAX_MARKERS 256
-    #define MARKER_LABEL_MAX 48
+    #define MARKER_LABEL_MAX HUD_MARKER_LABEL_MAX
     float marker_times[MAX_MARKERS];
     Vector3 marker_positions[MAX_MARKERS];
     char marker_labels[MAX_MARKERS][MARKER_LABEL_MAX];
@@ -649,13 +642,13 @@ int main(int argc, char *argv[]) {
 
     // Populate system markers from ULog mode changes
     if (is_replay) {
-        ulog_replay_ctx_t *ctx = (ulog_replay_ctx_t *)sources[0].impl;
-        int count = ctx->mode_change_count;
+        const playback_state_t *pb = &sources[0].playback;
+        int count = pb->mode_change_count;
         if (count > MAX_SYS_MARKERS) count = MAX_SYS_MARKERS;
         if (count > 0) {
             for (int i = 0; i < count; i++) {
-                sys_marker_times[i] = ctx->mode_changes[i].time_s;
-                const char *name = ulog_nav_state_name(ctx->mode_changes[i].nav_state);
+                sys_marker_times[i] = pb->mode_changes[i].time_s;
+                const char *name = ulog_nav_state_name(pb->mode_changes[i].nav_state);
                 snprintf(sys_marker_labels[i], MARKER_LABEL_MAX, "%s", name);
                 sys_marker_positions[i] = (Vector3){0};
             }
@@ -725,12 +718,11 @@ int main(int argc, char *argv[]) {
 
         // Lazy-resolve system marker positions once origin is established
         if (is_replay && !sys_markers_resolved && sys_marker_count > 0 && vehicles[0].origin_set) {
-            ulog_replay_ctx_t *ctx = (ulog_replay_ctx_t *)sources[0].impl;
             float saved_pos = sources[0].playback.position_s;
             int valid = 0;
             for (int i = 0; i < sys_marker_count; i++) {
-                ulog_replay_seek(ctx, sys_marker_times[i]);
-                replay_sync_after_seek(ctx, &sources[0], &vehicles[0]);
+                data_source_seek(&sources[0], sys_marker_times[i]);
+                replay_sync_vehicle(&sources[0], &vehicles[0]);
                 if (sources[0].state.lat == 0 && sources[0].state.lon == 0) continue;
                 Vector3 mp = vehicles[0].position;
                 if (mp.x == 0.0f && mp.y == 0.0f && mp.z == 0.0f) continue;
@@ -767,14 +759,21 @@ int main(int argc, char *argv[]) {
                     bool prev_valid = false;
                     int pc = 0;
 
-                    ulog_replay_seek(ctx, 0.0f);
+                    // Save and override playback controls for pre-computation
+                    playback_state_t saved_pb = sources[0].playback;
+                    sources[0].playback.speed = 1.0f;
+                    sources[0].playback.paused = false;
+                    sources[0].playback.looping = false;
+                    sources[0].playback.interpolation = false;
+
+                    data_source_seek(&sources[0], 0.0f);
                     float step = 0.2f;
                     while (pc < PRECOMP_TRAIL_MAX) {
-                        float prev_wall = (float)ctx->wall_accum;
-                        bool ok = ulog_replay_advance(ctx, step, 1.0f, false, false);
-                        if (!ok || (float)ctx->wall_accum <= prev_wall) break;
+                        float prev_wall = sources[0].playback.position_s;
+                        data_source_poll(&sources[0], step);
+                        if (!sources[0].connected || sources[0].playback.position_s <= prev_wall) break;
 
-                        hil_state_t *st = &ctx->state;
+                        hil_state_t *st = &sources[0].state;
                         if (!st->valid) continue;
                         if (st->lat == 0 && st->lon == 0) continue;
 
@@ -815,7 +814,7 @@ int main(int argc, char *argv[]) {
                         precomp_pitch[pc] = pitch_v;
                         precomp_vert[pc] = vert_s;
                         precomp_speed[pc] = spd;
-                        precomp_time[pc] = (float)ctx->wall_accum;
+                        precomp_time[pc] = sources[0].playback.position_s;
                         if (spd > precomp_speed_max) precomp_speed_max = spd;
                         pc++;
                         prev_pos = pos;
@@ -823,13 +822,16 @@ int main(int argc, char *argv[]) {
                     }
                     precomp_count = pc;
                     precomp_ready = true;
+
+                    // Restore playback controls
+                    sources[0].playback = saved_pb;
                 }
             }
 
             // Restore playback to where it was
-            ulog_replay_seek(ctx, saved_pos);
+            data_source_seek(&sources[0], saved_pos);
             vehicle_reset_trail(&vehicles[0]);
-            replay_sync_after_seek(ctx, &sources[0], &vehicles[0]);
+            replay_sync_vehicle(&sources[0], &vehicles[0]);
             sys_markers_resolved = true;
         }
 
@@ -1240,18 +1242,16 @@ int main(int argc, char *argv[]) {
             if (IsKeyPressed(KEY_ENTER)) {
                 if (marker_input_target >= 0 && marker_input_target < marker_count) {
                     memcpy(marker_labels[marker_input_target], marker_input_buf, MARKER_LABEL_MAX);
-                    ulog_replay_ctx_t *rctx = (ulog_replay_ctx_t *)sources[0].impl;
-                    ulog_replay_seek(rctx, marker_times[marker_input_target]);
-                    replay_sync_after_seek(rctx, &sources[0], &vehicles[0]);
+                    data_source_seek(&sources[0], marker_times[marker_input_target]);
+                    replay_sync_vehicle(&sources[0], &vehicles[0]);
                 }
                 current_marker = marker_input_target;
                 marker_input_active = false;
             }
             if (IsKeyPressed(KEY_ESCAPE)) {
                 if (marker_input_target >= 0 && marker_input_target < marker_count) {
-                    ulog_replay_ctx_t *rctx = (ulog_replay_ctx_t *)sources[0].impl;
-                    ulog_replay_seek(rctx, marker_times[marker_input_target]);
-                    replay_sync_after_seek(rctx, &sources[0], &vehicles[0]);
+                    data_source_seek(&sources[0], marker_times[marker_input_target]);
+                    replay_sync_vehicle(&sources[0], &vehicles[0]);
                 }
                 current_marker = marker_input_target;
                 marker_input_active = false;
@@ -1277,8 +1277,7 @@ int main(int argc, char *argv[]) {
             if (IsKeyPressed(KEY_SPACE)) {
                 if (!sources[selected].connected) {
                     for (int i = 0; i < nrf; i++) {
-                        ulog_replay_ctx_t *rctx = (ulog_replay_ctx_t *)sources[i].impl;
-                        ulog_replay_seek(rctx, 0.0f);
+                        data_source_seek(&sources[i], 0.0f);
                         sources[i].connected = true;
                         sources[i].playback.paused = false;
                         vehicle_reset_trail(&vehicles[i]);
@@ -1331,8 +1330,7 @@ int main(int argc, char *argv[]) {
             }
             if (IsKeyPressed(KEY_R)) {
                 for (int i = 0; i < nrf; i++) {
-                    ulog_replay_ctx_t *ctx = (ulog_replay_ctx_t *)sources[i].impl;
-                    ulog_replay_seek(ctx, 0.0f);
+                    data_source_seek(&sources[i], 0.0f);
                     sources[i].connected = true;
                     sources[i].playback.paused = false;
                     vehicle_reset_trail(&vehicles[i]);
@@ -1346,16 +1344,15 @@ int main(int argc, char *argv[]) {
                 takeoff_aligned = !takeoff_aligned;
                 const float takeoff_buffer = 5.0f;
                 for (int i = 0; i < nrf; i++) {
-                    ulog_replay_ctx_t *ctx = (ulog_replay_ctx_t *)sources[i].impl;
                     if (takeoff_aligned) {
-                        float skip = ctx->takeoff_detected ? ctx->takeoff_time_s - takeoff_buffer : 0.0f;
+                        float skip = sources[i].playback.takeoff_detected
+                            ? sources[i].playback.takeoff_time_s - takeoff_buffer : 0.0f;
                         if (skip < 0.0f) skip = 0.0f;
-                        ctx->time_offset_s = (double)skip;
+                        data_source_set_time_offset(&sources[i], (double)skip);
                     } else {
-                        ctx->time_offset_s = 0.0;
+                        data_source_set_time_offset(&sources[i], 0.0);
                     }
-                    sources[i].playback.time_offset_s = (float)ctx->time_offset_s;
-                    ulog_replay_seek(ctx, 0.0f);
+                    data_source_seek(&sources[i], 0.0f);
                     sources[i].connected = true;
                     sources[i].playback.paused = false;
                     vehicle_reset_trail(&vehicles[i]);
@@ -1371,23 +1368,19 @@ int main(int argc, char *argv[]) {
             // Timeline scrubbing: 3 levels of granularity
             // Shift+Arrow = single frame step (~20ms), Ctrl+Shift = 1s, plain = 5s
             if (IsKeyPressed(KEY_RIGHT)) {
-                ulog_replay_ctx_t *ctx = (ulog_replay_ctx_t *)sources[0].impl;
                 float step;
                 if (shift && ctrl) step = 1.0f;
                 else if (shift) { step = 0.02f; sources[0].playback.paused = true; }
                 else step = 5.0f;
                 float seek_target = sources[0].playback.position_s + step;
                 for (int i = 0; i < nrf; i++) {
-                    ulog_replay_ctx_t *rctx = (ulog_replay_ctx_t *)sources[i].impl;
-                    ulog_replay_seek(rctx, seek_target);
-                    sources[i].playback.position_s = (float)rctx->wall_accum;
+                    data_source_seek(&sources[i], seek_target);
                     vehicle_reset_trail(&vehicles[i]);
                 }
                 memset(corr, 0, sizeof(corr));
-                replay_sync_after_seek(ctx, &sources[0], &vehicles[0]);
+                replay_sync_vehicle(&sources[0], &vehicles[0]);
             }
             if (IsKeyPressed(KEY_LEFT)) {
-                ulog_replay_ctx_t *ctx = (ulog_replay_ctx_t *)sources[0].impl;
                 float step;
                 if (shift && ctrl) step = 1.0f;
                 else if (shift) { step = 0.02f; sources[0].playback.paused = true; }
@@ -1395,13 +1388,11 @@ int main(int argc, char *argv[]) {
                 float target = sources[0].playback.position_s - step;
                 if (target < 0.0f) target = 0.0f;
                 for (int i = 0; i < nrf; i++) {
-                    ulog_replay_ctx_t *rctx = (ulog_replay_ctx_t *)sources[i].impl;
-                    ulog_replay_seek(rctx, target);
-                    sources[i].playback.position_s = (float)rctx->wall_accum;
+                    data_source_seek(&sources[i], target);
                     vehicle_reset_trail(&vehicles[i]);
                 }
                 memset(corr, 0, sizeof(corr));
-                replay_sync_after_seek(ctx, &sources[0], &vehicles[0]);
+                replay_sync_vehicle(&sources[0], &vehicles[0]);
             }
 
             // Frame markers: B = drop marker, B->L = drop + label, Shift+B = delete current
@@ -1554,15 +1545,8 @@ int main(int argc, char *argv[]) {
                         scene.camera.position = seek_pos;
                         scene.camera.target = vehicles[0].position;
                     } else {
-                    ulog_replay_ctx_t *ctx = (ulog_replay_ctx_t *)sources[0].impl;
-
                     // Seek and sync state
-                    ulog_replay_seek(ctx, seek_time);
-                    sources[0].state = ctx->state;
-                    sources[0].home = ctx->home;
-                    sources[0].playback.position_s = (float)ctx->wall_accum;
-                    uint64_t _range = ctx->parser.end_timestamp - ctx->parser.start_timestamp;
-                    if (_range > 0) sources[0].playback.progress = sources[0].playback.position_s / ((float)((double)_range / 1e6));
+                    data_source_seek(&sources[0], seek_time);
                     vehicles[0].current_time = sources[0].playback.position_s;
 
                     // Restore trail from pre-computed data up to seek_time
@@ -1751,18 +1735,27 @@ int main(int argc, char *argv[]) {
             if (show_hud) {
                 bool has_awaiting_gps = vehicles[selected].active &&
                     !vehicles[selected].origin_set && sources[selected].home.valid;
+                hud_marker_data_t user_markers = {
+                    .times = marker_times, .labels = marker_labels,
+                    .roll = marker_roll, .pitch = marker_pitch,
+                    .vert = marker_vert, .speed = marker_speed,
+                    .speed_max = marker_speed_max,
+                    .count = marker_count, .current = current_marker,
+                    .selected = true,
+                };
+                hud_marker_data_t sys_marker_data = {
+                    .times = sys_marker_times, .labels = sys_marker_labels,
+                    .roll = sys_marker_roll, .pitch = sys_marker_pitch,
+                    .vert = sys_marker_vert, .speed = sys_marker_speed,
+                    .speed_max = marker_speed_max,
+                    .count = sys_marker_count, .current = current_sys_marker,
+                    .selected = sys_marker_selected,
+                };
                 hud_draw(&hud, vehicles, sources, vehicle_count,
                          selected, GetScreenWidth(), GetScreenHeight(),
                          scene.theme, trail_mode,
-                         marker_times, marker_labels,
-                         marker_count, current_marker,
-                         marker_roll, marker_pitch,
-                         marker_vert, marker_speed,
-                         marker_speed_max,
-                         sys_marker_times, sys_marker_labels,
-                         sys_marker_count, current_sys_marker, sys_marker_selected,
-                         sys_marker_roll, sys_marker_pitch,
-                         sys_marker_vert, sys_marker_speed,
+                         marker_count > 0 ? &user_markers : NULL,
+                         sys_marker_count > 0 ? &sys_marker_data : NULL,
                          ghost_mode, has_tier3, has_awaiting_gps);
             }
 

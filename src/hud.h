@@ -7,6 +7,20 @@
 #include <stdbool.h>
 
 #define HUD_MAX_PINNED 15
+#define HUD_MARKER_LABEL_MAX 48
+
+typedef struct {
+    const float *times;
+    const char (*labels)[HUD_MARKER_LABEL_MAX];
+    const float *roll;
+    const float *pitch;
+    const float *vert;
+    const float *speed;
+    float speed_max;
+    int count;
+    int current;
+    bool selected;  // for sys markers: whether sys marker is selected
+} hud_marker_data_t;
 
 typedef struct {
     float sim_time_s;
@@ -31,15 +45,8 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
               const data_source_t *sources, int vehicle_count,
               int selected, int screen_w, int screen_h, const theme_t *theme,
               int trail_mode,
-              const float *marker_times, const char (*marker_labels)[48],
-              int marker_count, int current_marker,
-              const float *marker_roll, const float *marker_pitch,
-              const float *marker_vert, const float *marker_speed,
-              float marker_speed_max,
-              const float *sys_marker_times, const char (*sys_marker_labels)[48],
-              int sys_marker_count, int current_sys_marker, bool sys_marker_selected,
-              const float *sys_marker_roll, const float *sys_marker_pitch,
-              const float *sys_marker_vert, const float *sys_marker_speed,
+              const hud_marker_data_t *markers,
+              const hud_marker_data_t *sys_markers,
               bool ghost_mode, bool has_tier3, bool has_awaiting_gps);
 void hud_cleanup(hud_t *h);
 void hud_toast(hud_t *h, const char *text, float duration_s);

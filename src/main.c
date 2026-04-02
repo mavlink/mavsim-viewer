@@ -98,6 +98,94 @@ static void apply_vehicle_selection(hud_t *hud, int idx, bool pin,
     }
 }
 
+// ── Shared prompt dialog renderer ──
+// Draws a modal dialog box over the scene with numbered options.
+// Returns selected option (1-based) or 0 if window close was requested.
+static int draw_prompt_dialog(const char *title, const char *subtitle,
+                              const char **options, int option_count,
+                              const theme_t *theme, Font font_label, Font font_value,
+                              const scene_t *scene)
+{
+    int choice = 0;
+    while (choice == 0 && !WindowShouldClose()) {
+        int sw = GetScreenWidth();
+        int sh = GetScreenHeight();
+        float s = powf(sh / 720.0f, 0.7f);
+        if (s < 1.0f) s = 1.0f;
+
+        int key = GetKeyPressed();
+        for (int o = 0; o < option_count && o < 9; o++) {
+            if (key == KEY_ONE + o) { choice = o + 1; break; }
+        }
+
+        float fs_title = 15 * s, fs_option = 20 * s, fs_hint = 12 * s;
+        float line_h = 36 * s, pad = 16 * s, inner_gap = 20 * s;
+
+        // Measure option widths
+        float key_num_w = MeasureTextEx(font_value, "1", fs_option, 0.5f).x;
+        float gap = 16 * s;
+        float widest = 0;
+        for (int o = 0; o < option_count; o++) {
+            float w = key_num_w + gap + MeasureTextEx(font_label, options[o], fs_option, 0.5f).x;
+            if (w > widest) widest = w;
+        }
+
+        // Measure title
+        Vector2 tmw = MeasureTextEx(font_label, title, fs_title, 0.5f);
+        Vector2 trw = MeasureTextEx(font_label, subtitle, fs_title, 0.5f);
+        float title_total = tmw.x + trw.x;
+
+        // Box dimensions
+        float box_w = 520 * s;
+        float opts_block_h = line_h * option_count;
+        float box_h = pad + fs_title + inner_gap + opts_block_h + inner_gap * 0.3f + fs_hint + pad * 0.5f;
+        float cx = sw / 2.0f, cy = sh / 2.0f;
+        float bx = cx - box_w / 2.0f, by = cy - box_h / 2.0f;
+
+        BeginDrawing();
+            scene_draw_sky(scene);
+            BeginMode3D(scene->camera);
+                scene_draw(scene);
+            EndMode3D();
+            DrawRectangle(0, 0, sw, sh, theme->prompt_scrim);
+
+            Rectangle box = {bx, by, box_w, box_h};
+            DrawRectangleRounded(box, 0.06f, 8, theme->prompt_box_bg);
+            DrawRectangleRoundedLinesEx(box, 0.06f, 8, 1.5f * s, theme->prompt_border);
+
+            // Title + subtitle
+            float title_x = cx - title_total / 2.0f;
+            DrawTextEx(font_label, title,
+                       (Vector2){title_x, by + pad}, fs_title, 0.5f, theme->prompt_title);
+            DrawTextEx(font_label, subtitle,
+                       (Vector2){title_x + tmw.x, by + pad}, fs_title, 0.5f, theme->prompt_subtitle);
+
+            // Options
+            float left = cx - widest / 2.0f;
+            float opts_y = by + pad + fs_title + inner_gap;
+            for (int o = 0; o < option_count; o++) {
+                char num[2] = {(char)('1' + o), '\0'};
+                DrawTextEx(font_value, num,
+                           (Vector2){left, opts_y + o * line_h}, fs_option, 0.5f, theme->prompt_key);
+                DrawTextEx(font_label, options[o],
+                           (Vector2){left + key_num_w + gap, opts_y + o * line_h}, fs_option, 0.5f, theme->prompt_text);
+            }
+
+            // Hint
+            char hint[32];
+            snprintf(hint, sizeof(hint), "Press 1%s%d", option_count > 1 ? ", 2, or " : " or ", option_count);
+            if (option_count == 3) snprintf(hint, sizeof(hint), "Press 1, 2, or 3");
+            else if (option_count == 2) snprintf(hint, sizeof(hint), "Press 1 or 2");
+            Vector2 hw = MeasureTextEx(font_label, hint, fs_hint, 0.5f);
+            DrawTextEx(font_label, hint,
+                       (Vector2){cx - hw.x / 2.0f, by + box_h - pad * 0.5f - fs_hint}, fs_hint, 0.5f, theme->prompt_hint);
+        EndDrawing();
+    }
+
+    if (WindowShouldClose() && choice == 0) return 0;
+    return choice;
+}
+
 static void replay_sync_after_seek(ulog_replay_ctx_t *ctx, data_source_t *src, vehicle_t *veh) {
     src->state = ctx->state;
     src->home = ctx->home;
@@ -388,95 +476,22 @@ int main(int argc, char *argv[]) {
             hud_t prompt_hud;
             hud_init(&prompt_hud);
 
-            int choice = 0;
-            while (choice == 0 && !WindowShouldClose()) {
-                int sw = GetScreenWidth();
-                int sh = GetScreenHeight();
-                float s = powf(sh / 720.0f, 0.7f);
-                if (s < 1.0f) s = 1.0f;
+            const char *grid_label = conflict_far ? "Narrow grid offset" : "Grid offset";
+            char subtitle[64];
+            if (conflict_far)
+                snprintf(subtitle, sizeof(subtitle), "  -  %d drones too far apart", num_replay_files);
+            else
+                snprintf(subtitle, sizeof(subtitle), "  -  %d drones overlap", num_replay_files);
+            const char *labels[] = {"Cancel & reupload", "Ghost mode", grid_label};
 
-                int key = GetKeyPressed();
-                if (key == KEY_ONE) choice = 1;
-                else if (key == KEY_TWO) choice = 2;
-                else if (key == KEY_THREE) choice = 3;
-
-                // Theme colors
-                Color scrim_col = scene.theme->prompt_scrim;
-                Color box_bg = scene.theme->prompt_box_bg;
-                Color box_border = scene.theme->prompt_border;
-                Color subtitle_col = scene.theme->prompt_subtitle;
-                Color hint_col = scene.theme->prompt_hint;
-                Color key_col = scene.theme->prompt_key;
-                Color text_col = scene.theme->prompt_text;
-                Color title_col = scene.theme->prompt_title;
-
-                float fs_title=15*s, fs_option=20*s, fs_hint=12*s;
-                float line_h=36*s, pad=16*s, inner_gap=20*s;
-
-                const char *title_main = "POSITION CONFLICT";
-                const char *grid_label = conflict_far ? "Narrow grid offset" : "Grid offset";
-                char title_rest[64];
-                if (conflict_far)
-                    snprintf(title_rest, sizeof(title_rest), "  -  %d drones too far apart", num_replay_files);
-                else
-                    snprintf(title_rest, sizeof(title_rest), "  -  %d drones overlap", num_replay_files);
-
-                const char *labels[] = {"Cancel & reupload", "Ghost mode", grid_label};
-                float key_num_w = MeasureTextEx(prompt_hud.font_value, "1", fs_option, 0.5f).x;
-                float gap = 16*s;
-                float widest = 0;
-                for (int o = 0; o < 3; o++) {
-                    float w = key_num_w + gap + MeasureTextEx(prompt_hud.font_label, labels[o], fs_option, 0.5f).x;
-                    if (w > widest) widest = w;
-                }
-
-                Vector2 tmw = MeasureTextEx(prompt_hud.font_label, title_main, fs_title, 0.5f);
-                Vector2 trw = MeasureTextEx(prompt_hud.font_label, title_rest, fs_title, 0.5f);
-                float title_total = tmw.x + trw.x;
-
-                float box_w = 520*s;
-                float opts_block_h = line_h * 3;
-                float box_h = pad + fs_title + inner_gap + opts_block_h + inner_gap*0.3f + fs_hint + pad*0.5f;
-                float cx = sw/2.0f, cy = sh/2.0f;
-                float bx = cx - box_w/2.0f, by = cy - box_h/2.0f;
-
-                BeginDrawing();
-                    scene_draw_sky(&scene);
-                    BeginMode3D(scene.camera);
-                        scene_draw(&scene);
-                    EndMode3D();
-                    DrawRectangle(0, 0, sw, sh, scrim_col);
-
-                    Rectangle box = {bx, by, box_w, box_h};
-                    DrawRectangleRounded(box, 0.06f, 8, box_bg);
-                    DrawRectangleRoundedLinesEx(box, 0.06f, 8, 1.5f*s, box_border);
-
-                    float title_x = cx - title_total/2.0f;
-                    DrawTextEx(prompt_hud.font_label, title_main,
-                               (Vector2){title_x, by + pad}, fs_title, 0.5f, title_col);
-                    DrawTextEx(prompt_hud.font_label, title_rest,
-                               (Vector2){title_x + tmw.x, by + pad}, fs_title, 0.5f, subtitle_col);
-
-                    float left = cx - widest/2.0f;
-                    float opts_y = by + pad + fs_title + inner_gap;
-                    for (int o = 0; o < 3; o++) {
-                        char num[2] = {(char)('1'+o), '\0'};
-                        DrawTextEx(prompt_hud.font_value, num,
-                                   (Vector2){left, opts_y + o*line_h}, fs_option, 0.5f, key_col);
-                        DrawTextEx(prompt_hud.font_label, labels[o],
-                                   (Vector2){left + key_num_w + gap, opts_y + o*line_h}, fs_option, 0.5f, text_col);
-                    }
-
-                    const char *hint = "Press 1, 2, or 3";
-                    Vector2 hw = MeasureTextEx(prompt_hud.font_label, hint, fs_hint, 0.5f);
-                    DrawTextEx(prompt_hud.font_label, hint,
-                               (Vector2){cx - hw.x/2.0f, by + box_h - pad*0.5f - fs_hint}, fs_hint, 0.5f, hint_col);
-                EndDrawing();
-            }
+            int choice = draw_prompt_dialog("POSITION CONFLICT", subtitle,
+                                            labels, 3, scene.theme,
+                                            prompt_hud.font_label, prompt_hud.font_value,
+                                            &scene);
 
             hud_cleanup(&prompt_hud);
 
-            if (choice == 1 || WindowShouldClose()) {
+            if (choice <= 1) {
                 // Cancel: close sources and exit cleanly.
                 // vehicle_cleanup not needed — only vehicles[0] was inited
                 // and it will be freed when the process exits.
@@ -946,75 +961,27 @@ int main(int argc, char *argv[]) {
         // - Conflict (close/no-data): Cancel / Ghost / Grid offset
         // - Conflict (too far): Cancel / Ghost / Narrow grid
         if (IsKeyPressed(KEY_P) && is_replay && num_replay_files > 1) {
-            int ch = 0;
-            while (ch == 0 && !WindowShouldClose()) {
-                int psw = GetScreenWidth(), psh = GetScreenHeight();
-                float ps = powf(psh / 720.0f, 0.7f);
-                if (ps < 1.0f) ps = 1.0f;
-                int pk = GetKeyPressed();
-                if (pk == KEY_ONE) ch = 1;
-                else if (pk == KEY_TWO) ch = 2;
-                else if (pk == KEY_THREE) ch = 3;
-
-                Color pscrim = scene.theme->prompt_scrim;
-                Color pbbg = scene.theme->prompt_box_bg;
-                Color pbbd = scene.theme->prompt_border;
-                Color psub = scene.theme->prompt_subtitle;
-                Color phint_c = scene.theme->prompt_hint;
-                Color pkc = scene.theme->prompt_key;
-                Color ptc = scene.theme->prompt_text;
-                Color pttl = scene.theme->prompt_title;
-
-                // Menu labels and title depend on conflict state
-                const char *title;
-                const char *pl[3];
-                const char *grid_label = conflict_far ? "Narrow grid" : "Grid offset";
-                if (conflict_detected) {
-                    title = "POSITION CONFLICT";
-                    pl[0] = "Cancel"; pl[1] = "Ghost mode"; pl[2] = grid_label;
-                } else {
-                    title = "REPLAY MODE";
-                    pl[0] = "Formation"; pl[1] = "Ghost"; pl[2] = "Grid offset";
-                }
-
-                float pfs_t=15*ps, pfs_o=20*ps, pfs_h=12*ps, plh=36*ps, pp=16*ps, pig=20*ps;
-                float pkw=MeasureTextEx(hud.font_value,"1",pfs_o,0.5f).x, pg=16*ps, pw=0;
-                for(int o=0;o<3;o++){float w=pkw+pg+MeasureTextEx(hud.font_label,pl[o],pfs_o,0.5f).x;if(w>pw)pw=w;}
-                float pbw=520*ps, pbh=pp+pfs_t+pig+plh*3+pig*0.3f+pfs_h+pp*0.5f;
-                float pcx=psw/2.0f, pcy=psh/2.0f, pbx=pcx-pbw/2, pby=pcy-pbh/2;
-
-                BeginDrawing();
-                scene_draw_sky(&scene);
-                BeginMode3D(scene.camera); scene_draw(&scene); EndMode3D();
-                DrawRectangle(0,0,psw,psh,pscrim);
-                Rectangle pb={pbx,pby,pbw,pbh};
-                DrawRectangleRounded(pb,0.06f,8,pbbg);
-                DrawRectangleRoundedLinesEx(pb,0.06f,8,1.5f*ps,pbbd);
-                char pt2[64];
-                if (conflict_detected) {
-                    if (conflict_far)
-                        snprintf(pt2,sizeof(pt2),"  -  %d drones too far apart",num_replay_files);
-                    else
-                        snprintf(pt2,sizeof(pt2),"  -  %d drones overlap",num_replay_files);
-                } else {
-                    snprintf(pt2,sizeof(pt2),"  -  %d drones",num_replay_files);
-                }
-                Vector2 ptm=MeasureTextEx(hud.font_label,title,pfs_t,0.5f);
-                Vector2 ptr=MeasureTextEx(hud.font_label,pt2,pfs_t,0.5f);
-                float ptx=pcx-(ptm.x+ptr.x)/2;
-                DrawTextEx(hud.font_label,title,(Vector2){ptx,pby+pp},pfs_t,0.5f,pttl);
-                DrawTextEx(hud.font_label,pt2,(Vector2){ptx+ptm.x,pby+pp},pfs_t,0.5f,psub);
-                float pleft=pcx-pw/2, poy=pby+pp+pfs_t+pig;
-                for(int o=0;o<3;o++){
-                    char n[2]={(char)('1'+o),'\0'};
-                    DrawTextEx(hud.font_value,n,(Vector2){pleft,poy+o*plh},pfs_o,0.5f,pkc);
-                    DrawTextEx(hud.font_label,pl[o],(Vector2){pleft+pkw+pg,poy+o*plh},pfs_o,0.5f,ptc);
-                }
-                const char*pht="Press 1, 2, or 3";
-                Vector2 phw=MeasureTextEx(hud.font_label,pht,pfs_h,0.5f);
-                DrawTextEx(hud.font_label,pht,(Vector2){pcx-phw.x/2,pby+pbh-pp*0.5f-pfs_h},pfs_h,0.5f,phint_c);
-                EndDrawing();
+            const char *p_title;
+            const char *pl[3];
+            const char *p_grid_label = conflict_far ? "Narrow grid" : "Grid offset";
+            char p_subtitle[64];
+            if (conflict_detected) {
+                p_title = "POSITION CONFLICT";
+                pl[0] = "Cancel"; pl[1] = "Ghost mode"; pl[2] = p_grid_label;
+                if (conflict_far)
+                    snprintf(p_subtitle, sizeof(p_subtitle), "  -  %d drones too far apart", num_replay_files);
+                else
+                    snprintf(p_subtitle, sizeof(p_subtitle), "  -  %d drones overlap", num_replay_files);
+            } else {
+                p_title = "REPLAY MODE";
+                pl[0] = "Formation"; pl[1] = "Ghost"; pl[2] = "Grid offset";
+                snprintf(p_subtitle, sizeof(p_subtitle), "  -  %d drones", num_replay_files);
             }
+
+            int ch = draw_prompt_dialog(p_title, p_subtitle,
+                                        pl, 3, scene.theme,
+                                        hud.font_label, hud.font_value,
+                                        &scene);
             if (ch == 1) {
                 if (conflict_detected) {
                     // Cancel — reset each drone to own origin
@@ -1676,15 +1643,17 @@ int main(int argc, char *argv[]) {
                                          sys_marker_selected ? -1 : current_marker,
                                          scene.camera.position, scene.camera,
                                          marker_roll, marker_pitch, marker_vert, marker_speed,
-                                         vehicles[0].trail_speed_max, scene.theme, trail_mode);
+                                         vehicles[0].trail_speed_max, scene.theme, trail_mode,
+                                         MARKER_USER);
                 }
                 // Draw system marker cubes during replay
                 if (is_replay && sys_marker_count > 0) {
-                    vehicle_draw_sys_markers(sys_marker_positions, sys_marker_labels, sys_marker_count,
-                                             sys_marker_selected ? current_sys_marker : -1,
-                                             scene.camera.position,
-                                             sys_marker_roll, sys_marker_pitch, sys_marker_vert, sys_marker_speed,
-                                             vehicles[0].trail_speed_max, scene.theme, trail_mode);
+                    vehicle_draw_markers(sys_marker_positions, sys_marker_labels, sys_marker_count,
+                                         sys_marker_selected ? current_sys_marker : -1,
+                                         scene.camera.position, scene.camera,
+                                         sys_marker_roll, sys_marker_pitch, sys_marker_vert, sys_marker_speed,
+                                         vehicles[0].trail_speed_max, scene.theme, trail_mode,
+                                         MARKER_SYSTEM);
                 }
 
                 // Home position markers (formation mode only)
@@ -1757,16 +1726,18 @@ int main(int argc, char *argv[]) {
                                            scene.camera.position, scene.camera,
                                            hud.font_label, hud.font_value,
                                            marker_roll, marker_pitch, marker_vert, marker_speed,
-                                           vehicles[0].trail_speed_max, scene.theme, trail_mode);
+                                           vehicles[0].trail_speed_max, scene.theme, trail_mode,
+                                           MARKER_USER);
             }
             // System marker labels
             if (is_replay && sys_marker_count > 0 && show_marker_labels) {
-                vehicle_draw_sys_marker_labels(sys_marker_positions, sys_marker_labels, sys_marker_count,
-                                               sys_marker_selected ? current_sys_marker : -1,
-                                               scene.camera.position, scene.camera,
-                                               hud.font_label, hud.font_value,
-                                               sys_marker_roll, sys_marker_pitch, sys_marker_vert, sys_marker_speed,
-                                               vehicles[0].trail_speed_max, scene.theme, trail_mode);
+                vehicle_draw_marker_labels(sys_marker_positions, sys_marker_labels, sys_marker_count,
+                                           sys_marker_selected ? current_sys_marker : -1,
+                                           scene.camera.position, scene.camera,
+                                           hud.font_label, hud.font_value,
+                                           sys_marker_roll, sys_marker_pitch, sys_marker_vert, sys_marker_speed,
+                                           vehicles[0].trail_speed_max, scene.theme, trail_mode,
+                                           MARKER_SYSTEM);
             }
 
             // Fullscreen ortho 2D overlays (trails + correlation line)

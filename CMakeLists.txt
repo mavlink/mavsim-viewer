@@ -105,6 +105,8 @@ if(NOT BUILD_TESTING_ONLY)
             FILES_MATCHING PATTERN "*.ttf")
     install(DIRECTORY textures/ DESTINATION ${CMAKE_INSTALL_DATADIR}/mavsim-viewer/textures
             FILES_MATCHING PATTERN "*.png")
+    install(DIRECTORY themes/ DESTINATION ${CMAKE_INSTALL_DATADIR}/mavsim-viewer/themes
+            FILES_MATCHING PATTERN "*.mvt")
     install(FILES fonts/OFL.txt DESTINATION ${CMAKE_INSTALL_DATADIR}/mavsim-viewer/fonts)
 
     # CPack packaging

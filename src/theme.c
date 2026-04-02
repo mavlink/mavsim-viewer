@@ -432,6 +432,10 @@ bool theme_load_mvt(const char *path, theme_t *out, char *name_buf, int name_buf
         // Parse R G B A
         int r, g, b, a;
         if (sscanf(val, "%d %d %d %d", &r, &g, &b, &a) != 4) continue;
+        if (r < 0) r = 0; if (r > 255) r = 255;
+        if (g < 0) g = 0; if (g > 255) g = 255;
+        if (b < 0) b = 0; if (b > 255) b = 255;
+        if (a < 0) a = 0; if (a > 255) a = 255;
         Color color = { (unsigned char)r, (unsigned char)g, (unsigned char)b, (unsigned char)a };
 
         // Look up field

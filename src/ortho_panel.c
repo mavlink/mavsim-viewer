@@ -50,129 +50,36 @@ static Vector2 world_to_screen_ortho(Vector3 w, Vector3 center, float span,
 }
 
 
-// ── 2D trail drawing (sidebar) ───────────────────────────────────────────────
+// ── Projection callback for unified trail drawing ────────────────────────────
 
-static void draw_trail_2d(const vehicle_t *v, const theme_t *theme,
-                           int trail_mode, Vector3 center, float span,
-                           float px, float py, float ps, int view) {
-    if (trail_mode <= 0 || v->trail_count < 2) return;
+typedef struct {
+    Vector3 center;
+    float span;
+    // Sidebar-specific fields
+    float px, py, ps;
+    int view;
+    // Fullscreen-specific fields
+    int screen_w, screen_h, ortho_mode;
+    bool fullscreen;
+} project_ctx_t;
 
-    int start = (v->trail_count < v->trail_capacity) ? 0 : v->trail_head;
+typedef Vector2 (*project_fn)(Vector3 world_pos, const project_ctx_t *ctx);
 
-    if (trail_mode == 1) {
-        // ── Normal directional trail ──
-        Color trail_color = theme->trail_forward;
-        Color col_back     = theme->trail_backward;
-        Color col_up       = theme->trail_climb;
-        Color col_down     = theme->trail_descend;
-        Color col_roll_pos = theme->trail_roll_pos;
-        Color col_roll_neg = theme->trail_roll_neg;
-
-        for (int i = 1; i < v->trail_count; i++) {
-            int idx0 = (start + i - 1) % v->trail_capacity;
-            int idx1 = (start + i) % v->trail_capacity;
-            float t = (float)i / (float)v->trail_count;
-
-            float pitch = v->trail_pitch[idx1];
-            float vert  = v->trail_vert[idx1];
-            float roll  = v->trail_roll[idx1];
-
-            float cr = (float)trail_color.r;
-            float cg = (float)trail_color.g;
-            float cb = (float)trail_color.b;
-
-            float back_t = pitch / 15.0f;
-            if (back_t < 0.0f) back_t = 0.0f;
-            if (back_t > 1.0f) back_t = 1.0f;
-            cr += (col_back.r - cr) * back_t;
-            cg += (col_back.g - cg) * back_t;
-            cb += (col_back.b - cb) * back_t;
-
-            float vert_t = vert / 5.0f;
-            if (vert_t > 1.0f) vert_t = 1.0f;
-            if (vert_t < -1.0f) vert_t = -1.0f;
-            if (vert_t > 0.0f) {
-                cr += (col_up.r - cr) * vert_t;
-                cg += (col_up.g - cg) * vert_t;
-                cb += (col_up.b - cb) * vert_t;
-            } else if (vert_t < 0.0f) {
-                float dt2 = -vert_t;
-                cr += (col_down.r - cr) * dt2;
-                cg += (col_down.g - cg) * dt2;
-                cb += (col_down.b - cb) * dt2;
-            }
-
-            float roll_t = roll / 15.0f;
-            if (roll_t > 1.0f) roll_t = 1.0f;
-            if (roll_t < -1.0f) roll_t = -1.0f;
-            if (roll_t > 0.0f) {
-                cr += (col_roll_pos.r - cr) * roll_t * 0.7f;
-                cg += (col_roll_pos.g - cg) * roll_t * 0.7f;
-                cb += (col_roll_pos.b - cb) * roll_t * 0.7f;
-            } else if (roll_t < 0.0f) {
-                float rt = -roll_t;
-                cr += (col_roll_neg.r - cr) * rt * 0.7f;
-                cg += (col_roll_neg.g - cg) * rt * 0.7f;
-                cb += (col_roll_neg.b - cb) * rt * 0.7f;
-            }
-
-            unsigned char ccr = (unsigned char)(cr > 255 ? 255 : cr);
-            unsigned char ccg = (unsigned char)(cg > 255 ? 255 : cg);
-            unsigned char ccb = (unsigned char)(cb > 255 ? 255 : cb);
-            unsigned char ca  = (unsigned char)(t * trail_color.a * v->ghost_alpha);
-
-            Vector2 s0 = world_to_panel(v->trail[idx0], center, span, px, py, ps, view);
-            Vector2 s1 = world_to_panel(v->trail[idx1], center, span, px, py, ps, view);
-            DrawLineEx(s0, s1, 1.0f, (Color){ ccr, ccg, ccb, ca });
-        }
-    } else if (trail_mode == 3) {
-        // ── Drone-color trail ──
-        for (int i = 1; i < v->trail_count; i++) {
-            int idx0 = (start + i - 1) % v->trail_capacity;
-            int idx1 = (start + i) % v->trail_capacity;
-            float t = (float)i / (float)v->trail_count;
-            unsigned char ca = (unsigned char)(t * 200 * v->ghost_alpha);
-
-            Vector2 s0 = world_to_panel(v->trail[idx0], center, span, px, py, ps, view);
-            Vector2 s1 = world_to_panel(v->trail[idx1], center, span, px, py, ps, view);
-            DrawLineEx(s0, s1, 1.0f, (Color){ v->color.r, v->color.g, v->color.b, ca });
-        }
-    } else {
-        // ── Speed ribbon trail (mode 2) ──
-        float max_speed = v->trail_speed_max > 1.0f ? v->trail_speed_max : 1.0f;
-
-        for (int i = 1; i < v->trail_count; i++) {
-            int idx0 = (start + i - 1) % v->trail_capacity;
-            int idx1 = (start + i) % v->trail_capacity;
-
-            float spd0 = v->trail_speed[idx0];
-            float spd1 = v->trail_speed[idx1];
-
-            float spd_avg = (spd0 + spd1) * 0.5f;
-            float accel = (spd1 - spd0) / TRAIL_INTERVAL_ORTHO;
-            float accel_shift = accel / 40.0f;
-            if (accel_shift > 0.15f) accel_shift = 0.15f;
-            if (accel_shift < -0.15f) accel_shift = -0.15f;
-            float heat = spd_avg / max_speed + accel_shift;
-            if (heat > 1.0f) heat = 1.0f;
-            if (heat < 0.0f) heat = 0.0f;
-
-            float t = (float)i / (float)v->trail_count;
-            Color c = theme_heat_color(theme, heat, (unsigned char)(t * 200));
-            c.a = (unsigned char)(c.a * v->ghost_alpha);
-
-            Vector2 s0 = world_to_panel(v->trail[idx0], center, span, px, py, ps, view);
-            Vector2 s1 = world_to_panel(v->trail[idx1], center, span, px, py, ps, view);
-            DrawLineEx(s0, s1, 2.0f, c);
-        }
-    }
+static Vector2 project_panel(Vector3 world_pos, const project_ctx_t *ctx) {
+    return world_to_panel(world_pos, ctx->center, ctx->span,
+                          ctx->px, ctx->py, ctx->ps, ctx->view);
 }
 
-// ── 2D trail drawing (fullscreen ortho) ──────────────────────────────────────
+static Vector2 project_fullscreen(Vector3 world_pos, const project_ctx_t *ctx) {
+    return world_to_screen_ortho(world_pos, ctx->center, ctx->span,
+                                  ctx->screen_w, ctx->screen_h, ctx->ortho_mode);
+}
 
-static void draw_trail_2d_fullscreen(const vehicle_t *v, const theme_t *theme,
-                                      int trail_mode, Vector3 center, float span,
-                                      int screen_w, int screen_h, int ortho_mode) {
+// ── Unified 2D trail drawing ─────────────────────────────────────────────────
+
+static void draw_trail_2d_impl(const vehicle_t *v, const theme_t *theme,
+                                int trail_mode, project_fn project,
+                                const project_ctx_t *ctx) {
     if (trail_mode <= 0 || v->trail_count < 2) return;
 
     int start = (v->trail_count < v->trail_capacity) ? 0 : v->trail_head;
@@ -239,8 +146,8 @@ static void draw_trail_2d_fullscreen(const vehicle_t *v, const theme_t *theme,
             unsigned char ccb = (unsigned char)(cb > 255 ? 255 : cb);
             unsigned char ca  = (unsigned char)(t * trail_color.a * v->ghost_alpha);
 
-            Vector2 s0 = world_to_screen_ortho(v->trail[idx0], center, span, screen_w, screen_h, ortho_mode);
-            Vector2 s1 = world_to_screen_ortho(v->trail[idx1], center, span, screen_w, screen_h, ortho_mode);
+            Vector2 s0 = project(v->trail[idx0], ctx);
+            Vector2 s1 = project(v->trail[idx1], ctx);
             DrawLineEx(s0, s1, 1.0f, (Color){ ccr, ccg, ccb, ca });
         }
     } else if (trail_mode == 3) {
@@ -251,8 +158,8 @@ static void draw_trail_2d_fullscreen(const vehicle_t *v, const theme_t *theme,
             float t = (float)i / (float)v->trail_count;
             unsigned char ca = (unsigned char)(t * 200 * v->ghost_alpha);
 
-            Vector2 s0 = world_to_screen_ortho(v->trail[idx0], center, span, screen_w, screen_h, ortho_mode);
-            Vector2 s1 = world_to_screen_ortho(v->trail[idx1], center, span, screen_w, screen_h, ortho_mode);
+            Vector2 s0 = project(v->trail[idx0], ctx);
+            Vector2 s1 = project(v->trail[idx1], ctx);
             DrawLineEx(s0, s1, 1.0f, (Color){ v->color.r, v->color.g, v->color.b, ca });
         }
     } else {
@@ -279,8 +186,8 @@ static void draw_trail_2d_fullscreen(const vehicle_t *v, const theme_t *theme,
             Color c = theme_heat_color(theme, heat, (unsigned char)(t * 200));
             c.a = (unsigned char)(c.a * v->ghost_alpha);
 
-            Vector2 s0 = world_to_screen_ortho(v->trail[idx0], center, span, screen_w, screen_h, ortho_mode);
-            Vector2 s1 = world_to_screen_ortho(v->trail[idx1], center, span, screen_w, screen_h, ortho_mode);
+            Vector2 s0 = project(v->trail[idx0], ctx);
+            Vector2 s1 = project(v->trail[idx1], ctx);
             DrawLineEx(s0, s1, 2.0f, c);
         }
     }
@@ -579,10 +486,15 @@ void ortho_panel_draw(const ortho_panel_t *op, int screen_h, int hud_bar_h,
         }
 
         // 2D trails
+        project_ctx_t trail_ctx = {
+            .center = center, .span = op->ortho_span,
+            .px = x, .py = y, .ps = (float)ps, .view = i,
+            .fullscreen = false,
+        };
         for (int vi = 0; vi < vehicle_count; vi++) {
             if (vehicles[vi].active || vehicle_count == 1) {
-                draw_trail_2d(&vehicles[vi], theme, trail_mode,
-                              center, op->ortho_span, x, y, (float)ps, i);
+                draw_trail_2d_impl(&vehicles[vi], theme, trail_mode,
+                                   project_panel, &trail_ctx);
             }
         }
 
@@ -684,10 +596,15 @@ void ortho_draw_fullscreen_2d(const scene_t *s, const vehicle_t *vehicles,
     float span = s->ortho_span;
 
     // 2D trails
+    project_ctx_t trail_ctx = {
+        .center = center, .span = span,
+        .screen_w = screen_w, .screen_h = screen_h, .ortho_mode = ortho_mode,
+        .fullscreen = true,
+    };
     for (int i = 0; i < vehicle_count; i++) {
         if (vehicles[i].active || vehicle_count == 1) {
-            draw_trail_2d_fullscreen(&vehicles[i], s->theme, trail_mode,
-                                      center, span, screen_w, screen_h, ortho_mode);
+            draw_trail_2d_impl(&vehicles[i], s->theme, trail_mode,
+                               project_fullscreen, &trail_ctx);
         }
     }
 

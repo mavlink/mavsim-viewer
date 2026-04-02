@@ -69,7 +69,8 @@ static void draw_graph(float x, float y, float w, float h,
 void debug_panel_draw(const debug_panel_t *d, int screen_w, int screen_h,
                       view_mode_t view_mode, Font font,
                       int vehicle_count, int active_count,
-                      int total_trail_points)
+                      int total_trail_points, Vector3 vehicle_pos,
+                      bool ref_rejected)
 {
     if (!d->visible) return;
 
@@ -115,6 +116,8 @@ void debug_panel_draw(const debug_panel_t *d, int screen_w, int screen_h,
     total_h += line_h * 3;                               // Render
     total_h += section_gap;
     total_h += line_h * 3;                               // Memory
+    total_h += section_gap;
+    total_h += line_h * 4;                               // Position
     total_h += margin * 2;
 
     // Panel background
@@ -225,4 +228,27 @@ void debug_panel_draw(const debug_panel_t *d, int screen_w, int screen_h,
     int total_kb = trail_mem_kb + 1024 + 5000;  // +1MB fonts +5MB raylib overhead
     snprintf(buf, sizeof(buf), "Est total   ~%d MB", total_kb / 1024);
     DrawTextEx(font, buf, (Vector2){cx, cy}, fs, 0, accent);
+    cy += line_h;
+
+    cy += section_gap;
+
+    // --- POSITION ---
+    DrawTextEx(font, "POSITION", (Vector2){cx, cy}, fs_title, 0, accent);
+    if (ref_rejected) {
+        Vector2 pw = MeasureTextEx(font, "POSITION", fs_title, 0);
+        Color warn_col = (Color){255, 160, 40, 220};
+        DrawTextEx(font, " BAD REF", (Vector2){cx + pw.x, cy}, fs_title * 0.8f, 0, warn_col);
+    }
+    cy += line_h;
+
+    snprintf(buf, sizeof(buf), "X  %+.1f", vehicle_pos.x);
+    DrawTextEx(font, buf, (Vector2){cx, cy}, fs, 0, text_col);
+    cy += line_h;
+
+    snprintf(buf, sizeof(buf), "Y  %+.1f", vehicle_pos.y);
+    DrawTextEx(font, buf, (Vector2){cx, cy}, fs, 0, text_col);
+    cy += line_h;
+
+    snprintf(buf, sizeof(buf), "Z  %+.1f", vehicle_pos.z);
+    DrawTextEx(font, buf, (Vector2){cx, cy}, fs, 0, text_col);
 }

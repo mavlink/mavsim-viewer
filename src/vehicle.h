@@ -42,6 +42,7 @@ extern const int vehicle_model_count;
 typedef struct {
     Model model;
     Vector3 position;        // Raylib coords (Y-up, right-handed)
+    Vector3 grid_offset;     // spatial offset for deconfliction (meters, Raylib coords)
     Quaternion rotation;     // Raylib quaternion
     int model_idx;           // index into vehicle_models[]
     model_group_t model_group; // active group for M-key cycling
@@ -82,6 +83,8 @@ typedef struct {
     Vector3 trail_last_dir;  // direction of last recorded segment (for adaptive sampling)
     Shader lighting_shader;  // shared lighting shader (id=0 if none)
     int loc_matNormal;       // shader uniform for normal matrix
+    float ghost_alpha;       // 1.0 = fully opaque, 0.35 = ghost
+    int   loc_ghost_alpha;   // shader uniform location for ghostAlpha
 } vehicle_t;
 
 // Initialize vehicle state and load the model at model_idx. shader is optional lighting shader (id=0 to skip).
@@ -89,6 +92,9 @@ void vehicle_init(vehicle_t *v, int model_idx, Shader lighting_shader);
 
 // Initialize with custom trail capacity (for replay persistent trails).
 void vehicle_init_ex(vehicle_t *v, int model_idx, Shader lighting_shader, int trail_capacity);
+
+// Set ghost alpha for translucent rendering (1.0 = opaque, 0.35 = ghost).
+void vehicle_set_ghost_alpha(vehicle_t *v, float alpha);
 
 // Swap to a different model at runtime (unloads old, loads new).
 void vehicle_load_model(vehicle_t *v, int model_idx);
@@ -148,6 +154,15 @@ void vehicle_draw_sys_marker_labels(Vector3 *positions, char labels[][48], int c
                                     Font font_label, Font font_value,
                                     float *m_roll, float *m_pitch, float *m_vert, float *m_speed,
                                     float speed_max, view_mode_t view_mode, int trail_mode);
+
+// Draw correlation curtain between two vehicles (cross-vehicle overlay).
+void vehicle_draw_correlation_curtain(
+    const vehicle_t *va, const vehicle_t *vb,
+    view_mode_t view_mode, Vector3 cam_pos);
+
+// Draw thick correlation line between two vehicles at current positions.
+void vehicle_draw_correlation_line(
+    const vehicle_t *va, const vehicle_t *vb);
 
 // Unload model resources.
 void vehicle_cleanup(vehicle_t *v);

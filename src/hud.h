@@ -13,8 +13,14 @@ typedef struct {
     int pinned_count;
     bool show_help;
     bool is_replay;     // true when data source is ULog replay (affects layout)
+    bool show_yaw;      // Y key: swap HDG for YAW display
     Font font_value;    // JetBrains Mono for telemetry numbers
     Font font_label;    // Inter for labels and status text
+
+    // Toast notification (fades in/out above timeline)
+    char toast_text[64];
+    float toast_timer;  // seconds remaining (0 = hidden)
+    float toast_total;  // total duration for fade calc
 } hud_t;
 
 void hud_init(hud_t *h);
@@ -30,8 +36,10 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
               const float *sys_marker_times, const char (*sys_marker_labels)[48],
               int sys_marker_count, int current_sys_marker, bool sys_marker_selected,
               const float *sys_marker_roll, const float *sys_marker_pitch,
-              const float *sys_marker_vert, const float *sys_marker_speed);
+              const float *sys_marker_vert, const float *sys_marker_speed,
+              bool ghost_mode, bool has_tier3, bool has_awaiting_gps);
 void hud_cleanup(hud_t *h);
+void hud_toast(hud_t *h, const char *text, float duration_s);
 
 // Returns the total height of the HUD bar in pixels (for layout by other panels).
 int hud_bar_height(const hud_t *h, int screen_h);

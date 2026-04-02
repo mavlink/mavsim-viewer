@@ -784,45 +784,20 @@ void vehicle_truncate_trail(vehicle_t *v, float time_s) {
 }
 
 Color vehicle_marker_color(float roll, float pitch, float vert, float speed,
-                           float speed_max, view_mode_t view_mode, int trail_mode) {
+                           float speed_max, const theme_t *theme, int trail_mode) {
     if (trail_mode == 2) {
         float ms = speed_max > 1.0f ? speed_max : 1.0f;
         float heat = speed / ms;
         if (heat > 1.0f) heat = 1.0f;
         if (heat < 0.0f) heat = 0.0f;
-        return heat_to_color(heat, 255, view_mode);
+        return theme_heat_color(theme, heat, 255);
     }
-    Color trail_color;
-    Color col_back, col_up, col_down, col_roll_pos, col_roll_neg;
-    if (view_mode == VIEW_SNOW) {
-        trail_color  = (Color){ 200, 140,  20, 255 };
-        col_back     = (Color){ 140,  20, 200, 255 };
-        col_up       = (Color){   0, 150,  60, 255 };
-        col_down     = (Color){ 200,  50,   0, 255 };
-        col_roll_pos = (Color){  20, 160,  40, 255 };
-        col_roll_neg = (Color){ 200,  20,  60, 255 };
-    } else if (view_mode == VIEW_1988) {
-        trail_color  = (Color){ 255, 220,  60, 255 };
-        col_back     = (Color){ 180,  40, 255, 255 };
-        col_up       = (Color){   0, 240, 255, 255 };
-        col_down     = (Color){ 255, 140,   0, 255 };
-        col_roll_pos = (Color){  40, 255,  80, 255 };
-        col_roll_neg = (Color){ 255,  40,  80, 255 };
-    } else if (view_mode == VIEW_REZ) {
-        trail_color  = (Color){ 220, 180,  30, 255 };
-        col_back     = (Color){ 160,  40, 240, 255 };
-        col_up       = (Color){   0, 200, 255, 255 };
-        col_down     = (Color){ 255, 160,   0, 255 };
-        col_roll_pos = (Color){  40, 255, 100, 255 };
-        col_roll_neg = (Color){ 255,  40,  80, 255 };
-    } else {
-        trail_color  = (Color){ 255, 200,  50, 255 };
-        col_back     = (Color){ 160,  60, 255, 255 };
-        col_up       = (Color){   0, 220, 255, 255 };
-        col_down     = (Color){ 255, 140,   0, 255 };
-        col_roll_pos = (Color){  40, 255,  80, 255 };
-        col_roll_neg = (Color){ 255,  40,  80, 255 };
-    }
+    Color trail_color  = theme->trail_forward;
+    Color col_back     = theme->trail_backward;
+    Color col_up       = theme->trail_climb;
+    Color col_down     = theme->trail_descend;
+    Color col_roll_pos = theme->trail_roll_pos;
+    Color col_roll_neg = theme->trail_roll_neg;
 
     float cr = (float)trail_color.r, cg = (float)trail_color.g, cb = (float)trail_color.b;
 
@@ -872,7 +847,7 @@ Color vehicle_marker_color(float roll, float pitch, float vert, float speed,
 void vehicle_draw_markers(Vector3 *positions, char labels[][48], int count,
                           int current_marker, Vector3 cam_pos, Camera3D camera,
                           float *m_roll, float *m_pitch, float *m_vert, float *m_speed,
-                          float speed_max, view_mode_t view_mode, int trail_mode) {
+                          float speed_max, const theme_t *theme, int trail_mode) {
     (void)labels; (void)camera;
     for (int i = 0; i < count; i++) {
         Vector3 p = positions[i];
@@ -883,10 +858,10 @@ void vehicle_draw_markers(Vector3 *positions, char labels[][48], int count,
         bool is_current = (i == current_marker);
 
         Color col = vehicle_marker_color(m_roll[i], m_pitch[i], m_vert[i], m_speed[i],
-                                         speed_max, view_mode, trail_mode);
+                                         speed_max, theme, trail_mode);
 
         if (is_current) {
-            if (view_mode == VIEW_SNOW) {
+            if (theme->thick_trails) {
                 col.r = (unsigned char)(col.r * 0.55f);
                 col.g = (unsigned char)(col.g * 0.55f);
                 col.b = (unsigned char)(col.b * 0.55f);
@@ -913,7 +888,7 @@ void vehicle_draw_marker_labels(Vector3 *positions, char labels[][48], int count
                                 int current_marker, Vector3 cam_pos, Camera3D camera,
                                 Font font_label, Font font_value,
                                 float *m_roll, float *m_pitch, float *m_vert, float *m_speed,
-                                float speed_max, view_mode_t view_mode, int trail_mode) {
+                                float speed_max, const theme_t *theme, int trail_mode) {
     Vector3 cam_fwd = Vector3Normalize(Vector3Subtract(camera.target, camera.position));
 
     float sh = (float)GetScreenHeight();
@@ -954,9 +929,9 @@ void vehicle_draw_marker_labels(Vector3 *positions, char labels[][48], int count
         float rh = tw.y + pad_y * 2;
 
         Color text_col = vehicle_marker_color(m_roll[i], m_pitch[i], m_vert[i], m_speed[i],
-                                              speed_max, view_mode, trail_mode);
+                                              speed_max, theme, trail_mode);
         if (is_current) {
-            if (view_mode == VIEW_SNOW) {
+            if (theme->thick_trails) {
                 text_col.r = (unsigned char)(text_col.r * 0.55f);
                 text_col.g = (unsigned char)(text_col.g * 0.55f);
                 text_col.b = (unsigned char)(text_col.b * 0.55f);
@@ -968,20 +943,8 @@ void vehicle_draw_marker_labels(Vector3 *positions, char labels[][48], int count
         }
         text_col.a = 255;
 
-        Color label_bg, label_border;
-        if (view_mode == VIEW_SNOW) {
-            label_bg = (Color){220, 222, 226, 220};
-            label_border = (Color){15, 15, 20, 100};
-        } else if (view_mode == VIEW_1988) {
-            label_bg = (Color){5, 5, 16, 210};
-            label_border = (Color){55, 55, 160, (unsigned char)(180 + 60 * sinf((float)i * 1.7f + (float)GetTime() * 3.0f))};
-        } else if (view_mode == VIEW_REZ) {
-            label_bg = (Color){8, 8, 12, 210};
-            label_border = (Color){text_col.r, text_col.g, text_col.b, 140};
-        } else {
-            label_bg = (Color){10, 14, 20, 255};
-            label_border = (Color){0, 0, 0, 0};
-        }
+        Color label_bg = theme->hud_bg;
+        Color label_border = theme->hud_border;
 
         DrawRectangleRounded(
             (Rectangle){rx, ry, rw, rh},
@@ -1000,7 +963,7 @@ void vehicle_draw_marker_labels(Vector3 *positions, char labels[][48], int count
 void vehicle_draw_sys_markers(Vector3 *positions, char labels[][48], int count,
                               int current_marker, Vector3 cam_pos,
                               float *m_roll, float *m_pitch, float *m_vert, float *m_speed,
-                              float speed_max, view_mode_t view_mode, int trail_mode) {
+                              float speed_max, const theme_t *theme, int trail_mode) {
     (void)labels;
     for (int i = 0; i < count; i++) {
         Vector3 p = positions[i];
@@ -1011,10 +974,10 @@ void vehicle_draw_sys_markers(Vector3 *positions, char labels[][48], int count,
         bool is_current = (i == current_marker);
 
         Color col = vehicle_marker_color(m_roll[i], m_pitch[i], m_vert[i], m_speed[i],
-                                         speed_max, view_mode, trail_mode);
+                                         speed_max, theme, trail_mode);
 
         if (is_current) {
-            if (view_mode == VIEW_SNOW) {
+            if (theme->thick_trails) {
                 col.r = (unsigned char)(col.r * 0.55f);
                 col.g = (unsigned char)(col.g * 0.55f);
                 col.b = (unsigned char)(col.b * 0.55f);
@@ -1055,7 +1018,7 @@ void vehicle_draw_sys_marker_labels(Vector3 *positions, char labels[][48], int c
                                     int current_marker, Vector3 cam_pos, Camera3D camera,
                                     Font font_label, Font font_value,
                                     float *m_roll, float *m_pitch, float *m_vert, float *m_speed,
-                                    float speed_max, view_mode_t view_mode, int trail_mode) {
+                                    float speed_max, const theme_t *theme, int trail_mode) {
     Vector3 cam_fwd = Vector3Normalize(Vector3Subtract(camera.target, camera.position));
 
     float sh = (float)GetScreenHeight();
@@ -1096,9 +1059,9 @@ void vehicle_draw_sys_marker_labels(Vector3 *positions, char labels[][48], int c
         float rh = tw.y + pad_y * 2;
 
         Color text_col = vehicle_marker_color(m_roll[i], m_pitch[i], m_vert[i], m_speed[i],
-                                              speed_max, view_mode, trail_mode);
+                                              speed_max, theme, trail_mode);
         if (is_current) {
-            if (view_mode == VIEW_SNOW) {
+            if (theme->thick_trails) {
                 text_col.r = (unsigned char)(text_col.r * 0.55f);
                 text_col.g = (unsigned char)(text_col.g * 0.55f);
                 text_col.b = (unsigned char)(text_col.b * 0.55f);
@@ -1110,20 +1073,8 @@ void vehicle_draw_sys_marker_labels(Vector3 *positions, char labels[][48], int c
         }
         text_col.a = 255;
 
-        Color label_bg, label_border;
-        if (view_mode == VIEW_SNOW) {
-            label_bg = (Color){220, 222, 226, 220};
-            label_border = (Color){15, 15, 20, 100};
-        } else if (view_mode == VIEW_1988) {
-            label_bg = (Color){5, 5, 16, 210};
-            label_border = (Color){55, 55, 160, (unsigned char)(180 + 60 * sinf((float)i * 1.7f + (float)GetTime() * 3.0f))};
-        } else if (view_mode == VIEW_REZ) {
-            label_bg = (Color){8, 8, 12, 210};
-            label_border = (Color){text_col.r, text_col.g, text_col.b, 140};
-        } else {
-            label_bg = (Color){10, 14, 20, 255};
-            label_border = (Color){0, 0, 0, 0};
-        }
+        Color label_bg = theme->hud_bg;
+        Color label_border = theme->hud_border;
 
         DrawRectangleRounded(
             (Rectangle){rx, ry, rw, rh},
@@ -1135,6 +1086,7 @@ void vehicle_draw_sys_marker_labels(Vector3 *positions, char labels[][48], int c
                    (Vector2){screen.x - tw.x / 2, screen.y - tw.y / 2},
                    fs, 0.5f, text_col);
     }
+}
 
 void vehicle_set_ghost_alpha(vehicle_t *v, float alpha) {
     v->ghost_alpha = alpha;

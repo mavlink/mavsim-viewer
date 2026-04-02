@@ -132,31 +132,31 @@ void vehicle_truncate_trail(vehicle_t *v, float time_s);
 void vehicle_draw_markers(Vector3 *positions, char labels[][48], int count,
                           int current_marker, Vector3 cam_pos, Camera3D camera,
                           float *m_roll, float *m_pitch, float *m_vert, float *m_speed,
-                          float speed_max, view_mode_t view_mode, int trail_mode);
+                          float speed_max, const theme_t *theme, int trail_mode);
 
 // Draw billboarded marker labels (call AFTER EndMode3D, in 2D pass).
 void vehicle_draw_marker_labels(Vector3 *positions, char labels[][48], int count,
                                 int current_marker, Vector3 cam_pos, Camera3D camera,
                                 Font font_label, Font font_value,
                                 float *m_roll, float *m_pitch, float *m_vert, float *m_speed,
-                                float speed_max, view_mode_t view_mode, int trail_mode);
+                                float speed_max, const theme_t *theme, int trail_mode);
 
 // Compute marker color from snapshotted telemetry.
 Color vehicle_marker_color(float roll, float pitch, float vert, float speed,
-                           float speed_max, view_mode_t view_mode, int trail_mode);
+                           float speed_max, const theme_t *theme, int trail_mode);
 
 // Draw system marker cubes (call inside BeginMode3D).
 void vehicle_draw_sys_markers(Vector3 *positions, char labels[][48], int count,
                               int current_marker, Vector3 cam_pos,
                               float *m_roll, float *m_pitch, float *m_vert, float *m_speed,
-                              float speed_max, view_mode_t view_mode, int trail_mode);
+                              float speed_max, const theme_t *theme, int trail_mode);
 
 // Draw system marker labels (call AFTER EndMode3D, in 2D pass).
 void vehicle_draw_sys_marker_labels(Vector3 *positions, char labels[][48], int count,
                                     int current_marker, Vector3 cam_pos, Camera3D camera,
                                     Font font_label, Font font_value,
                                     float *m_roll, float *m_pitch, float *m_vert, float *m_speed,
-                                    float speed_max, view_mode_t view_mode, int trail_mode);
+                                    float speed_max, const theme_t *theme, int trail_mode);
 
 // Draw correlation curtain between two vehicles (cross-vehicle overlay).
 void vehicle_draw_correlation_curtain(

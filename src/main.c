@@ -1614,7 +1614,7 @@ int main(int argc, char *argv[]) {
                                          sys_marker_selected ? -1 : current_marker,
                                          scene.camera.position, scene.camera,
                                          marker_roll, marker_pitch, marker_vert, marker_speed,
-                                         vehicles[0].trail_speed_max, scene.view_mode, trail_mode);
+                                         vehicles[0].trail_speed_max, scene.theme, trail_mode);
                 }
                 // Draw system marker cubes during replay
                 if (is_replay && sys_marker_count > 0) {
@@ -1622,7 +1622,7 @@ int main(int argc, char *argv[]) {
                                              sys_marker_selected ? current_sys_marker : -1,
                                              scene.camera.position,
                                              sys_marker_roll, sys_marker_pitch, sys_marker_vert, sys_marker_speed,
-                                             vehicles[0].trail_speed_max, scene.view_mode, trail_mode);
+                                             vehicles[0].trail_speed_max, scene.theme, trail_mode);
                 }
 
                 // Home position markers (formation mode only)
@@ -1759,7 +1759,7 @@ int main(int argc, char *argv[]) {
                                            scene.camera.position, scene.camera,
                                            hud.font_label, hud.font_value,
                                            marker_roll, marker_pitch, marker_vert, marker_speed,
-                                           vehicles[0].trail_speed_max, scene.view_mode, trail_mode);
+                                           vehicles[0].trail_speed_max, scene.theme, trail_mode);
             }
             // System marker labels
             if (is_replay && sys_marker_count > 0 && show_marker_labels) {
@@ -1768,7 +1768,7 @@ int main(int argc, char *argv[]) {
                                                scene.camera.position, scene.camera,
                                                hud.font_label, hud.font_value,
                                                sys_marker_roll, sys_marker_pitch, sys_marker_vert, sys_marker_speed,
-                                               vehicles[0].trail_speed_max, scene.view_mode, trail_mode);
+                                               vehicles[0].trail_speed_max, scene.theme, trail_mode);
             }
 
             // Fullscreen ortho 2D overlays (trails + correlation line)
@@ -1784,7 +1784,17 @@ int main(int argc, char *argv[]) {
                     !vehicles[selected].origin_set && sources[selected].home.valid;
                 hud_draw(&hud, vehicles, sources, vehicle_count,
                          selected, GetScreenWidth(), GetScreenHeight(),
-                         scene.theme, ghost_mode, has_tier3, has_awaiting_gps);
+                         scene.theme, trail_mode,
+                         marker_times, marker_labels,
+                         marker_count, current_marker,
+                         marker_roll, marker_pitch,
+                         marker_vert, marker_speed,
+                         marker_speed_max,
+                         sys_marker_times, sys_marker_labels,
+                         sys_marker_count, current_sys_marker, sys_marker_selected,
+                         sys_marker_roll, sys_marker_pitch,
+                         sys_marker_vert, sys_marker_speed,
+                         ghost_mode, has_tier3, has_awaiting_gps);
             }
 
             // Debug panel
@@ -1820,49 +1830,16 @@ int main(int argc, char *argv[]) {
                 int sw = GetScreenWidth(), sh = GetScreenHeight();
                 float s = powf(sh / 720.0f, 0.7f);
 
-                Color scrim_col, box_bg, box_border, prompt_col, hint_col;
-                Color field_bg, field_border, text_col, cursor_col;
-                if (scene.view_mode == VIEW_SNOW) {
-                    scrim_col    = (Color){255, 255, 255, 140};
-                    box_bg       = (Color){248, 248, 250, 240};
-                    box_border   = (Color){15, 15, 20, 120};
-                    prompt_col   = (Color){60, 65, 75, 255};
-                    hint_col     = (Color){120, 125, 135, 200};
-                    field_bg     = (Color){235, 236, 240, 255};
-                    field_border = (Color){15, 15, 20, 80};
-                    text_col     = (Color){10, 10, 15, 255};
-                    cursor_col   = (Color){15, 15, 20, 220};
-                } else if (scene.view_mode == VIEW_1988) {
-                    scrim_col    = (Color){5, 0, 15, 160};
-                    box_bg       = (Color){5, 5, 16, 240};
-                    box_border   = (Color){255, 20, 100, 140};
-                    prompt_col   = (Color){255, 20, 100, 200};
-                    hint_col     = (Color){180, 60, 120, 160};
-                    field_bg     = (Color){12, 8, 24, 255};
-                    field_border = (Color){255, 20, 100, 100};
-                    text_col     = (Color){255, 220, 60, 255};
-                    cursor_col   = (Color){255, 20, 100, 220};
-                } else if (scene.view_mode == VIEW_REZ) {
-                    scrim_col    = (Color){0, 0, 0, 150};
-                    box_bg       = (Color){8, 8, 12, 235};
-                    box_border   = (Color){0, 204, 218, 100};
-                    prompt_col   = (Color){0, 204, 218, 200};
-                    hint_col     = (Color){0, 140, 150, 160};
-                    field_bg     = (Color){4, 4, 8, 255};
-                    field_border = (Color){0, 204, 218, 80};
-                    text_col     = (Color){200, 208, 218, 255};
-                    cursor_col   = (Color){0, 204, 218, 220};
-                } else {
-                    scrim_col    = (Color){0, 0, 0, 140};
-                    box_bg       = (Color){10, 14, 20, 235};
-                    box_border   = (Color){0, 180, 204, 100};
-                    prompt_col   = (Color){140, 150, 170, 255};
-                    hint_col     = (Color){90, 95, 110, 200};
-                    field_bg     = (Color){6, 8, 12, 255};
-                    field_border = (Color){50, 55, 70, 180};
-                    text_col     = WHITE;
-                    cursor_col   = (Color){0, 255, 255, 220};
-                }
+                const theme_t *th = scene.theme;
+                Color scrim_col    = th->prompt_scrim;
+                Color box_bg       = th->prompt_box_bg;
+                Color box_border   = th->prompt_border;
+                Color prompt_col   = th->prompt_subtitle;
+                Color hint_col     = th->prompt_hint;
+                Color field_bg     = th->hud_bg;
+                Color field_border = th->hud_border;
+                Color text_col     = th->prompt_text;
+                Color cursor_col   = th->hud_accent;
 
                 DrawRectangle(0, 0, sw, sh, scrim_col);
 

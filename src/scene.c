@@ -654,7 +654,7 @@ static void draw_shader_grid(const scene_t *s,
 void scene_draw(const scene_t *s) {
     const theme_t *t = s->theme;
     draw_shader_grid(s, t->ground, t->grid_minor, t->grid_major,
-                     t->axis_x, t->axis_z, t->fog, t->tint);
+                     t->axis_x, t->axis_z, t->tint);
 
     // Fullscreen ortho: distance grid for side views (top/bottom use the shader ground grid)
     if (s->ortho_mode >= ORTHO_FRONT && s->ortho_mode <= ORTHO_RIGHT) {

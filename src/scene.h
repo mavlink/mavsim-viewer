@@ -7,6 +7,7 @@
 typedef enum {
     CAM_MODE_CHASE = 0,
     CAM_MODE_FPV,
+    CAM_MODE_FREE,
     CAM_MODE_COUNT
 } camera_mode_t;
 
@@ -51,7 +52,6 @@ typedef struct {
     int loc_matModel;
     int loc_texEnabled;  // terrain texture toggle uniform
     int loc_groundTex;   // terrain texture sampler uniform
-    int loc_colFog;      // fog/distance color uniform
     int loc_colTint;     // terrain tint color uniform
     int loc_camPos;      // camera position for LOD
     Model grid_plane;    // separate ground plane for grid modes
@@ -65,6 +65,7 @@ typedef struct {
     int loc_matNormal;
     ortho_mode_t ortho_mode; // fullscreen ortho view (0 = perspective)
     float ortho_span;        // ortho view span in world units
+    bool free_track;         // free cam tracks vehicle until WASDQE detaches
 } scene_t;
 
 // Initialize scene (ground plane, sky, camera, lighting).

@@ -258,7 +258,6 @@ void scene_init(scene_t *s) {
 
     s->loc_texEnabled = GetShaderLocation(s->grid_shader, "texEnabled");
     s->loc_groundTex  = GetShaderLocation(s->grid_shader, "groundTex");
-    s->loc_colFog     = GetShaderLocation(s->grid_shader, "colFog");
     s->loc_colTint    = GetShaderLocation(s->grid_shader, "colTint");
     s->loc_camPos     = GetShaderLocation(s->grid_shader, "camPos");
 
@@ -306,6 +305,7 @@ void scene_init(scene_t *s) {
     SetShaderValue(s->lighting_shader, s->loc_lightDir, &sun, SHADER_UNIFORM_VEC3);
     float ambient = 0.35f;
     SetShaderValue(s->lighting_shader, s->loc_ambient, &ambient, SHADER_UNIFORM_FLOAT);
+
 }
 
 static void update_chase_camera(scene_t *s, Vector3 pos) {
@@ -402,6 +402,69 @@ void scene_update_camera(scene_t *s, Vector3 vehicle_pos, Quaternion vehicle_rot
         case CAM_MODE_FPV:
             update_fpv_camera(s, vehicle_pos, vehicle_rot);
             break;
+        case CAM_MODE_FREE: {
+            float dt = GetFrameTime();
+            float speed = 20.0f * dt;
+
+            // WASDQE breaks tracking
+            bool move = IsKeyDown(KEY_W) || IsKeyDown(KEY_S) || IsKeyDown(KEY_A) ||
+                        IsKeyDown(KEY_D) || IsKeyDown(KEY_Q) || IsKeyDown(KEY_E);
+            if (move) s->free_track = false;
+
+            if (s->free_track) {
+                // Track mode: camera looks at vehicle, scroll zooms in/out
+                s->camera.target = vehicle_pos;
+                float wheel = GetMouseWheelMove();
+                if (wheel != 0.0f) {
+                    Vector3 dir = Vector3Subtract(s->camera.position, vehicle_pos);
+                    float dist = Vector3Length(dir);
+                    dist -= wheel * 2.0f;
+                    if (dist < 2.0f) dist = 2.0f;
+                    s->camera.position = Vector3Add(vehicle_pos, Vector3Scale(Vector3Normalize(dir), dist));
+                }
+                // Mouse: orbit around vehicle
+                if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) || IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
+                    Vector2 delta = GetMouseDelta();
+                    float sensitivity = 0.003f;
+                    Vector3 offset = Vector3Subtract(s->camera.position, vehicle_pos);
+                    Vector3 right = Vector3Normalize(Vector3CrossProduct(
+                        Vector3Normalize(Vector3Subtract(vehicle_pos, s->camera.position)), s->camera.up));
+                    Matrix yaw_m = MatrixRotate((Vector3){0,1,0}, -delta.x * sensitivity);
+                    Matrix pitch_m = MatrixRotate(right, -delta.y * sensitivity);
+                    offset = Vector3Transform(offset, yaw_m);
+                    offset = Vector3Transform(offset, pitch_m);
+                    s->camera.position = Vector3Add(vehicle_pos, offset);
+                }
+            } else {
+                // Free-fly mode
+                Vector3 forward = Vector3Normalize(Vector3Subtract(s->camera.target, s->camera.position));
+                Vector3 right = Vector3Normalize(Vector3CrossProduct(forward, s->camera.up));
+
+                if (IsKeyDown(KEY_W)) { s->camera.position = Vector3Add(s->camera.position, Vector3Scale(forward, speed)); s->camera.target = Vector3Add(s->camera.target, Vector3Scale(forward, speed)); }
+                if (IsKeyDown(KEY_S)) { s->camera.position = Vector3Add(s->camera.position, Vector3Scale(forward, -speed)); s->camera.target = Vector3Add(s->camera.target, Vector3Scale(forward, -speed)); }
+                if (IsKeyDown(KEY_D)) { s->camera.position = Vector3Add(s->camera.position, Vector3Scale(right, speed)); s->camera.target = Vector3Add(s->camera.target, Vector3Scale(right, speed)); }
+                if (IsKeyDown(KEY_A)) { s->camera.position = Vector3Add(s->camera.position, Vector3Scale(right, -speed)); s->camera.target = Vector3Add(s->camera.target, Vector3Scale(right, -speed)); }
+                if (IsKeyDown(KEY_E)) { s->camera.position.y += speed; s->camera.target.y += speed; }
+                if (IsKeyDown(KEY_Q)) { s->camera.position.y -= speed; s->camera.target.y -= speed; }
+
+                // Shift = boost
+                if (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT))
+                    speed *= 3.0f;
+
+                // Mouse look (any click held)
+                if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) || IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
+                    Vector2 delta = GetMouseDelta();
+                    float sensitivity = 0.003f;
+                    Matrix yaw = MatrixRotate((Vector3){0,1,0}, -delta.x * sensitivity);
+                    Matrix pitch = MatrixRotate(right, -delta.y * sensitivity);
+                    Vector3 dir = Vector3Subtract(s->camera.target, s->camera.position);
+                    dir = Vector3Transform(dir, yaw);
+                    dir = Vector3Transform(dir, pitch);
+                    s->camera.target = Vector3Add(s->camera.position, dir);
+                }
+            }
+            break;
+        }
         default:
             break;
     }
@@ -431,8 +494,9 @@ void scene_handle_input(scene_t *s) {
 
     if (IsKeyPressed(KEY_C)) {
         s->ortho_mode = ORTHO_NONE;  // return to perspective on camera toggle
+        s->free_track = false;
         s->cam_mode = (s->cam_mode + 1) % CAM_MODE_COUNT;
-        const char *names[] = {"Chase", "FPV"};
+        const char *names[] = {"Chase", "FPV", "Free"};
         printf("Camera: %s\n", names[s->cam_mode]);
 
         s->camera.up = (Vector3){0, 1, 0};
@@ -530,7 +594,7 @@ static void color_to_vec4(Color c, float out[4]) {
 
 static void draw_shader_grid(const scene_t *s,
     Color ground, Color minor, Color major, Color axis_x, Color axis_z,
-    Color fog, Color tint)
+    Color tint)
 {
     float v[4];
     color_to_vec4(ground, v); SetShaderValue(s->grid_shader, s->loc_colGround, v, SHADER_UNIFORM_VEC4);
@@ -538,7 +602,6 @@ static void draw_shader_grid(const scene_t *s,
     color_to_vec4(major, v);  SetShaderValue(s->grid_shader, s->loc_colMajor, v, SHADER_UNIFORM_VEC4);
     color_to_vec4(axis_x, v); SetShaderValue(s->grid_shader, s->loc_colAxisX, v, SHADER_UNIFORM_VEC4);
     color_to_vec4(axis_z, v); SetShaderValue(s->grid_shader, s->loc_colAxisZ, v, SHADER_UNIFORM_VEC4);
-    color_to_vec4(fog, v);    SetShaderValue(s->grid_shader, s->loc_colFog, v, SHADER_UNIFORM_VEC4);
     color_to_vec4(tint, v);   SetShaderValue(s->grid_shader, s->loc_colTint, v, SHADER_UNIFORM_VEC4);
 
     float spacing = GRID_SPACING;
@@ -547,7 +610,6 @@ static void draw_shader_grid(const scene_t *s,
     SetShaderValue(s->grid_shader, s->loc_spacing, &spacing, SHADER_UNIFORM_FLOAT);
     SetShaderValue(s->grid_shader, s->loc_majorEvery, &majorEvery, SHADER_UNIFORM_FLOAT);
     SetShaderValue(s->grid_shader, s->loc_axisWidth, &axisWidth, SHADER_UNIFORM_FLOAT);
-
     // Terrain texture toggle
     int texOn = s->ground_tex_on ? 1 : 0;
     SetShaderValue(s->grid_shader, s->loc_texEnabled, &texOn, SHADER_UNIFORM_INT);
@@ -577,16 +639,16 @@ static void draw_shader_grid(const scene_t *s,
 void scene_draw(const scene_t *s) {
     if (s->view_mode == VIEW_GRID) {
         draw_shader_grid(s, GRID_GROUND, GRID_MINOR, GRID_MAJOR, GRID_AXIS_X, GRID_AXIS_Z,
-            (Color){ 30, 34, 28, 255 }, (Color){ 42, 38, 32, 255 });
+            (Color){ 42, 38, 32, 255 });
     } else if (s->view_mode == VIEW_REZ) {
         draw_shader_grid(s, REZ_GROUND, REZ_MINOR, REZ_MAJOR, REZ_AXIS_X, REZ_AXIS_Z,
-            REZ_GROUND, (Color){ 31, 31, 59, 255 });
+            (Color){ 31, 31, 59, 255 });
     } else if (s->view_mode == VIEW_SNOW) {
         draw_shader_grid(s, SNOW_GROUND, SNOW_MINOR, SNOW_MAJOR, SNOW_AXIS_X, SNOW_AXIS_Z,
-            SNOW_GROUND, (Color){ 215, 218, 222, 255 });
+            (Color){ 215, 218, 222, 255 });
     } else if (s->view_mode == VIEW_1988) {
         draw_shader_grid(s, SYNTH_GROUND, SYNTH_MINOR, SYNTH_MAJOR, SYNTH_AXIS_X, SYNTH_AXIS_Z,
-            SYNTH_GROUND, (Color){ 25, 25, 82, 255 });
+            (Color){ 25, 25, 82, 255 });
     }
 
     // Fullscreen ortho: distance grid + ground line

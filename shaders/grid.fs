@@ -15,7 +15,6 @@ uniform float axisWidth;
 
 uniform int texEnabled;
 uniform sampler2D groundTex;
-uniform vec4 colFog;
 uniform vec4 colTint;
 uniform vec3 camPos;
 

@@ -443,7 +443,10 @@ void ulog_replay_seek(ulog_replay_ctx_t *ctx, float target_s) {
 
     uint64_t target_usec = ctx->parser.start_timestamp +
                            (uint64_t)(target_s * 1e6);
-    ulog_parser_seek(&ctx->parser, target_usec);
+    // Seek one index entry earlier than the closest match to widen the scan
+    // window. This ensures we capture at least one position message even when
+    // global_pos is sparse (1-5 Hz) relative to the seek granularity (~20ms).
+    ulog_parser_seek_early(&ctx->parser, target_usec);
     ctx->wall_accum = (double)target_s;
 
     // Update current_nav_state for the seek position
@@ -460,6 +463,43 @@ void ulog_replay_seek(ulog_replay_ctx_t *ctx, float target_s) {
     for (int i = 0; i < 2000 && ulog_parser_next(&ctx->parser, &dmsg); i++) {
         process_message(ctx, &dmsg);
         if (dmsg.timestamp >= target_usec) break;
+    }
+
+    // Dead-reckon position forward from last position sample to target time.
+    // This handles the case where the seek window didn't contain a position
+    // message (e.g. global_pos is sparser than the seek granularity).
+    if (ctx->last_pos_usec > 0 && target_usec > ctx->last_pos_usec) {
+        float dt_pos = (float)((double)(target_usec - ctx->last_pos_usec) / 1e6);
+        if (dt_pos > 0.5f) dt_pos = 0.5f;
+
+        if (ctx->has_global_pos) {
+            float vx = ctx->last_vx, vy = ctx->last_vy, vz = ctx->last_vz;
+            if (vx == 0.0f && vy == 0.0f && vz == 0.0f) {
+                vx = ctx->gpos_vx;
+                vy = ctx->gpos_vy;
+                vz = ctx->gpos_vz;
+            }
+
+            double meters_per_deg_lat = 111132.92;
+            double meters_per_deg_lon = 111132.92 * cos(ctx->last_lat_deg * DEG_TO_RAD);
+            if (meters_per_deg_lon < 1.0) meters_per_deg_lon = 1.0;
+
+            double lat = ctx->last_lat_deg + (double)(vx * dt_pos) / meters_per_deg_lat;
+            double lon = ctx->last_lon_deg + (double)(vy * dt_pos) / meters_per_deg_lon;
+            float alt = ctx->last_alt_m - vz * dt_pos;
+
+            ctx->state.lat = (int32_t)(lat * 1e7);
+            ctx->state.lon = (int32_t)(lon * 1e7);
+            ctx->state.alt = (int32_t)(alt * 1000.0f);
+        } else {
+            float x = ctx->last_x + ctx->last_vx * dt_pos;
+            float y = ctx->last_y + ctx->last_vy * dt_pos;
+            float z = ctx->last_z + ctx->last_vz * dt_pos;
+
+            local_to_global(ctx->ref_lat, ctx->ref_lon, ctx->ref_alt,
+                            x, y, z,
+                            &ctx->state.lat, &ctx->state.lon, &ctx->state.alt);
+        }
     }
 }
 

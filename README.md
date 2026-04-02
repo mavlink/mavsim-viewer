@@ -163,6 +163,8 @@ The viewer parses `vehicle_attitude`, `vehicle_local_position`, and `vehicle_glo
 
 Position data in ULog files is typically logged at 5-10 Hz. Dead-reckoning interpolation (toggled with `I`) smooths playback to the render frame rate using velocity data.
 
+Drop frame markers with `B` to bookmark points of interest, then jump between them with `[`/`]`. Flight mode transitions from the log are auto-extracted as system markers. The trail persists when seeking between markers, showing the full flight path up to the current position. Use `Shift+[`/`]` to fly the camera to each marker position.
+
 ## Controls
 
 | Key/Input | Action |
@@ -181,7 +183,7 @@ Position data in ULog files is typically logged at 5-10 Hz. Dead-reckoning inter
 | `Alt+2`-`7` | Fullscreen ortho view (Top / Front / Left / Right / Bottom / Back) |
 | `Alt+Scroll` | Zoom ortho view span |
 | `TAB` | Cycle to next vehicle |
-| `[` / `]` | Previous / next vehicle |
+| `[` / `]` | Previous / next vehicle (or marker in replay) |
 | `1`-`9` | Select vehicle directly |
 | `Shift+1`-`9` | Toggle pin/unpin vehicle to HUD |
 | Left-drag | Orbit camera (chase mode) |
@@ -189,10 +191,19 @@ Position data in ULog files is typically logged at 5-10 Hz. Dead-reckoning inter
 | **Replay** | |
 | `Space` | Pause / resume (or restart after end) |
 | `+` / `-` | Increase / decrease playback speed |
-| `←` / `→` | Seek 5s backward / forward (Shift: 30s) |
-| `L` | Toggle loop |
+| `←` / `→` | Seek 5s backward / forward |
+| `Shift+←` / `→` | Frame step (~20ms per press, auto-pauses) |
+| `Ctrl+Shift+←` / `→` | Seek 1s backward / forward |
+| `L` | Toggle marker labels |
+| `Shift+L` | Toggle loop |
 | `I` | Toggle interpolation |
 | `R` | Restart from beginning |
+| **Markers** | |
+| `B` | Drop marker at current position |
+| `B` then `L` | Drop marker and enter label input |
+| `Shift+B` | Delete current marker |
+| `[` / `]` | Jump to previous / next marker (wraps around) |
+| `Shift+[` / `]` | Fly camera to previous / next marker |
 
 ### View Modes
 

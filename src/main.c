@@ -30,6 +30,7 @@
 // Incremental Pearson correlation (position only: x, y, z)
 #define CORR_CHANNELS 3
 #define CORR_MIN_SAMPLES 30
+#define CHORD_TIMEOUT_S 0.3
 
 typedef struct {
     double sum_x, sum_y, sum_xy, sum_x2, sum_y2;
@@ -72,6 +73,126 @@ static void print_usage(const char *prog) {
     printf("  --ghost <file1.ulg> [file2.ulg ...]   Ghost mode replay\n");
     printf("  -w <width>     Window width (default: 1280)\n");
     printf("  -h <height>    Window height (default: 720)\n");
+}
+
+static void apply_vehicle_selection(hud_t *hud, int idx, bool pin,
+                                    int *selected, int vehicle_count) {
+    if (pin) {
+        if (idx != *selected) {
+            int found = -1;
+            for (int p = 0; p < hud->pinned_count; p++)
+                if (hud->pinned[p] == idx) { found = p; break; }
+            if (found >= 0) {
+                for (int p = found; p < hud->pinned_count - 1; p++)
+                    hud->pinned[p] = hud->pinned[p + 1];
+                hud->pinned_count--;
+                hud->pinned[hud->pinned_count] = -1;
+            } else if (hud->pinned_count < HUD_MAX_PINNED && hud->pinned_count < vehicle_count - 1) {
+                hud->pinned[hud->pinned_count++] = idx;
+            }
+        }
+    } else {
+        *selected = idx;
+        hud->pinned_count = 0;
+        memset(hud->pinned, -1, sizeof(hud->pinned));
+    }
+}
+
+static void replay_sync_after_seek(ulog_replay_ctx_t *ctx, data_source_t *src, vehicle_t *veh) {
+    src->state = ctx->state;
+    src->home = ctx->home;
+    src->playback.position_s = (float)ctx->wall_accum;
+    uint64_t range = ctx->parser.end_timestamp - ctx->parser.start_timestamp;
+    if (range > 0) src->playback.progress = src->playback.position_s / ((float)((double)range / 1e6));
+    veh->current_time = src->playback.position_s;
+    vehicle_update(veh, &src->state, &src->home);
+    vehicle_truncate_trail(veh, src->playback.position_s);
+}
+
+
+static void draw_edge_indicators(const vehicle_t *vehicles, int vehicle_count,
+                                  int selected, Camera3D camera, Font font,
+                                  float scale)
+{
+    (void)scale;
+    int ei_sw = GetScreenWidth();
+    int ei_sh = GetScreenHeight();
+    float ei_margin = 40.0f;
+    float ei_scale = powf(ei_sh / 720.0f, 0.7f);
+    if (ei_scale < 1.0f) ei_scale = 1.0f;
+    Vector3 cam_fwd = Vector3Normalize(Vector3Subtract(
+        camera.target, camera.position));
+
+    for (int i = 0; i < vehicle_count; i++) {
+        if (i == selected || !vehicles[i].active) continue;
+
+        Vector3 to_drone = Vector3Subtract(vehicles[i].position,
+                                            camera.position);
+        float dot = to_drone.x * cam_fwd.x + to_drone.y * cam_fwd.y
+                    + to_drone.z * cam_fwd.z;
+
+        Vector2 sp = GetWorldToScreen(vehicles[i].position, camera);
+
+        if (sp.x >= ei_margin && sp.x <= ei_sw - ei_margin &&
+            sp.y >= ei_margin && sp.y <= ei_sh - ei_margin) continue;
+
+        float ei_cx = ei_sw / 2.0f;
+        float ei_cy = ei_sh / 2.0f;
+        float ei_dx = sp.x - ei_cx;
+        float ei_dy = sp.y - ei_cy;
+
+        if (dot < 0.5f) {
+            Vector3 cam_right = Vector3Normalize(
+                Vector3CrossProduct(cam_fwd, (Vector3){0, 1, 0}));
+            Vector3 cam_up_approx = Vector3CrossProduct(cam_right, cam_fwd);
+            ei_dx = Vector3DotProduct(to_drone, cam_right);
+            ei_dy = -Vector3DotProduct(to_drone, cam_up_approx);
+            float len = sqrtf(ei_dx * ei_dx + ei_dy * ei_dy);
+            if (len > 0.01f) { ei_dx /= len; ei_dy /= len; }
+            ei_dx *= ei_sw;
+            ei_dy *= ei_sh;
+        }
+
+        float sx = (ei_dx != 0)
+            ? ((ei_dx > 0 ? ei_sw - ei_margin : ei_margin) - ei_cx) / ei_dx
+            : 1e9f;
+        float sy = (ei_dy != 0)
+            ? ((ei_dy > 0 ? ei_sh - ei_margin : ei_margin) - ei_cy) / ei_dy
+            : 1e9f;
+        float se = fminf(fabsf(sx), fabsf(sy));
+        float ex = ei_cx + ei_dx * se;
+        float ey = ei_cy + ei_dy * se;
+        if (ex < ei_margin) ex = ei_margin;
+        if (ex > ei_sw - ei_margin) ex = ei_sw - ei_margin;
+        if (ey < ei_margin) ey = ei_margin;
+        if (ey > ei_sh - ei_margin) ey = ei_sh - ei_margin;
+
+        Color col = vehicles[i].color;
+        col.a = 220;
+        float angle = atan2f(ei_dy, ei_dx);
+        float sz = 14.0f * ei_scale;
+
+        // Chevron
+        float chev_len = sz * 1.2f;
+        float chev_spread = 0.5f;
+        Vector2 tip = { ex + cosf(angle) * chev_len,
+                        ey + sinf(angle) * chev_len };
+        Vector2 cl = { ex + cosf(angle + chev_spread) * sz * 0.6f,
+                       ey + sinf(angle + chev_spread) * sz * 0.6f };
+        Vector2 cr = { ex + cosf(angle - chev_spread) * sz * 0.6f,
+                       ey + sinf(angle - chev_spread) * sz * 0.6f };
+        DrawLineEx(tip, cl, 2.5f * ei_scale, col);
+        DrawLineEx(tip, cr, 2.5f * ei_scale, col);
+
+        // Drone number
+        char num[4];
+        snprintf(num, sizeof(num), "%d", i + 1);
+        float lfs = 18.0f * ei_scale;
+        Vector2 tw = MeasureTextEx(font, num, lfs, 0.5f);
+        float lx = ex - cosf(angle) * (sz * 0.3f) - tw.x / 2;
+        float ly = ey - sinf(angle) * (sz * 0.3f) - tw.y / 2;
+        DrawTextEx(font, num, (Vector2){ lx, ly }, lfs, 0.5f, col);
+    }
 }
 
 int main(int argc, char *argv[]) {
@@ -356,8 +477,12 @@ int main(int argc, char *argv[]) {
             hud_cleanup(&prompt_hud);
 
             if (choice == 1 || WindowShouldClose()) {
+                // Cancel: close sources and exit cleanly.
+                // vehicle_cleanup not needed — only vehicles[0] was inited
+                // and it will be freed when the process exits.
                 for (int i = 0; i < num_replay_files; i++)
                     data_source_close(&sources[i]);
+                vehicle_cleanup(&vehicles[0]);
                 scene_cleanup(&scene);
                 CloseWindow();
                 return 0;
@@ -461,7 +586,6 @@ int main(int argc, char *argv[]) {
     bool show_hud = true;
 
     // Key chord state for two-digit drone selection (10-16)
-    #define CHORD_TIMEOUT 0.3
     int chord_first = -1;       // first digit pressed (-1 = no chord in progress)
     double chord_time = 0.0;    // when first digit was pressed
     bool chord_shift = false;   // whether shift was held on first digit
@@ -508,18 +632,6 @@ int main(int argc, char *argv[]) {
     int current_sys_marker = -1;
     bool sys_marker_selected = false;
 
-    // Helper: sync vehicle state after a replay seek.
-    #define REPLAY_SYNC_AFTER_SEEK(ctx, src, veh) do { \
-        (src)->state = (ctx)->state; \
-        (src)->home = (ctx)->home; \
-        (src)->playback.position_s = (float)(ctx)->wall_accum; \
-        uint64_t _range = (ctx)->parser.end_timestamp - (ctx)->parser.start_timestamp; \
-        if (_range > 0) (src)->playback.progress = (src)->playback.position_s / ((float)((double)_range / 1e6)); \
-        (veh)->current_time = (src)->playback.position_s; \
-        vehicle_update((veh), &(src)->state, &(src)->home); \
-        vehicle_truncate_trail((veh), (src)->playback.position_s); \
-    } while(0)
-
     // Populate system markers from ULog mode changes
     if (is_replay) {
         ulog_replay_ctx_t *ctx = (ulog_replay_ctx_t *)sources[0].impl;
@@ -556,6 +668,10 @@ int main(int argc, char *argv[]) {
 
     // Main loop
     while (!WindowShouldClose()) {
+        // Guard: if vehicle_count is somehow 0, exit the loop to avoid
+        // out-of-bounds access on sources[selected] / vehicles[selected].
+        if (vehicle_count <= 0) break;
+
         // Poll all data sources and update vehicles
         for (int i = 0; i < vehicle_count; i++) {
             data_source_poll(&sources[i], GetFrameTime());
@@ -599,7 +715,7 @@ int main(int argc, char *argv[]) {
             int valid = 0;
             for (int i = 0; i < sys_marker_count; i++) {
                 ulog_replay_seek(ctx, sys_marker_times[i]);
-                REPLAY_SYNC_AFTER_SEEK(ctx, &sources[0], &vehicles[0]);
+                replay_sync_after_seek(ctx, &sources[0], &vehicles[0]);
                 if (sources[0].state.lat == 0 && sources[0].state.lon == 0) continue;
                 Vector3 mp = vehicles[0].position;
                 if (mp.x == 0.0f && mp.y == 0.0f && mp.z == 0.0f) continue;
@@ -698,7 +814,7 @@ int main(int argc, char *argv[]) {
             // Restore playback to where it was
             ulog_replay_seek(ctx, saved_pos);
             vehicle_reset_trail(&vehicles[0]);
-            REPLAY_SYNC_AFTER_SEEK(ctx, &sources[0], &vehicles[0]);
+            replay_sync_after_seek(ctx, &sources[0], &vehicles[0]);
             sys_markers_resolved = true;
         }
 
@@ -1036,7 +1152,7 @@ int main(int argc, char *argv[]) {
         }
 
         // Toggle screen edge indicators and correlation labels (Ctrl+L)
-        if (IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_L)) {
+        if ((IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL)) && IsKeyPressed(KEY_L)) {
             show_edge_indicators = !show_edge_indicators;
             show_corr_labels = !show_corr_labels;
         }
@@ -1073,6 +1189,7 @@ int main(int argc, char *argv[]) {
                 }
                 hud.pinned_count = 0;
                 memset(hud.pinned, -1, sizeof(hud.pinned));
+                chord_first = -1;
             }
             if (IsKeyPressed(KEY_LEFT_BRACKET) && !is_replay) {
                 for (int j = 1; j <= vehicle_count; j++) {
@@ -1081,6 +1198,7 @@ int main(int argc, char *argv[]) {
                 }
                 hud.pinned_count = 0;
                 memset(hud.pinned, -1, sizeof(hud.pinned));
+                chord_first = -1;
             }
             if (IsKeyPressed(KEY_RIGHT_BRACKET) && !is_replay) {
                 for (int j = 1; j <= vehicle_count; j++) {
@@ -1089,6 +1207,7 @@ int main(int argc, char *argv[]) {
                 }
                 hud.pinned_count = 0;
                 memset(hud.pinned, -1, sizeof(hud.pinned));
+                chord_first = -1;
             }
             // Number keys 0-9: single digit or two-digit chord for drones 10-16
             // Chord: press first digit, then second within 300ms (e.g. 1+0 = drone 10)
@@ -1102,30 +1221,11 @@ int main(int argc, char *argv[]) {
                 bool ctrl_held = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
 
                 // Check chord timeout
-                if (chord_first >= 0 && GetTime() - chord_time > CHORD_TIMEOUT) {
+                if (chord_first >= 0 && GetTime() - chord_time > CHORD_TIMEOUT_S) {
                     // Timeout: apply first digit as single-digit selection
                     int idx = chord_first - 1;  // digit 1 = drone index 0
-                    if (idx >= 0 && idx < vehicle_count) {
-                        if (chord_shift) {
-                            if (idx != selected) {
-                                int found = -1;
-                                for (int p = 0; p < hud.pinned_count; p++)
-                                    if (hud.pinned[p] == idx) { found = p; break; }
-                                if (found >= 0) {
-                                    for (int p = found; p < hud.pinned_count - 1; p++)
-                                        hud.pinned[p] = hud.pinned[p + 1];
-                                    hud.pinned_count--;
-                                    hud.pinned[hud.pinned_count] = -1;
-                                } else if (hud.pinned_count < HUD_MAX_PINNED && hud.pinned_count < vehicle_count - 1) {
-                                    hud.pinned[hud.pinned_count++] = idx;
-                                }
-                            }
-                        } else {
-                            selected = idx;
-                            hud.pinned_count = 0;
-                            memset(hud.pinned, -1, sizeof(hud.pinned));
-                        }
-                    }
+                    if (idx >= 0 && idx < vehicle_count)
+                        apply_vehicle_selection(&hud, idx, chord_shift, &selected, vehicle_count);
                     chord_first = -1;
                 }
 
@@ -1136,27 +1236,8 @@ int main(int argc, char *argv[]) {
                         int idx = two_digit - 1;  // drone 10 = index 9
                         chord_first = -1;
 
-                        if (idx >= 0 && idx < vehicle_count) {
-                            if (chord_shift) {
-                                if (idx != selected) {
-                                    int found = -1;
-                                    for (int p = 0; p < hud.pinned_count; p++)
-                                        if (hud.pinned[p] == idx) { found = p; break; }
-                                    if (found >= 0) {
-                                        for (int p = found; p < hud.pinned_count - 1; p++)
-                                            hud.pinned[p] = hud.pinned[p + 1];
-                                        hud.pinned_count--;
-                                        hud.pinned[hud.pinned_count] = -1;
-                                    } else if (hud.pinned_count < HUD_MAX_PINNED && hud.pinned_count < vehicle_count - 1) {
-                                        hud.pinned[hud.pinned_count++] = idx;
-                                    }
-                                }
-                            } else {
-                                selected = idx;
-                                hud.pinned_count = 0;
-                                memset(hud.pinned, -1, sizeof(hud.pinned));
-                            }
-                        }
+                        if (idx >= 0 && idx < vehicle_count)
+                            apply_vehicle_selection(&hud, idx, chord_shift, &selected, vehicle_count);
                     } else if (digit >= 1 && digit <= 9) {
                         // First digit: start chord or apply immediately if vehicle_count <= 9
                         if (vehicle_count > 9) {
@@ -1167,27 +1248,8 @@ int main(int argc, char *argv[]) {
                         } else {
                             // No need for chords, apply single digit immediately
                             int idx = digit - 1;
-                            if (idx < vehicle_count) {
-                                if (shift_held) {
-                                    if (idx != selected) {
-                                        int found = -1;
-                                        for (int p = 0; p < hud.pinned_count; p++)
-                                            if (hud.pinned[p] == idx) { found = p; break; }
-                                        if (found >= 0) {
-                                            for (int p = found; p < hud.pinned_count - 1; p++)
-                                                hud.pinned[p] = hud.pinned[p + 1];
-                                            hud.pinned_count--;
-                                            hud.pinned[hud.pinned_count] = -1;
-                                        } else if (hud.pinned_count < HUD_MAX_PINNED && hud.pinned_count < vehicle_count - 1) {
-                                            hud.pinned[hud.pinned_count++] = idx;
-                                        }
-                                    }
-                                } else {
-                                    selected = idx;
-                                    hud.pinned_count = 0;
-                                    memset(hud.pinned, -1, sizeof(hud.pinned));
-                                }
-                            }
+                            if (idx < vehicle_count)
+                                apply_vehicle_selection(&hud, idx, shift_held, &selected, vehicle_count);
                         }
                     }
                     // Note: digit 0 alone is ignored (no drone 0); only valid as chord second digit
@@ -1213,7 +1275,7 @@ int main(int argc, char *argv[]) {
                     memcpy(marker_labels[marker_input_target], marker_input_buf, MARKER_LABEL_MAX);
                     ulog_replay_ctx_t *rctx = (ulog_replay_ctx_t *)sources[0].impl;
                     ulog_replay_seek(rctx, marker_times[marker_input_target]);
-                    REPLAY_SYNC_AFTER_SEEK(rctx, &sources[0], &vehicles[0]);
+                    replay_sync_after_seek(rctx, &sources[0], &vehicles[0]);
                 }
                 current_marker = marker_input_target;
                 marker_input_active = false;
@@ -1222,7 +1284,7 @@ int main(int argc, char *argv[]) {
                 if (marker_input_target >= 0 && marker_input_target < marker_count) {
                     ulog_replay_ctx_t *rctx = (ulog_replay_ctx_t *)sources[0].impl;
                     ulog_replay_seek(rctx, marker_times[marker_input_target]);
-                    REPLAY_SYNC_AFTER_SEEK(rctx, &sources[0], &vehicles[0]);
+                    replay_sync_after_seek(rctx, &sources[0], &vehicles[0]);
                 }
                 current_marker = marker_input_target;
                 marker_input_active = false;
@@ -1355,7 +1417,7 @@ int main(int argc, char *argv[]) {
                     vehicle_reset_trail(&vehicles[i]);
                 }
                 memset(corr, 0, sizeof(corr));
-                REPLAY_SYNC_AFTER_SEEK(ctx, &sources[0], &vehicles[0]);
+                replay_sync_after_seek(ctx, &sources[0], &vehicles[0]);
             }
             if (IsKeyPressed(KEY_LEFT)) {
                 ulog_replay_ctx_t *ctx = (ulog_replay_ctx_t *)sources[0].impl;
@@ -1372,7 +1434,7 @@ int main(int argc, char *argv[]) {
                     vehicle_reset_trail(&vehicles[i]);
                 }
                 memset(corr, 0, sizeof(corr));
-                REPLAY_SYNC_AFTER_SEEK(ctx, &sources[0], &vehicles[0]);
+                replay_sync_after_seek(ctx, &sources[0], &vehicles[0]);
             }
 
             // Frame markers: B = drop marker, B->L = drop + label, Shift+B = delete current
@@ -1682,74 +1744,10 @@ int main(int argc, char *argv[]) {
 
             // Screen edge indicators for off-screen drones
             if (vehicle_count > 1 && show_edge_indicators) {
-                int ei_sw = GetScreenWidth();
-                int ei_sh = GetScreenHeight();
-                float ei_margin = 40.0f;
-                float ei_scale = powf(ei_sh / 720.0f, 0.7f);
+                float ei_scale = powf(GetScreenHeight() / 720.0f, 0.7f);
                 if (ei_scale < 1.0f) ei_scale = 1.0f;
-                Vector3 cam_fwd = Vector3Normalize(Vector3Subtract(
-                    scene.camera.target, scene.camera.position));
-
-                for (int i = 0; i < vehicle_count; i++) {
-                    if (i == selected || !vehicles[i].active) continue;
-
-                    Vector3 to_drone = Vector3Subtract(vehicles[i].position, scene.camera.position);
-                    float dot = to_drone.x * cam_fwd.x + to_drone.y * cam_fwd.y + to_drone.z * cam_fwd.z;
-
-                    Vector2 sp = GetWorldToScreen(vehicles[i].position, scene.camera);
-
-                    if (sp.x >= ei_margin && sp.x <= ei_sw - ei_margin &&
-                        sp.y >= ei_margin && sp.y <= ei_sh - ei_margin) continue;
-
-                    float ei_cx = ei_sw / 2.0f;
-                    float ei_cy = ei_sh / 2.0f;
-                    float ei_dx = sp.x - ei_cx;
-                    float ei_dy = sp.y - ei_cy;
-
-                    if (dot < 0.5f) {
-                        ei_dx = -(vehicles[i].position.x - scene.camera.position.x);
-                        ei_dy = (vehicles[i].position.z - scene.camera.position.z);
-                        float len = sqrtf(ei_dx * ei_dx + ei_dy * ei_dy);
-                        if (len > 0.01f) { ei_dx /= len; ei_dy /= len; }
-                        ei_dx *= ei_sw; ei_dy *= ei_sh;
-                    }
-
-                    float sx = (ei_dx != 0) ? ((ei_dx > 0 ? ei_sw - ei_margin : ei_margin) - ei_cx) / ei_dx : 1e9f;
-                    float sy = (ei_dy != 0) ? ((ei_dy > 0 ? ei_sh - ei_margin : ei_margin) - ei_cy) / ei_dy : 1e9f;
-                    float se = fminf(fabsf(sx), fabsf(sy));
-                    if (se < 0) se = -se;
-                    float ex = ei_cx + ei_dx * se;
-                    float ey = ei_cy + ei_dy * se;
-                    if (ex < ei_margin) ex = ei_margin;
-                    if (ex > ei_sw - ei_margin) ex = ei_sw - ei_margin;
-                    if (ey < ei_margin) ey = ei_margin;
-                    if (ey > ei_sh - ei_margin) ey = ei_sh - ei_margin;
-
-                    Color col = vehicles[i].color;
-                    col.a = 220;
-                    float angle = atan2f(ei_dy, ei_dx);
-                    float sz = 14.0f * ei_scale;
-
-                    // Chevron
-                    float chev_len = sz * 1.2f;
-                    float chev_spread = 0.5f;
-                    Vector2 tip = { ex + cosf(angle) * chev_len, ey + sinf(angle) * chev_len };
-                    Vector2 cl = { ex + cosf(angle + chev_spread) * sz * 0.6f,
-                                   ey + sinf(angle + chev_spread) * sz * 0.6f };
-                    Vector2 cr = { ex + cosf(angle - chev_spread) * sz * 0.6f,
-                                   ey + sinf(angle - chev_spread) * sz * 0.6f };
-                    DrawLineEx(tip, cl, 2.5f * ei_scale, col);
-                    DrawLineEx(tip, cr, 2.5f * ei_scale, col);
-
-                    // Drone number
-                    char num[4];
-                    snprintf(num, sizeof(num), "%d", i + 1);
-                    float lfs = 18.0f * ei_scale;
-                    Vector2 tw = MeasureTextEx(hud.font_value, num, lfs, 0.5f);
-                    float lx = ex - cosf(angle) * (sz * 0.3f) - tw.x / 2;
-                    float ly = ey - sinf(angle) * (sz * 0.3f) - tw.y / 2;
-                    DrawTextEx(hud.font_value, num, (Vector2){ lx, ly }, lfs, 0.5f, col);
-                }
+                draw_edge_indicators(vehicles, vehicle_count, selected,
+                                     scene.camera, hud.font_value, ei_scale);
             }
 
             // Marker labels (2D billboarded text, after EndMode3D)

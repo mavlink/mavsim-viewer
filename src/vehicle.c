@@ -15,7 +15,24 @@
 #define TRAIL_MAX 2700
 #define TRAIL_INTERVAL 0.016f
 
-bool trail_lod_enabled = true;
+/* Trail LOD distance thresholds (squared) and skip counts */
+#define TRAIL_LOD_DIST_FAR_SQ  2250000.0f  /* 1500 m squared */
+#define TRAIL_LOD_DIST_MED_SQ   160000.0f  /*  400 m squared */
+#define TRAIL_LOD_SKIP_FAR  3
+#define TRAIL_LOD_SKIP_MED  1
+
+/* Return number of trail segments to skip based on midpoint distance to camera. */
+static int trail_lod_skip(Vector3 a, Vector3 b, Vector3 cam)
+{
+    float dx = (a.x + b.x) * 0.5f - cam.x;
+    float dy = (a.y + b.y) * 0.5f - cam.y;
+    float dz = (a.z + b.z) * 0.5f - cam.z;
+    float dist_sq = dx * dx + dy * dy + dz * dz;
+    if (dist_sq > TRAIL_LOD_DIST_FAR_SQ) return TRAIL_LOD_SKIP_FAR;
+    if (dist_sq > TRAIL_LOD_DIST_MED_SQ) return TRAIL_LOD_SKIP_MED;
+    return 0;
+}
+
 #define TRAIL_DIST_INTERVAL 0.01f  // meters between ribbon samples
 
 // ── Model registry ──────────────────────────────────────────────────────────
@@ -474,15 +491,7 @@ void vehicle_draw(vehicle_t *v, const theme_t *theme, bool selected,
             int idx1 = (start + i) % v->trail_capacity;
 
             // LOD: skip segments far from camera to reduce vertex count
-            int skip = 0;
-            if (trail_lod_enabled) {
-                float mx = (v->trail[idx0].x + v->trail[idx1].x) * 0.5f - cam_pos.x;
-                float my = (v->trail[idx0].y + v->trail[idx1].y) * 0.5f - cam_pos.y;
-                float mz = (v->trail[idx0].z + v->trail[idx1].z) * 0.5f - cam_pos.z;
-                float dist_sq = mx*mx + my*my + mz*mz;
-                if      (dist_sq > 2250000.0f) skip = 3;  // >1500m: every 4th
-                else if (dist_sq >  160000.0f) skip = 1;  // > 400m: every 2nd
-            }
+            int skip = trail_lod_skip(v->trail[idx0], v->trail[idx1], cam_pos);
             if (lod_skip > 0) { lod_skip--; continue; }
             lod_skip = skip;
 
@@ -589,15 +598,7 @@ void vehicle_draw(vehicle_t *v, const theme_t *theme, bool selected,
             int idx1 = (start + i) % v->trail_capacity;
 
             // LOD: skip segments far from camera to reduce vertex count
-            int skip = 0;
-            if (trail_lod_enabled) {
-                float mx = (v->trail[idx0].x + v->trail[idx1].x) * 0.5f - cam_pos.x;
-                float my = (v->trail[idx0].y + v->trail[idx1].y) * 0.5f - cam_pos.y;
-                float mz = (v->trail[idx0].z + v->trail[idx1].z) * 0.5f - cam_pos.z;
-                float dist_sq = mx*mx + my*my + mz*mz;
-                if      (dist_sq > 2250000.0f) skip = 3;  // >1500m: every 4th
-                else if (dist_sq >  160000.0f) skip = 1;  // > 400m: every 2nd
-            }
+            int skip = trail_lod_skip(v->trail[idx0], v->trail[idx1], cam_pos);
             if (lod_skip > 0) { lod_skip--; continue; }
             lod_skip = skip;
 

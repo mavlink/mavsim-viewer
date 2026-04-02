@@ -420,16 +420,16 @@ void scene_update_camera(scene_t *s, Vector3 vehicle_pos, Quaternion vehicle_rot
                 Vector3 forward = Vector3Normalize(Vector3Subtract(s->camera.target, s->camera.position));
                 Vector3 right = Vector3Normalize(Vector3CrossProduct(forward, s->camera.up));
 
+                // Shift = boost (must be before movement to take effect)
+                if (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT))
+                    speed *= 3.0f;
+
                 if (IsKeyDown(KEY_W)) { s->camera.position = Vector3Add(s->camera.position, Vector3Scale(forward, speed)); s->camera.target = Vector3Add(s->camera.target, Vector3Scale(forward, speed)); }
                 if (IsKeyDown(KEY_S)) { s->camera.position = Vector3Add(s->camera.position, Vector3Scale(forward, -speed)); s->camera.target = Vector3Add(s->camera.target, Vector3Scale(forward, -speed)); }
                 if (IsKeyDown(KEY_D)) { s->camera.position = Vector3Add(s->camera.position, Vector3Scale(right, speed)); s->camera.target = Vector3Add(s->camera.target, Vector3Scale(right, speed)); }
                 if (IsKeyDown(KEY_A)) { s->camera.position = Vector3Add(s->camera.position, Vector3Scale(right, -speed)); s->camera.target = Vector3Add(s->camera.target, Vector3Scale(right, -speed)); }
                 if (IsKeyDown(KEY_E)) { s->camera.position.y += speed; s->camera.target.y += speed; }
                 if (IsKeyDown(KEY_Q)) { s->camera.position.y -= speed; s->camera.target.y -= speed; }
-
-                // Shift = boost
-                if (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT))
-                    speed *= 3.0f;
 
                 // Mouse look (any click held)
                 if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) || IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {

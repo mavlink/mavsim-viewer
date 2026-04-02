@@ -1,0 +1,12 @@
+# Malformed theme — various bad lines that should be skipped
+[theme]
+name: Malformed
+
+this line has no colon
+: missing key
+[scene]
+sky: not a color value
+ground: 10 20
+axis_x: 10 20 30 40 extra_garbage
+grid_minor: 99 88 77 66
+[unclosed_section

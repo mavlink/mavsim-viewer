@@ -18,6 +18,7 @@
 #include "vehicle.h"
 #include "scene.h"
 #include "hud.h"
+#include "ui_logic.h"
 #include "debug_panel.h"
 #include "ortho_panel.h"
 #include "theme.h"
@@ -26,39 +27,9 @@
 #define MAX_VEHICLES 16
 #define EARTH_RADIUS 6371000.0
 
-// Incremental Pearson correlation (position only: x, y, z)
-#define CORR_CHANNELS 3
-#define CORR_MIN_SAMPLES 30
+#include "correlation.h"
+
 #define CHORD_TIMEOUT_S 0.3
-
-typedef struct {
-    double sum_x, sum_y, sum_xy, sum_x2, sum_y2;
-} corr_channel_t;
-
-typedef struct {
-    corr_channel_t ch[CORR_CHANNELS];
-    double sum_sq_dist;  // running sum of squared Euclidean distances
-    int n;
-} corr_state_t;
-
-static float corr_compute(const corr_state_t *cs) {
-    if (cs->n < CORR_MIN_SAMPLES) return NAN;
-    float r_sum = 0.0f;
-    int valid = 0;
-    double n = cs->n;
-    for (int c = 0; c < CORR_CHANNELS; c++) {
-        const corr_channel_t *ch = &cs->ch[c];
-        double num = n * ch->sum_xy - ch->sum_x * ch->sum_y;
-        double d1  = n * ch->sum_x2 - ch->sum_x * ch->sum_x;
-        double d2  = n * ch->sum_y2 - ch->sum_y * ch->sum_y;
-        double den = sqrt(d1 * d2);
-        if (den > 1e-9) {
-            r_sum += (float)(num / den);
-            valid++;
-        }
-    }
-    return (valid > 0) ? r_sum / valid : 0.0f;
-}
 
 static void print_usage(const char *prog) {
     printf("Usage: %s [options]\n", prog);
@@ -74,27 +45,11 @@ static void print_usage(const char *prog) {
     printf("  -h <height>    Window height (default: 720)\n");
 }
 
-static void apply_vehicle_selection(hud_t *hud, int idx, bool pin,
-                                    int *selected, int vehicle_count) {
-    if (pin) {
-        if (idx != *selected) {
-            int found = -1;
-            for (int p = 0; p < hud->pinned_count; p++)
-                if (hud->pinned[p] == idx) { found = p; break; }
-            if (found >= 0) {
-                for (int p = found; p < hud->pinned_count - 1; p++)
-                    hud->pinned[p] = hud->pinned[p + 1];
-                hud->pinned_count--;
-                hud->pinned[hud->pinned_count] = -1;
-            } else if (hud->pinned_count < HUD_MAX_PINNED && hud->pinned_count < vehicle_count - 1) {
-                hud->pinned[hud->pinned_count++] = idx;
-            }
-        }
-    } else {
-        *selected = idx;
-        hud->pinned_count = 0;
-        memset(hud->pinned, -1, sizeof(hud->pinned));
-    }
+/* Thin wrapper: delegates to the testable inline in ui_logic.h */
+static void apply_vehicle_selection_hud(hud_t *hud, int idx, bool pin,
+                                        int *selected, int vehicle_count) {
+    apply_vehicle_selection(hud->pinned, &hud->pinned_count,
+                            idx, pin, selected, vehicle_count);
 }
 
 // ── Shared prompt dialog renderer ──
@@ -1194,7 +1149,7 @@ int main(int argc, char *argv[]) {
                     // Timeout: apply first digit as single-digit selection
                     int idx = chord_first - 1;  // digit 1 = drone index 0
                     if (idx >= 0 && idx < vehicle_count)
-                        apply_vehicle_selection(&hud, idx, chord_shift, &selected, vehicle_count);
+                        apply_vehicle_selection_hud(&hud, idx, chord_shift, &selected, vehicle_count);
                     chord_first = -1;
                 }
 
@@ -1206,7 +1161,7 @@ int main(int argc, char *argv[]) {
                         chord_first = -1;
 
                         if (idx >= 0 && idx < vehicle_count)
-                            apply_vehicle_selection(&hud, idx, chord_shift, &selected, vehicle_count);
+                            apply_vehicle_selection_hud(&hud, idx, chord_shift, &selected, vehicle_count);
                     } else if (digit >= 1 && digit <= 9) {
                         // First digit: start chord or apply immediately if vehicle_count <= 9
                         if (vehicle_count > 9) {
@@ -1218,7 +1173,7 @@ int main(int argc, char *argv[]) {
                             // No need for chords, apply single digit immediately
                             int idx = digit - 1;
                             if (idx < vehicle_count)
-                                apply_vehicle_selection(&hud, idx, shift_held, &selected, vehicle_count);
+                                apply_vehicle_selection_hud(&hud, idx, shift_held, &selected, vehicle_count);
                         }
                     }
                     // Note: digit 0 alone is ignored (no drone 0); only valid as chord second digit

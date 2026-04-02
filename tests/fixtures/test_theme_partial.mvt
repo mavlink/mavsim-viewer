@@ -1,0 +1,6 @@
+# Partial theme — only sets sky, everything else should use Grid defaults
+[theme]
+name: Partial
+
+[scene]
+sky: 1 2 3 255

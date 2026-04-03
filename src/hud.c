@@ -25,8 +25,7 @@
 
 
 void hud_init(hud_t *h) {
-    h->sim_time_s = 0.0f;
-    h->pinned_count = 0;
+    memset(h, 0, sizeof(*h));
     h->show_help = false;
     for (int i = 0; i < HUD_MAX_PINNED; i++)
         h->pinned[i] = -1;

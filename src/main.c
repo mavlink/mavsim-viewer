@@ -247,8 +247,10 @@ int main(int argc, char *argv[]) {
     memset(corr, 0, sizeof(corr));
     if (is_replay) {
         // Persistent trail for replay: 36000 points (~10+ min at adaptive rate)
-        vehicle_init_ex(&vehicles[0], model_idx, scene.lighting_shader, 36000);
-        vehicles[0].color = scene.theme->drone_palette[0];
+        for (int i = 0; i < num_replay_files; i++) {
+            vehicle_init_ex(&vehicles[i], model_idx, scene.lighting_shader, 36000);
+            vehicles[i].color = scene.theme->drone_palette[i % 16];
+        }
     } else {
         for (int i = 0; i < vehicle_count; i++) {
             vehicle_init(&vehicles[i], model_idx, scene.lighting_shader);

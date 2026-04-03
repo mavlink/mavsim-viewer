@@ -234,7 +234,8 @@ jobs:
             -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
             -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=BOTH \
             -DCMAKE_LIBRARY_ARCHITECTURE=aarch64-linux-gnu \
-            -DHAWKEYE_VERSION=${{ needs.source-tarball.outputs.version }}
+            -DHAWKEYE_VERSION=${{ needs.source-tarball.outputs.version }} \
+            -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=arm64
 
       - name: Build
         run: cmake --build build --config Release

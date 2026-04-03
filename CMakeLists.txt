@@ -114,8 +114,8 @@ if(NOT BUILD_TESTING_ONLY)
 
     # CPack packaging
     set(CPACK_PACKAGE_NAME "hawkeye")
-    set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "3D MAVLink vehicle viewer for SITL simulation")
-    set(CPACK_PACKAGE_CONTACT "https://github.com/mavlink/hawkeye")
+    set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Real-time 3D flight visualizer for PX4 with ULog replay and multi-drone analysis")
+    set(CPACK_PACKAGE_CONTACT "https://github.com/PX4/Hawkeye")
     set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE")
     set(CPACK_DEBIAN_PACKAGE_DEPENDS
         "libgl1, libx11-6, libxrandr2, libxinerama1, libxcursor1, libxi6")

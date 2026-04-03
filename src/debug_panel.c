@@ -1,4 +1,5 @@
 #include "debug_panel.h"
+#include "theme.h"
 #include "rlgl.h"
 #include <stdio.h>
 #include <math.h>
@@ -63,13 +64,14 @@ static void draw_graph(float x, float y, float w, float h,
     }
 
     // Border
-    DrawRectangleLines((int)x, (int)y, (int)w, (int)h, (Color){ 60, 60, 80, 100 });
+    DrawRectangleLines((int)x, (int)y, (int)w, (int)h, grid_col);
 }
 
 void debug_panel_draw(const debug_panel_t *d, int screen_w, int screen_h,
-                      view_mode_t view_mode, Font font,
+                      const theme_t *theme, Font font,
                       int vehicle_count, int active_count,
-                      int total_trail_points)
+                      int total_trail_points, Vector3 vehicle_pos,
+                      bool ref_rejected, int position_tier)
 {
     if (!d->visible) return;
 
@@ -87,24 +89,16 @@ void debug_panel_draw(const debug_panel_t *d, int screen_w, int screen_h,
     float graph_w = panel_w - 16 * s;
     float section_gap = 8 * s;
 
-    // Colors per view mode
-    Color accent, text_col, dim_col, bg, graph_bg, graph_grid;
-    if (view_mode == VIEW_1988) {
-        accent     = (Color){ 255, 20, 100, 220 };
-        text_col   = (Color){ 255, 200, 210, 230 };
-        dim_col    = (Color){ 255, 20, 100, 100 };
-    } else if (view_mode == VIEW_REZ) {
-        accent     = (Color){ 0, 204, 218, 220 };
-        text_col   = (Color){ 180, 230, 235, 230 };
-        dim_col    = (Color){ 0, 204, 218, 100 };
-    } else {
-        accent     = (Color){ 120, 180, 255, 220 };
-        text_col   = (Color){ 200, 210, 225, 230 };
-        dim_col    = (Color){ 120, 180, 255, 100 };
-    }
-    bg         = (Color){ 8, 8, 16, 210 };
-    graph_bg   = (Color){ 4, 4, 10, 200 };
-    graph_grid = (Color){ 40, 40, 60, 80 };
+    // Colors from theme
+    Color accent     = theme->dbg_accent;
+    Color text_col   = theme->dbg_text;
+    Color dim_col    = theme->dbg_dim;
+    Color bg         = theme->dbg_bg;
+    Color graph_bg   = theme->dbg_graph_bg;
+    Color graph_grid = theme->dbg_graph_grid;
+    Color tier1_col  = theme->dbg_tier1;
+    Color tier2_col  = theme->dbg_tier2;
+    Color tier3_col  = theme->dbg_tier3;
 
     // Compute total panel height
     float total_h = 0;
@@ -115,6 +109,8 @@ void debug_panel_draw(const debug_panel_t *d, int screen_w, int screen_h,
     total_h += line_h * 3;                               // Render
     total_h += section_gap;
     total_h += line_h * 3;                               // Memory
+    total_h += section_gap;
+    total_h += line_h * 5;                               // Position + tier
     total_h += margin * 2;
 
     // Panel background
@@ -131,9 +127,9 @@ void debug_panel_draw(const debug_panel_t *d, int screen_w, int screen_h,
 
     int fps = GetFPS();
     snprintf(buf, sizeof(buf), "%d", fps);
-    Color fps_col = fps >= 55 ? (Color){80, 255, 120, 255} :
-                    fps >= 30 ? (Color){255, 220, 40, 255} :
-                                (Color){255, 60, 40, 255};
+    Color fps_col = fps >= 55 ? tier1_col :
+                    fps >= 30 ? tier2_col :
+                                tier3_col;
     DrawTextEx(font, buf, (Vector2){cx, cy}, fs * 1.4f, 0, fps_col);
     cy += line_h;
 
@@ -171,9 +167,9 @@ void debug_panel_draw(const debug_panel_t *d, int screen_w, int screen_h,
 
     float ft = GetFrameTime() * 1000.0f;
     snprintf(buf, sizeof(buf), "%.1f ms", ft);
-    Color ft_col = ft <= 17.0f ? (Color){80, 255, 120, 255} :
-                   ft <= 33.0f ? (Color){255, 220, 40, 255} :
-                                 (Color){255, 60, 40, 255};
+    Color ft_col = ft <= 17.0f ? tier1_col :
+                   ft <= 33.0f ? tier2_col :
+                                 tier3_col;
     DrawTextEx(font, buf, (Vector2){cx, cy}, fs * 1.2f, 0, ft_col);
     cy += line_h;
 
@@ -184,7 +180,7 @@ void debug_panel_draw(const debug_panel_t *d, int screen_w, int screen_h,
 
     // Target line at 16.67ms
     float target_y = cy + graph_h - (16.67f / 33.3f) * graph_h;
-    DrawLine((int)cx, (int)target_y, (int)(cx + graph_w), (int)target_y, (Color){80, 255, 120, 40});
+    DrawLine((int)cx, (int)target_y, (int)(cx + graph_w), (int)target_y, (Color){tier1_col.r, tier1_col.g, tier1_col.b, 40});
 
     snprintf(buf, sizeof(buf), "33ms");
     DrawTextEx(font, buf, (Vector2){cx + graph_w + 2, cy}, fs * 0.7f, 0, dim_col);
@@ -225,4 +221,40 @@ void debug_panel_draw(const debug_panel_t *d, int screen_w, int screen_h,
     int total_kb = trail_mem_kb + 1024 + 5000;  // +1MB fonts +5MB raylib overhead
     snprintf(buf, sizeof(buf), "Est total   ~%d MB", total_kb / 1024);
     DrawTextEx(font, buf, (Vector2){cx, cy}, fs, 0, accent);
+    cy += line_h;
+
+    cy += section_gap;
+
+    // --- POSITION ---
+    DrawTextEx(font, "POSITION", (Vector2){cx, cy}, fs_title, 0, accent);
+    if (ref_rejected) {
+        Vector2 pw = MeasureTextEx(font, "POSITION", fs_title, 0);
+        Color warn_col = (Color){255, 160, 40, 220};
+        DrawTextEx(font, " BAD REF", (Vector2){cx + pw.x, cy}, fs_title * 0.8f, 0, warn_col);
+    }
+    cy += line_h;
+
+    // Position data tier
+    {
+        const char *tier_str = position_tier == 1 ? "T1  home_position" :
+                               position_tier == 2 ? "T2  GPOS/LPOS ref" :
+                               position_tier == 3 ? "T3  estimated" : "—";
+        Color tier_col = position_tier == 1 ? tier1_col :
+                         position_tier == 2 ? tier2_col :
+                         position_tier == 3 ? tier3_col : dim_col;
+        snprintf(buf, sizeof(buf), "Tier        %s", tier_str);
+        DrawTextEx(font, buf, (Vector2){cx, cy}, fs, 0, tier_col);
+        cy += line_h;
+    }
+
+    snprintf(buf, sizeof(buf), "X  %+.1f", vehicle_pos.x);
+    DrawTextEx(font, buf, (Vector2){cx, cy}, fs, 0, text_col);
+    cy += line_h;
+
+    snprintf(buf, sizeof(buf), "Y  %+.1f", vehicle_pos.y);
+    DrawTextEx(font, buf, (Vector2){cx, cy}, fs, 0, text_col);
+    cy += line_h;
+
+    snprintf(buf, sizeof(buf), "Z  %+.1f", vehicle_pos.z);
+    DrawTextEx(font, buf, (Vector2){cx, cy}, fs, 0, text_col);
 }

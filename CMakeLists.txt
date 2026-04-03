@@ -24,11 +24,6 @@ if(UNIX AND NOT APPLE)
     target_link_libraries(mavsim-core PRIVATE m)
 endif()
 
-if(BUILD_TESTING)
-    enable_testing()
-    add_subdirectory(tests)
-endif()
-
 # Raylib via FetchContent (skip when only building tests)
 if(NOT BUILD_TESTING_ONLY)
     include(FetchContent)
@@ -51,6 +46,7 @@ if(NOT BUILD_TESTING_ONLY)
         src/debug_panel.c
         src/ortho_panel.c
         src/asset_path.c
+        src/theme.c
     )
 
     target_include_directories(mavsim-viewer PRIVATE
@@ -85,6 +81,8 @@ if(NOT BUILD_TESTING_ONLY)
             ${CMAKE_SOURCE_DIR}/fonts $<TARGET_FILE_DIR:mavsim-viewer>/fonts
         COMMAND ${CMAKE_COMMAND} -E copy_directory
             ${CMAKE_SOURCE_DIR}/textures $<TARGET_FILE_DIR:mavsim-viewer>/textures
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_SOURCE_DIR}/themes $<TARGET_FILE_DIR:mavsim-viewer>/themes
     )
 
     # Install rules
@@ -102,6 +100,8 @@ if(NOT BUILD_TESTING_ONLY)
             FILES_MATCHING PATTERN "*.ttf")
     install(DIRECTORY textures/ DESTINATION ${CMAKE_INSTALL_DATADIR}/mavsim-viewer/textures
             FILES_MATCHING PATTERN "*.png")
+    install(DIRECTORY themes/ DESTINATION ${CMAKE_INSTALL_DATADIR}/mavsim-viewer/themes
+            FILES_MATCHING PATTERN "*.mvt")
     install(FILES fonts/OFL.txt DESTINATION ${CMAKE_INSTALL_DATADIR}/mavsim-viewer/fonts)
 
     # CPack packaging
@@ -117,4 +117,9 @@ if(NOT BUILD_TESTING_ONLY)
         set(CPACK_PACKAGE_VERSION "${MAVSIM_VERSION}")
     endif()
     include(CPack)
+endif()
+
+if(BUILD_TESTING)
+    enable_testing()
+    add_subdirectory(tests)
 endif()

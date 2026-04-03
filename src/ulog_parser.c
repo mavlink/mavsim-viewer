@@ -376,6 +376,33 @@ int ulog_parser_seek(ulog_parser_t *p, uint64_t target_usec) {
     return 0;
 }
 
+int ulog_parser_seek_early(ulog_parser_t *p, uint64_t target_usec) {
+    if (p->index_count == 0) {
+        ulog_parser_rewind(p);
+        return 0;
+    }
+
+    // Binary search for largest entry with timestamp <= target
+    int lo = 0, hi = p->index_count - 1;
+    int best = 0;
+    while (lo <= hi) {
+        int mid = (lo + hi) / 2;
+        if (p->index[mid].timestamp <= target_usec) {
+            best = mid;
+            lo = mid + 1;
+        } else {
+            hi = mid - 1;
+        }
+    }
+
+    // Go one entry earlier to widen the scan window
+    if (best > 0) best--;
+
+    fseek(p->fp, p->index[best].file_offset, SEEK_SET);
+    p->eof = false;
+    return 0;
+}
+
 int ulog_parser_find_subscription(const ulog_parser_t *p, const char *name) {
     for (int i = 0; i < p->sub_count; i++) {
         if (strcmp(p->subs[i].message_name, name) == 0 && p->subs[i].multi_id == 0)

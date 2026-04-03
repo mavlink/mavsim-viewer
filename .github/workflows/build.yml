@@ -12,13 +12,20 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: Linux
+          - name: Linux (Release)
             os: ubuntu-latest
+            build_type: Release
+            deps: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
+          - name: Linux (Debug)
+            os: ubuntu-latest
+            build_type: Debug
             deps: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
           - name: macOS
             os: macos-latest
+            build_type: Release
           - name: Windows
             os: windows-latest
+            build_type: Release
 
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
@@ -27,6 +34,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: true
+          lfs: true
 
       - name: Install dependencies
         if: matrix.deps
@@ -36,16 +44,17 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build/_deps
-          key: ${{ runner.os }}-deps-raylib5.5-${{ hashFiles('CMakeLists.txt') }}
-
-      - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+          key: ${{ runner.os }}-${{ matrix.build_type }}-deps-raylib5.5-${{ hashFiles('CMakeLists.txt') }}
 
       - name: Build
-        run: cmake --build build --config Release
+        run: make BUILD_TYPE=${{ matrix.build_type }}
+
+      - name: Test
+        if: runner.os != 'Windows'
+        run: make test BUILD_TYPE=${{ matrix.build_type }}
 
   test:
-    name: Tests
+    name: Tests (no raylib)
     runs-on: ubuntu-latest
 
     steps:
@@ -54,14 +63,8 @@ jobs:
           submodules: true
           lfs: true
 
-      - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DBUILD_TESTING_ONLY=ON
-
-      - name: Build tests
-        run: cmake --build build
-
-      - name: Run tests
-        run: ctest --test-dir build --output-on-failure
+      - name: Build & test
+        run: make test-core
 
   sanitizers:
     name: ASan + UBSan
@@ -73,11 +76,5 @@ jobs:
           submodules: true
           lfs: true
 
-      - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DBUILD_TESTING_ONLY=ON -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
-
-      - name: Build tests
-        run: cmake --build build
-
-      - name: Run tests
-        run: ctest --test-dir build --output-on-failure
+      - name: Build & test
+        run: make sanitize && make test

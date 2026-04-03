@@ -1,8 +1,13 @@
 #include <assert.h>
-#include <dirent.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <dirent.h>
+#endif
 
 #ifndef MODELS_DIR
 #define MODELS_DIR "models"
@@ -21,6 +26,7 @@
 //   sed -i '/^vn /a vt 0.0 0.0' model.obj  (add after first vn block)
 
 static int failures = 0;
+static int checked = 0;
 
 static void check_obj(const char *path) {
     FILE *f = fopen(path, "r");
@@ -46,6 +52,7 @@ static void check_obj(const char *path) {
             has_vt = 1;
     }
     fclose(f);
+    checked++;
 
     if (!has_faces) {
         printf("  PASS %s (no faces)\n", path);
@@ -70,6 +77,19 @@ static void check_obj(const char *path) {
 int main(void) {
     printf("test_obj_models:\n");
 
+#ifdef _WIN32
+    char pattern[512];
+    snprintf(pattern, sizeof(pattern), "%s\\*.obj", MODELS_DIR);
+    WIN32_FIND_DATAA fd;
+    HANDLE hFind = FindFirstFileA(pattern, &fd);
+    assert(hFind != INVALID_HANDLE_VALUE && "Cannot open models directory");
+    do {
+        char path[512];
+        snprintf(path, sizeof(path), "%s\\%s", MODELS_DIR, fd.cFileName);
+        check_obj(path);
+    } while (FindNextFileA(hFind, &fd));
+    FindClose(hFind);
+#else
     DIR *dir = opendir(MODELS_DIR);
     assert(dir && "Cannot open models directory");
 
@@ -83,12 +103,13 @@ int main(void) {
         }
     }
     closedir(dir);
+#endif
 
     if (failures > 0) {
         printf("\n%d model(s) failed validation.\n", failures);
         return 1;
     }
 
-    printf("All OBJ models passed.\n");
+    printf("All %d OBJ models passed.\n", checked);
     return 0;
 }

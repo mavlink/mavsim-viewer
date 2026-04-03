@@ -1,0 +1,104 @@
+[theme]
+name: Rez
+priority: 50
+thick_trails: 0
+
+[scene]
+sky: 12 12 18 255
+ground: 2 2 4 255
+grid_minor: 0 204 218 50
+grid_major: 0 204 218 140
+axis_x: 0 204 218 220
+axis_z: 0 204 218 220
+fog: 31 31 59 255
+tint: 31 31 59 255
+
+[hud]
+accent: 0 204 218 255
+accent_dim: 0 204 218 140
+highlight: 0 204 218 255
+warn: 255 106 0 255
+bg: 8 8 12 220
+border: 0 204 218 100
+adi_sky: 0 40 45 200
+adi_ground: 20 10 2 200
+adi_horizon: 0 204 218 255
+adi_wing: 255 106 0 255
+value: 200 208 218 255
+dim: 200 208 218 100
+climb: 30 200 80 255
+connected: 30 200 100 255
+
+[trail]
+forward: 220 180 30 160
+backward: 160 40 240 255
+climb: 0 200 255 255
+descend: 255 160 0 255
+roll_pos: 40 255 100 255
+roll_neg: 255 40 80 255
+
+[arms]
+front: 220 180 30 255
+back: 160 40 240 255
+port: 255 106 0 255
+starboard: 30 200 80 255
+classic_front: 255 106 0 255
+classic_back: 39 47 197 255
+classic_side: 14 31 47 255
+
+[ribbon_gradient]
+stop_0: 50 20 140 255
+stop_1: 70 50 180 255
+stop_2: 0 150 200 255
+stop_3: 200 80 40 255
+stop_4: 255 160 0 255
+stop_5: 255 220 60 255
+stop_6: 255 255 240 255
+
+[debug]
+accent: 0 204 218 220
+text: 180 230 235 230
+dim: 0 204 218 100
+bg: 8 8 12 210
+graph_bg: 4 4 10 200
+graph_grid: 0 60 70 80
+tier1: 30 200 80 255
+tier2: 220 180 30 255
+tier3: 255 106 0 255
+
+[prompt]
+scrim: 0 0 0 150
+box_bg: 8 8 12 235
+border: 0 204 218 100
+subtitle: 0 140 150 160
+hint: 0 140 150 160
+key: 0 204 218 220
+text: 200 208 218 255
+title: 255 255 0 255
+
+[ground_track]
+fill: 0 204 218 80
+edge: 0 204 218 200
+shadow: 0 204 218 140
+
+[ortho]
+grid_minor: 0 204 218 80
+grid_major: 0 204 218 190
+
+[drone_palette]
+color_0: 200 210 220 255
+color_1: 40 160 255 255
+color_2: 255 60 80 255
+color_3: 220 200 40 255
+color_4: 30 200 100 255
+color_5: 255 130 0 255
+color_6: 160 40 240 255
+color_7: 255 100 160 255
+color_8: 0 204 218 255
+color_9: 255 220 100 255
+color_10: 100 120 255 255
+color_11: 255 180 140 255
+color_12: 140 255 200 255
+color_13: 255 60 200 255
+color_14: 140 200 255 255
+color_15: 200 255 60 255

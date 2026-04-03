@@ -2,11 +2,13 @@
 #define SCENE_H
 
 #include "raylib.h"
+#include "theme.h"
 #include <stdbool.h>
 
 typedef enum {
     CAM_MODE_CHASE = 0,
     CAM_MODE_FPV,
+    CAM_MODE_FREE,
     CAM_MODE_COUNT
 } camera_mode_t;
 
@@ -21,18 +23,12 @@ typedef enum {
     ORTHO_RIGHT,    // Alt+5
 } ortho_mode_t;
 
-typedef enum {
-    VIEW_GRID = 0,
-    VIEW_REZ,
-    VIEW_SNOW,
-    VIEW_COUNT,     // public modes end here
-    VIEW_1988,      // hidden mode (not in V cycle)
-} view_mode_t;
-
 typedef struct {
     Camera3D camera;
     camera_mode_t cam_mode;
-    view_mode_t view_mode;
+    int theme_index;
+    bool theme_1988_active;
+    theme_registry_t theme_reg;
     float chase_distance;
     float chase_yaw;    // horizontal orbit angle (radians)
     float chase_pitch;  // vertical orbit angle (radians)
@@ -51,8 +47,8 @@ typedef struct {
     int loc_matModel;
     int loc_texEnabled;  // terrain texture toggle uniform
     int loc_groundTex;   // terrain texture sampler uniform
-    int loc_colFog;      // fog/distance color uniform
     int loc_colTint;     // terrain tint color uniform
+    int loc_camPos;      // camera position for LOD
     Model grid_plane;    // separate ground plane for grid modes
     Texture2D ground_tex; // procedural terrain texture
     bool ground_tex_on;  // F key toggle state (terrain mode)
@@ -64,6 +60,9 @@ typedef struct {
     int loc_matNormal;
     ortho_mode_t ortho_mode; // fullscreen ortho view (0 = perspective)
     float ortho_span;        // ortho view span in world units
+    bool free_track;         // free cam tracks vehicle until WASDQE detaches
+    Vector3 ortho_pan;       // pan offset in world units (right-click drag)
+    const theme_t *theme;    // active color theme (set from view_mode)
 } scene_t;
 
 // Initialize scene (ground plane, sky, camera, lighting).

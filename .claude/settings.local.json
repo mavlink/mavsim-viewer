@@ -6,7 +6,13 @@
       "Bash(git:*)",
       "Bash(./mavsim-viewer:*)",
       "Bash(lldb:*)",
-      "Bash(pkill:*)"
+      "Bash(pkill:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(brew uninstall:*)",
+      "Bash(gh release:*)",
+      "Bash(wc -l src/*.c src/*.h)",
+      "WebFetch(domain:github.com)",
+      "Bash(gh search:*)"
     ]
   }
 }

@@ -107,6 +107,9 @@ void ulog_parser_rewind(ulog_parser_t *p);
 // Seek to nearest index entry at or before target timestamp.
 int ulog_parser_seek(ulog_parser_t *p, uint64_t target_usec);
 
+// Seek one index entry earlier than the closest match (widens scan window).
+int ulog_parser_seek_early(ulog_parser_t *p, uint64_t target_usec);
+
 // Find subscription index by topic name. Returns -1 if not found.
 int ulog_parser_find_subscription(const ulog_parser_t *p, const char *name);
 

@@ -1,4 +1,5 @@
 #include "vehicle.h"
+#include "theme.h"
 #include "asset_path.h"
 #include "raymath.h"
 #include "rlgl.h"
@@ -11,8 +12,27 @@
 #include <stdlib.h>
 
 #define EARTH_RADIUS 6371000.0
-#define TRAIL_MAX 1800
+#define TRAIL_MAX 2700
 #define TRAIL_INTERVAL 0.016f
+
+/* Trail LOD distance thresholds (squared) and skip counts */
+#define TRAIL_LOD_DIST_FAR_SQ  2250000.0f  /* 1500 m squared */
+#define TRAIL_LOD_DIST_MED_SQ   160000.0f  /*  400 m squared */
+#define TRAIL_LOD_SKIP_FAR  3
+#define TRAIL_LOD_SKIP_MED  1
+
+/* Return number of trail segments to skip based on midpoint distance to camera. */
+static int trail_lod_skip(Vector3 a, Vector3 b, Vector3 cam)
+{
+    float dx = (a.x + b.x) * 0.5f - cam.x;
+    float dy = (a.y + b.y) * 0.5f - cam.y;
+    float dz = (a.z + b.z) * 0.5f - cam.z;
+    float dist_sq = dx * dx + dy * dy + dz * dz;
+    if (dist_sq > TRAIL_LOD_DIST_FAR_SQ) return TRAIL_LOD_SKIP_FAR;
+    if (dist_sq > TRAIL_LOD_DIST_MED_SQ) return TRAIL_LOD_SKIP_MED;
+    return 0;
+}
+
 #define TRAIL_DIST_INTERVAL 0.01f  // meters between ribbon samples
 
 // ── Model registry ──────────────────────────────────────────────────────────
@@ -20,13 +40,14 @@
 const vehicle_model_info_t vehicle_models[] = {
     //  path                                name            scale  pitch    yaw       group
     { "models/px4_quadrotor.obj",         "Quadrotor",    1.0f,    0.0f, 180.0f,   GROUP_QUAD },
-    { "models/cessna.obj",                "Fixed-wing",   1.33f,   0.0f,  90.0f,   GROUP_FIXED_WING },
-    { "models/x_vert.obj",                "Tailsitter",   1.0f,  -90.0f,  90.0f,   GROUP_TAILSITTER },
+    { "models/px4_fixed_wing.obj",        "Fixed-wing",   1.15f,   0.0f, 180.0f,   GROUP_FIXED_WING },
+    { "models/px4_tailsitter.obj",        "Tailsitter",   1.0f,    0.0f, 180.0f,   GROUP_TAILSITTER },
     { "models/fpv_quadrotor.obj",         "FPV Quad",     0.75f,   0.0f,   0.0f,   GROUP_QUAD },
     { "models/px4_hexarotor.obj",          "Hexarotor",    0.9f,    0.0f,   0.0f,   GROUP_HEX },
     { "models/fpv_hexarotor.obj",         "FPV Hex",      0.85f,   0.0f,   0.0f,   GROUP_HEX },
     { "models/vtol_wing.obj",             "VTOL",         1.5f,    0.0f, 180.0f,   GROUP_VTOL },
     { "models/rover_4.obj",              "Rover",        1.0f,    0.0f,   0.0f,   GROUP_ROVER },
+    { "models/rov.obj",                  "ROV",          1.0f,    0.0f, 180.0f,   GROUP_ROV },
 };
 const int vehicle_model_count = sizeof(vehicle_models) / sizeof(vehicle_models[0]);
 
@@ -84,9 +105,15 @@ void vehicle_load_model(vehicle_t *v, int model_idx) {
     if (model_idx < 0 || model_idx >= vehicle_model_count)
         model_idx = 0;
 
-    // Unload previous model if loaded
-    if (v->model.meshCount > 0)
+    // Unload previous model if loaded.
+    // Reset material shaders to default first — UnloadModel calls UnloadMaterial
+    // which destroys any non-default shader. Our shared lighting_shader would be
+    // deleted, hanging the GPU on subsequent draws.
+    if (v->model.meshCount > 0) {
+        for (int i = 0; i < v->model.materialCount; i++)
+            v->model.materials[i].shader.id = rlGetShaderIdDefault();
         UnloadModel(v->model);
+    }
 
     const vehicle_model_info_t *info = &vehicle_models[model_idx];
     v->model_idx = model_idx;
@@ -150,6 +177,10 @@ void vehicle_set_type(vehicle_t *v, uint8_t mav_type) {
             group = GROUP_ROVER;
             default_model = MODEL_ROVER;
             break;
+        case 12: // MAV_TYPE_SUBMARINE
+            group = GROUP_ROV;
+            default_model = MODEL_ROV;
+            break;
         default:
             group = GROUP_QUAD;
             default_model = MODEL_QUADROTOR;
@@ -163,121 +194,27 @@ void vehicle_set_type(vehicle_t *v, uint8_t mav_type) {
 }
 
 // ── Thermal palette (per-theme) ─────────────────────────────────────────────
-static Color heat_to_color(float heat, unsigned char alpha, view_mode_t mode) {
-    float cr, cg, cb;
-
-    if (mode == VIEW_1988) {
-        // 1988: neon pink → hot magenta → red → orange → yellow → white
-        if (heat < 0.16f) {
-            float s = heat / 0.16f;
-            cr = 100 + 40 * s; cg = 10 * s; cb = 120 + 50 * s;
-        } else if (heat < 0.33f) {
-            float s = (heat - 0.16f) / 0.17f;
-            cr = 140 + 115 * s; cg = 10; cb = 170 - 70 * s;
-        } else if (heat < 0.5f) {
-            float s = (heat - 0.33f) / 0.17f;
-            cr = 255; cg = 10 + 30 * s; cb = 100 - 100 * s;
-        } else if (heat < 0.66f) {
-            float s = (heat - 0.5f) / 0.16f;
-            cr = 255; cg = 40 + 130 * s; cb = 0;
-        } else if (heat < 0.83f) {
-            float s = (heat - 0.66f) / 0.17f;
-            cr = 255; cg = 170 + 85 * s; cb = 50 * s;
-        } else {
-            float s = (heat - 0.83f) / 0.17f;
-            cr = 255; cg = 255; cb = 50 + 205 * s;
-        }
-    } else if (mode == VIEW_REZ) {
-        // Rez: indigo → teal-purple → cyan-red → orange → amber → white
-        if (heat < 0.16f) {
-            float s = heat / 0.16f;
-            cr = 50 + 20 * s; cg = 20 + 30 * s; cb = 140 + 40 * s;
-        } else if (heat < 0.33f) {
-            float s = (heat - 0.16f) / 0.17f;
-            cr = 70 + 100 * s; cg = 50 + 10 * s; cb = 180 - 60 * s;
-        } else if (heat < 0.5f) {
-            float s = (heat - 0.33f) / 0.17f;
-            cr = 170 + 85 * s; cg = 60 - 20 * s; cb = 120 - 120 * s;
-        } else if (heat < 0.66f) {
-            float s = (heat - 0.5f) / 0.16f;
-            cr = 255; cg = 40 + 120 * s; cb = 20 * s;
-        } else if (heat < 0.83f) {
-            float s = (heat - 0.66f) / 0.17f;
-            cr = 255; cg = 160 + 90 * s; cb = 20 + 40 * s;
-        } else {
-            float s = (heat - 0.83f) / 0.17f;
-            cr = 255; cg = 250 + 5 * s; cb = 60 + 195 * s;
-        }
-    } else if (mode == VIEW_SNOW) {
-        // Snow: deep navy → royal blue → teal → green → yellow → red
-        if (heat < 0.16f) {
-            float s = heat / 0.16f;
-            cr = 10 + 10 * s; cg = 20 + 20 * s; cb = 100 + 40 * s;
-        } else if (heat < 0.33f) {
-            float s = (heat - 0.16f) / 0.17f;
-            cr = 20 - 10 * s; cg = 40 + 80 * s; cb = 140 + 40 * s;
-        } else if (heat < 0.5f) {
-            float s = (heat - 0.33f) / 0.17f;
-            cr = 10 - 10 * s; cg = 120 + 40 * s; cb = 180 - 100 * s;
-        } else if (heat < 0.66f) {
-            float s = (heat - 0.5f) / 0.16f;
-            cr = 0 + 60 * s; cg = 160 + 40 * s; cb = 80 - 80 * s;
-        } else if (heat < 0.83f) {
-            float s = (heat - 0.66f) / 0.17f;
-            cr = 60 + 180 * s; cg = 200 + 20 * s; cb = 0;
-        } else {
-            float s = (heat - 0.83f) / 0.17f;
-            cr = 240; cg = 220 - 180 * s; cb = 0;
-        }
-    } else {
-        // Grid (default): purple → magenta → red → orange → yellow → white
-        if (heat < 0.16f) {
-            float s = heat / 0.16f;
-            cr = 80 + 40 * s; cg = 20 * s; cb = 140 + 40 * s;
-        } else if (heat < 0.33f) {
-            float s = (heat - 0.16f) / 0.17f;
-            cr = 120 + 80 * s; cg = 20 - 20 * s; cb = 180 - 60 * s;
-        } else if (heat < 0.5f) {
-            float s = (heat - 0.33f) / 0.17f;
-            cr = 200 + 55 * s; cg = 20 * s; cb = 120 - 120 * s;
-        } else if (heat < 0.66f) {
-            float s = (heat - 0.5f) / 0.16f;
-            cr = 255; cg = 20 + 140 * s; cb = 0;
-        } else if (heat < 0.83f) {
-            float s = (heat - 0.66f) / 0.17f;
-            cr = 255; cg = 160 + 95 * s; cb = 40 * s;
-        } else {
-            float s = (heat - 0.83f) / 0.17f;
-            cr = 255; cg = 255; cb = 40 + 215 * s;
-        }
-    }
-
-    return (Color){
-        (unsigned char)(cr > 255 ? 255 : (cr < 0 ? 0 : cr)),
-        (unsigned char)(cg > 255 ? 255 : (cg < 0 ? 0 : cg)),
-        (unsigned char)(cb > 255 ? 255 : (cb < 0 ? 0 : cb)),
-        alpha
-    };
-}
+// heat_to_color removed — use theme_heat_color(theme, heat, alpha) instead
 
 // ── Init / update / draw ────────────────────────────────────────────────────
-void vehicle_init(vehicle_t *v, int model_idx, Shader lighting_shader) {
+static void vehicle_init_common(vehicle_t *v, int model_idx, Shader lighting_shader, int capacity) {
     memset(v, 0, sizeof(*v));
     v->position = (Vector3){0};
     v->rotation = QuaternionIdentity();
-    v->origin_set = false;
-    v->active = false;
+    v->model_idx = model_idx;
+    v->model_group = vehicle_models[model_idx].group;
     v->red_material_idx = -1;
     v->green_material_idx = -1;
     v->front_material_idx = -1;
     v->back_material_idx = -1;
     v->color = WHITE;
-    v->trail = (Vector3 *)calloc(TRAIL_MAX, sizeof(Vector3));
-    v->trail_roll = (float *)calloc(TRAIL_MAX, sizeof(float));
-    v->trail_pitch = (float *)calloc(TRAIL_MAX, sizeof(float));
-    v->trail_vert = (float *)calloc(TRAIL_MAX, sizeof(float));
-    v->trail_speed = (float *)calloc(TRAIL_MAX, sizeof(float));
-    v->trail_capacity = TRAIL_MAX;
+    v->trail = (Vector3 *)calloc(capacity, sizeof(Vector3));
+    v->trail_roll = (float *)calloc(capacity, sizeof(float));
+    v->trail_pitch = (float *)calloc(capacity, sizeof(float));
+    v->trail_vert = (float *)calloc(capacity, sizeof(float));
+    v->trail_speed = (float *)calloc(capacity, sizeof(float));
+    v->trail_time = (float *)calloc(capacity, sizeof(float));
+    v->trail_capacity = capacity;
     v->trail_count = 0;
     v->trail_head = 0;
     v->trail_timer = 0.0f;
@@ -285,11 +222,24 @@ void vehicle_init(vehicle_t *v, int model_idx, Shader lighting_shader) {
 
     v->lighting_shader = lighting_shader;
     v->loc_matNormal = -1;
+    v->ghost_alpha = 1.0f;
+    v->loc_ghost_alpha = -1;
     if (lighting_shader.id > 0) {
         v->loc_matNormal = GetShaderLocation(lighting_shader, "matNormal");
+        v->loc_ghost_alpha = GetShaderLocation(lighting_shader, "ghostAlpha");
+        float one = 1.0f;
+        SetShaderValue(lighting_shader, v->loc_ghost_alpha, &one, SHADER_UNIFORM_FLOAT);
     }
 
     vehicle_load_model(v, model_idx);
+}
+
+void vehicle_init(vehicle_t *v, int model_idx, Shader lighting_shader) {
+    vehicle_init_common(v, model_idx, lighting_shader, TRAIL_MAX);
+}
+
+void vehicle_init_ex(vehicle_t *v, int model_idx, Shader lighting_shader, int trail_capacity) {
+    vehicle_init_common(v, model_idx, lighting_shader, trail_capacity);
 }
 
 void vehicle_update(vehicle_t *v, const hil_state_t *state, const home_position_t *home) {
@@ -303,23 +253,18 @@ void vehicle_update(vehicle_t *v, const hil_state_t *state, const home_position_
         // Wait for HOME_POSITION so we get the correct ground altitude.
         // Fall back to current altitude after ~1 second (20 HIL updates at 22Hz).
         v->origin_wait_count++;
-        if (home && home->valid) {
-            double home_alt = home->alt * 1e-3;
+        if (home && home->valid && (lat != 0.0 || lon != 0.0)) {
             v->lat0 = lat;
             v->lon0 = lon;
-            // If vehicle is near home altitude, it's on the ground — use HIL alt
-            // to avoid the ~0.1m offset. If airborne, use home alt as ground ref.
-            if (fabs(alt - home_alt) < 1.0) {
-                v->alt0 = alt;
-            } else {
-                v->alt0 = home_alt;
-            }
+            v->alt0 = alt;
             v->origin_set = true;
+
         } else if (v->origin_wait_count > 20) {
             v->lat0 = lat;
             v->lon0 = lon;
             v->alt0 = alt;
             v->origin_set = true;
+
         } else {
             return;  // skip this update, wait for home
         }
@@ -332,11 +277,11 @@ void vehicle_update(vehicle_t *v, const hil_state_t *state, const home_position_
     double jmav_y = EARTH_RADIUS * (lon - v->lon0) * cos(v->lat0); // East
     double jmav_z = alt - v->alt0;                                   // Up
 
-    // NED frame → Raylib (X=right, Y=up, Z=back)
-    v->position.x = (float)jmav_y;
-    v->position.y = (float)jmav_z;
+    // NED frame → Raylib (X=right, Y=up, Z=back) + grid deconfliction offset
+    v->position.x = (float)jmav_y + v->grid_offset.x;
+    v->position.y = (float)jmav_z + v->grid_offset.y;
     if (v->position.y < 0.0f) v->position.y = 0.0f;
-    v->position.z = (float)(-jmav_x);
+    v->position.z = (float)(-jmav_x) + v->grid_offset.z;
 
     // MAVLink quaternion: w,x,y,z in NED frame → Raylib
     float qw = state->quaternion[0];
@@ -409,6 +354,7 @@ void vehicle_update(vehicle_t *v, const hil_state_t *state, const home_position_
         v->trail_roll[v->trail_head] = v->roll_deg;
         v->trail_pitch[v->trail_head] = v->pitch_deg;
         v->trail_vert[v->trail_head] = v->vertical_speed;
+        v->trail_time[v->trail_head] = v->current_time;
         float spd = sqrtf(v->ground_speed * v->ground_speed +
                           v->vertical_speed * v->vertical_speed);
         v->trail_speed[v->trail_head] = spd;
@@ -427,7 +373,7 @@ void vehicle_update(vehicle_t *v, const hil_state_t *state, const home_position_
     }
 }
 
-void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
+void vehicle_draw(vehicle_t *v, const theme_t *theme, bool selected,
                   int trail_mode, bool show_ground_track, Vector3 cam_pos,
                   bool classic_colors) {
     // Per-mode arm recoloring: front/back arms match trail forward/backward colors
@@ -436,46 +382,14 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
     if (recolor_arms) {
         Color front_col, back_col, side_col, red_col = {0}, green_col = {0};
         if (classic_colors) {
-            // Classic: red front, blue back, body-dark sides (light grey for VTOL winglets)
-            Color classic_side = (Color){ 14, 31, 47, 255 };  // body dark
-            if (view_mode == VIEW_1988) {
-                front_col = (Color){ 255,  20, 100, 255 };  // hot pink
-                back_col  = (Color){  39,  47, 197, 255 };  // blue
-            } else if (view_mode == VIEW_REZ) {
-                front_col = (Color){ 255, 106,   0, 255 };  // orange-red
-                back_col  = (Color){  39,  47, 197, 255 };  // blue
-            } else if (view_mode == VIEW_SNOW) {
-                front_col = (Color){ 200,  30,  30, 255 };  // bold red
-                back_col  = (Color){  30,  60, 180, 255 };  // blue
-                classic_side = (Color){ 160, 160, 170, 255 }; // light grey
-            } else {
-                front_col = (Color){ 255,  47,  43, 255 };  // red
-                back_col  = (Color){  39,  47, 197, 255 };  // blue
-            }
-            side_col = classic_side;
+            front_col = theme->arm_classic_front;
+            back_col  = theme->arm_classic_back;
+            side_col  = theme->arm_classic_side;
         } else {
-            // Modern: yellow front, purple back, red port, green starboard
-            if (view_mode == VIEW_1988) {
-                front_col = (Color){ 255, 220,  60, 255 };  // warm yellow
-                back_col  = (Color){ 180,  40, 255, 255 };  // violet
-                red_col   = (Color){ 255,  20, 100, 255 };  // hot pink
-                green_col = (Color){  40, 255, 100, 255 };  // neon green
-            } else if (view_mode == VIEW_REZ) {
-                front_col = (Color){ 220, 180,  30, 255 };  // muted gold
-                back_col  = (Color){ 160,  40, 240, 255 };  // purple
-                red_col   = (Color){ 255, 106,   0, 255 };  // orange-red
-                green_col = (Color){  30, 200,  80, 255 };  // muted green
-            } else if (view_mode == VIEW_SNOW) {
-                front_col = (Color){ 200, 140,  20, 255 };  // dark amber
-                back_col  = (Color){ 140,  20, 200, 255 };  // purple
-                red_col   = (Color){ 180,  30,  30, 255 };  // dark red
-                green_col = (Color){  20, 160,  50, 255 };  // dark green
-            } else {
-                front_col = (Color){ 255, 200,  50, 255 };  // yellow
-                back_col  = (Color){ 160,  60, 255, 255 };  // purple
-                red_col   = (Color){ 204,  33,  33, 255 };  // red
-                green_col = (Color){  41, 255,  79, 255 };  // green
-            }
+            front_col = theme->arm_front;
+            back_col  = theme->arm_back;
+            red_col   = theme->arm_port;
+            green_col = theme->arm_starboard;
             side_col = (Color){ 0, 0, 0, 0 };  // unused in modern
         }
         if (v->front_material_idx >= 0) {
@@ -535,9 +449,24 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
         SetShaderValueMatrix(v->lighting_shader, v->loc_matNormal, rot_only);
     }
 
-    DrawModel(v->model, (Vector3){0}, 1.0f, WHITE);
+    // Set ghost alpha on shader
+    if (v->loc_ghost_alpha >= 0) {
+        SetShaderValue(v->lighting_shader, v->loc_ghost_alpha, &v->ghost_alpha, SHADER_UNIFORM_FLOAT);
+    }
 
-    // Draw path trail (mode 1) or speed ribbon (mode 2)
+    if (v->ghost_alpha < 1.0f) rlDisableDepthMask();
+    // Ghost drones get a 50% tint of their assigned color
+    Color model_tint = WHITE;
+    if (v->ghost_alpha < 1.0f) {
+        float t = 0.5f;
+        model_tint.r = (unsigned char)(255 * (1.0f - t) + v->color.r * t);
+        model_tint.g = (unsigned char)(255 * (1.0f - t) + v->color.g * t);
+        model_tint.b = (unsigned char)(255 * (1.0f - t) + v->color.b * t);
+    }
+    DrawModel(v->model, (Vector3){0}, 1.0f, model_tint);
+    if (v->ghost_alpha < 1.0f) rlEnableDepthMask();
+
+    // Draw path trail (mode 1), speed ribbon (mode 2), or drone color (mode 3)
     if (trail_mode > 0 && v->trail_count > 1) {
         int start = (v->trail_count < v->trail_capacity)
             ? 0
@@ -545,44 +474,27 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
 
       if (trail_mode == 1) {
         // ── Normal directional trail ──
-        Color trail_color;
-        Color col_back, col_up, col_down, col_roll_pos, col_roll_neg;
-        if (view_mode == VIEW_SNOW) {
-            trail_color  = (Color){ 200, 140,  20, 200 };  // dark amber
-            col_back     = (Color){ 140,  20, 200, 255 };  // purple
-            col_up       = (Color){   0, 150,  60, 255 };  // dark green
-            col_down     = (Color){ 200,  50,   0, 255 };  // dark red
-            col_roll_pos = (Color){  20, 160,  40, 255 };  // green
-            col_roll_neg = (Color){ 200,  20,  60, 255 };  // red
-        } else if (view_mode == VIEW_1988) {
-            trail_color  = (Color){ 255, 220,  60, 160 };  // warm yellow forward
-            col_back     = (Color){ 180,  40, 255, 255 };  // violet
-            col_up       = (Color){   0, 240, 255, 255 };  // cyan
-            col_down     = (Color){ 255, 140,   0, 255 };  // orange
-            col_roll_pos = (Color){  40, 255,  80, 255 };  // green (starboard)
-            col_roll_neg = (Color){ 255,  40,  80, 255 };  // red (port)
-        } else if (view_mode == VIEW_REZ) {
-            trail_color  = (Color){ 220, 180,  30, 160 };  // muted gold forward
-            col_back     = (Color){ 160,  40, 240, 255 };  // purple
-            col_up       = (Color){   0, 200, 255, 255 };  // cyan
-            col_down     = (Color){ 255, 160,   0, 255 };  // amber
-            col_roll_pos = (Color){  40, 255, 100, 255 };  // green (starboard)
-            col_roll_neg = (Color){ 255,  40,  80, 255 };  // red (port)
-        } else {
-            trail_color  = (Color){ 255, 200,  50, 180 };  // yellow forward
-            col_back     = (Color){ 160,  60, 255, 255 };  // purple
-            col_up       = (Color){   0, 220, 255, 255 };  // cyan
-            col_down     = (Color){ 255, 140,   0, 255 };  // orange
-            col_roll_pos = (Color){  40, 255,  80, 255 };  // green (starboard)
-            col_roll_neg = (Color){ 255,  40,  80, 255 };  // red (port)
-        }
-        bool thick = (view_mode == VIEW_SNOW);
+        Color trail_color = theme->trail_forward;
+        // Keep original alpha for trail_forward (varies by theme)
+        Color col_back     = theme->trail_backward;
+        Color col_up       = theme->trail_climb;
+        Color col_down     = theme->trail_descend;
+        Color col_roll_pos = theme->trail_roll_pos;
+        Color col_roll_neg = theme->trail_roll_neg;
+        bool thick = theme->thick_trails;
 
         // Batched trail: single rlBegin/rlEnd instead of per-segment DrawLine3D
         rlBegin(thick ? RL_TRIANGLES : RL_LINES);
+        int lod_skip = 0;
         for (int i = 1; i < v->trail_count; i++) {
             int idx0 = (start + i - 1) % v->trail_capacity;
             int idx1 = (start + i) % v->trail_capacity;
+
+            // LOD: skip segments far from camera to reduce vertex count
+            int skip = trail_lod_skip(v->trail[idx0], v->trail[idx1], cam_pos);
+            if (lod_skip > 0) { lod_skip--; continue; }
+            lod_skip = skip;
+
             float t = (float)i / (float)v->trail_count;
 
             float pitch = v->trail_pitch[idx1];
@@ -631,7 +543,7 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
             unsigned char ccr = (unsigned char)(cr > 255 ? 255 : cr);
             unsigned char ccg = (unsigned char)(cg > 255 ? 255 : cg);
             unsigned char ccb = (unsigned char)(cb > 255 ? 255 : cb);
-            unsigned char ca  = (unsigned char)(t * trail_color.a);
+            unsigned char ca  = (unsigned char)(t * trail_color.a * v->ghost_alpha);
             rlColor4ub(ccr, ccg, ccb, ca);
             if (!thick) {
                 rlVertex3f(v->trail[idx0].x, v->trail[idx0].y, v->trail[idx0].z);
@@ -656,6 +568,19 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
             }
         }
         rlEnd();
+      } else if (trail_mode == 3) {
+        // ── Drone-color trail: solid vehicle color with age fade ──
+        rlBegin(RL_LINES);
+        for (int i = 1; i < v->trail_count; i++) {
+            int idx0 = (start + i - 1) % v->trail_capacity;
+            int idx1 = (start + i) % v->trail_capacity;
+            float t = (float)i / (float)v->trail_count;
+            unsigned char ca = (unsigned char)(t * 200 * v->ghost_alpha);
+            rlColor4ub(v->color.r, v->color.g, v->color.b, ca);
+            rlVertex3f(v->trail[idx0].x, v->trail[idx0].y, v->trail[idx0].z);
+            rlVertex3f(v->trail[idx1].x, v->trail[idx1].y, v->trail[idx1].z);
+        }
+        rlEnd();
       } else {
         // ── Speed ribbon trail (mode 2) ──
         // Batched triangle ribbon with adaptive sampling (dense on turns, sparse on straights).
@@ -667,9 +592,15 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
         bool have_prev = false;
 
         rlBegin(RL_TRIANGLES);
+        int lod_skip = 0;
         for (int i = 1; i < v->trail_count; i++) {
             int idx0 = (start + i - 1) % v->trail_capacity;
             int idx1 = (start + i) % v->trail_capacity;
+
+            // LOD: skip segments far from camera to reduce vertex count
+            int skip = trail_lod_skip(v->trail[idx0], v->trail[idx1], cam_pos);
+            if (lod_skip > 0) { lod_skip--; continue; }
+            lod_skip = skip;
 
             Vector3 p0 = v->trail[idx0];
             Vector3 p1 = v->trail[idx1];
@@ -734,7 +665,8 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
             if (heat < 0.0f) heat = 0.0f;
 
             float t = (float)i / (float)v->trail_count;
-            Color c = heat_to_color(heat, (unsigned char)(t * 200), view_mode);
+            Color c = theme_heat_color(theme, heat, (unsigned char)(t * 200));
+            c.a = (unsigned char)(c.a * v->ghost_alpha);
 
             Vector3 a = { p0.x + perp.x*hw0, p0.y + perp.y*hw0, p0.z + perp.z*hw0 };
             Vector3 b = { p0.x - perp.x*hw0, p0.y - perp.y*hw0, p0.z - perp.z*hw0 };
@@ -763,20 +695,9 @@ void vehicle_draw(vehicle_t *v, view_mode_t view_mode, bool selected,
         float gap = 0.12f;
         Color drop;
 
-        Color fill_col, edge_col;
-        if (view_mode == VIEW_GRID) {
-            fill_col = (Color){ 0, 0, 0, 100 };
-            edge_col = (Color){ 80, 80, 80, 180 };
-            drop = (Color){ 150, 150, 150, 120 };
-        } else if (view_mode == VIEW_1988) {
-            fill_col = (Color){ 255, 20, 100, 80 };
-            edge_col = (Color){ 255, 20, 100, 200 };
-            drop = (Color){ 255, 20, 100, 140 };
-        } else {
-            fill_col = (Color){ 0, 204, 218, 80 };
-            edge_col = (Color){ 0, 204, 218, 200 };
-            drop = (Color){ 0, 204, 218, 140 };
-        }
+        Color fill_col = theme->ground_track_fill;
+        Color edge_col = theme->ground_track_edge;
+        drop = theme->ground_track_shadow;
 
         // Filled disc: concentric rings when close, cylinder when far
         float dx = cam_pos.x - ground.x;
@@ -833,16 +754,430 @@ void vehicle_reset_trail(vehicle_t *v) {
     v->trail_speed_max = 0.0f;
 }
 
+void vehicle_truncate_trail(vehicle_t *v, float time_s) {
+    if (v->trail_count == 0) return;
+
+    int keep = 0;
+    if (v->trail_count <= v->trail_capacity) {
+        int start = (v->trail_head - v->trail_count + v->trail_capacity) % v->trail_capacity;
+        for (int i = 0; i < v->trail_count; i++) {
+            int idx = (start + i) % v->trail_capacity;
+            if (v->trail_time[idx] <= time_s + 0.001f)
+                keep = i + 1;
+            else
+                break;
+        }
+    }
+
+    if (keep < v->trail_count) {
+        int start = (v->trail_head - v->trail_count + v->trail_capacity) % v->trail_capacity;
+        v->trail_count = keep;
+        v->trail_head = (start + keep) % v->trail_capacity;
+        v->trail_timer = 0.0f;
+
+        float mx = 0.0f;
+        for (int i = 0; i < v->trail_count; i++) {
+            int idx = (start + i) % v->trail_capacity;
+            if (v->trail_speed[idx] > mx) mx = v->trail_speed[idx];
+        }
+        v->trail_speed_max = mx;
+    }
+}
+
+Color vehicle_marker_color(float roll, float pitch, float vert, float speed,
+                           float speed_max, const theme_t *theme, int trail_mode) {
+    if (trail_mode == 2) {
+        float ms = speed_max > 1.0f ? speed_max : 1.0f;
+        float heat = speed / ms;
+        if (heat > 1.0f) heat = 1.0f;
+        if (heat < 0.0f) heat = 0.0f;
+        return theme_heat_color(theme, heat, 255);
+    }
+    Color trail_color  = theme->trail_forward;
+    Color col_back     = theme->trail_backward;
+    Color col_up       = theme->trail_climb;
+    Color col_down     = theme->trail_descend;
+    Color col_roll_pos = theme->trail_roll_pos;
+    Color col_roll_neg = theme->trail_roll_neg;
+
+    float cr = (float)trail_color.r, cg = (float)trail_color.g, cb = (float)trail_color.b;
+
+    float back_t = pitch / 15.0f;
+    if (back_t < 0.0f) back_t = 0.0f;
+    if (back_t > 1.0f) back_t = 1.0f;
+    cr += (col_back.r - cr) * back_t;
+    cg += (col_back.g - cg) * back_t;
+    cb += (col_back.b - cb) * back_t;
+
+    float vert_t = vert / 5.0f;
+    if (vert_t > 1.0f) vert_t = 1.0f;
+    if (vert_t < -1.0f) vert_t = -1.0f;
+    if (vert_t > 0.0f) {
+        cr += (col_up.r - cr) * vert_t;
+        cg += (col_up.g - cg) * vert_t;
+        cb += (col_up.b - cb) * vert_t;
+    } else if (vert_t < 0.0f) {
+        float dt2 = -vert_t;
+        cr += (col_down.r - cr) * dt2;
+        cg += (col_down.g - cg) * dt2;
+        cb += (col_down.b - cb) * dt2;
+    }
+
+    float roll_t = roll / 15.0f;
+    if (roll_t > 1.0f) roll_t = 1.0f;
+    if (roll_t < -1.0f) roll_t = -1.0f;
+    if (roll_t > 0.0f) {
+        cr += (col_roll_pos.r - cr) * roll_t * 0.7f;
+        cg += (col_roll_pos.g - cg) * roll_t * 0.7f;
+        cb += (col_roll_pos.b - cb) * roll_t * 0.7f;
+    } else if (roll_t < 0.0f) {
+        float rt = -roll_t;
+        cr += (col_roll_neg.r - cr) * rt * 0.7f;
+        cg += (col_roll_neg.g - cg) * rt * 0.7f;
+        cb += (col_roll_neg.b - cb) * rt * 0.7f;
+    }
+
+    return (Color){
+        (unsigned char)(cr > 255 ? 255 : (cr < 0 ? 0 : cr)),
+        (unsigned char)(cg > 255 ? 255 : (cg < 0 ? 0 : cg)),
+        (unsigned char)(cb > 255 ? 255 : (cb < 0 ? 0 : cb)),
+        255
+    };
+}
+
+void vehicle_draw_markers(Vector3 *positions, char labels[][48], int count,
+                          int current_marker, Vector3 cam_pos, Camera3D camera,
+                          float *m_roll, float *m_pitch, float *m_vert, float *m_speed,
+                          float speed_max, const theme_t *theme, int trail_mode,
+                          marker_type_t type) {
+    (void)labels;
+    bool is_system = (type == MARKER_SYSTEM);
+
+    for (int i = 0; i < count; i++) {
+        Vector3 p = positions[i];
+        float dx = p.x - cam_pos.x, dy = p.y - cam_pos.y, dz = p.z - cam_pos.z;
+        float dist = sqrtf(dx*dx + dy*dy + dz*dz);
+        float base = 0.05f + dist * 0.001f;
+        // System markers use larger cube size; user markers use sphere radius directly
+        float size = is_system ? base * 2.0f * 0.9f : base;
+
+        bool is_current = (i == current_marker);
+
+        Color col = vehicle_marker_color(m_roll[i], m_pitch[i], m_vert[i], m_speed[i],
+                                         speed_max, theme, trail_mode);
+
+        if (is_current) {
+            if (theme->thick_trails) {
+                col.r = (unsigned char)(col.r * 0.55f);
+                col.g = (unsigned char)(col.g * 0.55f);
+                col.b = (unsigned char)(col.b * 0.55f);
+            } else {
+                col.r = (unsigned char)(col.r + (230 - col.r) * 0.7f);
+                col.g = (unsigned char)(col.g + (230 - col.g) * 0.7f);
+                col.b = (unsigned char)(col.b + (230 - col.b) * 0.7f);
+            }
+        }
+        col.a = is_current ? 240 : 210;
+
+        if (is_system) {
+            float cs = is_current ? size * 1.4f : size;
+            DrawCube(p, cs, cs, cs, col);
+            DrawLine3D(p, (Vector3){p.x, 0.0f, p.z}, (Color){col.r, col.g, col.b, 60});
+
+            if (is_current) {
+                Vector3 fwd = Vector3Normalize(Vector3Subtract(cam_pos, p));
+                Vector3 up = {0, 1, 0};
+                Vector3 right = Vector3Normalize(Vector3CrossProduct(up, fwd));
+                Vector3 cam_up = Vector3CrossProduct(fwd, right);
+                float sq = size * 2.5f;
+                Color sq_col = {col.r, col.g, col.b, 200};
+
+                Vector3 tl = {p.x + (-right.x + cam_up.x) * sq, p.y + (-right.y + cam_up.y) * sq, p.z + (-right.z + cam_up.z) * sq};
+                Vector3 tr = {p.x + ( right.x + cam_up.x) * sq, p.y + ( right.y + cam_up.y) * sq, p.z + ( right.z + cam_up.z) * sq};
+                Vector3 br = {p.x + ( right.x - cam_up.x) * sq, p.y + ( right.y - cam_up.y) * sq, p.z + ( right.z - cam_up.z) * sq};
+                Vector3 bl = {p.x + (-right.x - cam_up.x) * sq, p.y + (-right.y - cam_up.y) * sq, p.z + (-right.z - cam_up.z) * sq};
+
+                DrawLine3D(tl, tr, sq_col);
+                DrawLine3D(tr, br, sq_col);
+                DrawLine3D(br, bl, sq_col);
+                DrawLine3D(bl, tl, sq_col);
+            }
+        } else {
+            DrawSphere(p, is_current ? size * 1.4f : size, col);
+            DrawLine3D(p, (Vector3){p.x, 0.0f, p.z}, (Color){col.r, col.g, col.b, 80});
+
+            if (is_current) {
+                float ring_r = size * 2.5f;
+                Color ring_col = {col.r, col.g, col.b, 200};
+                DrawCircle3D(p, ring_r, Vector3Subtract(cam_pos, p), 0.0f, ring_col);
+            }
+        }
+    }
+}
+
+void vehicle_draw_marker_labels(Vector3 *positions, char labels[][48], int count,
+                                int current_marker, Vector3 cam_pos, Camera3D camera,
+                                Font font_label, Font font_value,
+                                float *m_roll, float *m_pitch, float *m_vert, float *m_speed,
+                                float speed_max, const theme_t *theme, int trail_mode,
+                                marker_type_t type) {
+    bool is_system = (type == MARKER_SYSTEM);
+    Vector3 cam_fwd = Vector3Normalize(Vector3Subtract(camera.target, camera.position));
+
+    float sh = (float)GetScreenHeight();
+    float sw = (float)GetScreenWidth();
+    float s = powf(sh / 720.0f, 0.7f);
+
+    for (int i = 0; i < count; i++) {
+        Vector3 p = positions[i];
+        float dx = p.x - cam_pos.x, dy = p.y - cam_pos.y, dz = p.z - cam_pos.z;
+        float dist = sqrtf(dx*dx + dy*dy + dz*dz);
+        float base = 0.05f + dist * 0.001f;
+        float size = is_system ? base * 2.0f * 0.9f : base;
+
+        Vector3 to_marker = {dx, dy, dz};
+        float dot = to_marker.x * cam_fwd.x + to_marker.y * cam_fwd.y + to_marker.z * cam_fwd.z;
+        if (dot < 0.0f) continue;
+
+        bool is_current = (i == current_marker);
+
+        char display[64];
+        if (is_system) {
+            if (labels[i][0] != '\0')
+                snprintf(display, sizeof(display), "S: %s", labels[i]);
+            else
+                snprintf(display, sizeof(display), "S%d", i + 1);
+        } else {
+            if (labels[i][0] != '\0')
+                snprintf(display, sizeof(display), "%d: %s", i + 1, labels[i]);
+            else
+                snprintf(display, sizeof(display), "%d", i + 1);
+        }
+
+        Vector2 screen = GetWorldToScreen(
+            (Vector3){p.x, p.y + size * 3.0f, p.z}, camera);
+
+        if (screen.x < -50 || screen.x > sw + 50 ||
+            screen.y < -50 || screen.y > sh + 50) continue;
+
+        float fs = (is_current ? 18 : 15) * s;
+        Vector2 tw = MeasureTextEx(font_value, display, fs, 0.5f);
+        float pad_x = 8 * s, pad_y = 5 * s;
+
+        float rx = screen.x - tw.x / 2 - pad_x;
+        float ry = screen.y - tw.y / 2 - pad_y;
+        float rw = tw.x + pad_x * 2;
+        float rh = tw.y + pad_y * 2;
+
+        Color text_col = vehicle_marker_color(m_roll[i], m_pitch[i], m_vert[i], m_speed[i],
+                                              speed_max, theme, trail_mode);
+        if (is_current) {
+            if (theme->thick_trails) {
+                text_col.r = (unsigned char)(text_col.r * 0.55f);
+                text_col.g = (unsigned char)(text_col.g * 0.55f);
+                text_col.b = (unsigned char)(text_col.b * 0.55f);
+            } else {
+                text_col.r = (unsigned char)(text_col.r + (230 - text_col.r) * 0.7f);
+                text_col.g = (unsigned char)(text_col.g + (230 - text_col.g) * 0.7f);
+                text_col.b = (unsigned char)(text_col.b + (230 - text_col.b) * 0.7f);
+            }
+        }
+        text_col.a = 255;
+
+        Color label_bg = theme->hud_bg;
+        Color label_border = theme->hud_border;
+
+        DrawRectangleRounded(
+            (Rectangle){rx, ry, rw, rh},
+            0.3f, 6, label_bg);
+        DrawRectangleRoundedLinesEx(
+            (Rectangle){rx, ry, rw, rh},
+            0.3f, 6, 1.0f, label_border);
+        DrawTextEx(font_value, display,
+                   (Vector2){screen.x - tw.x / 2, screen.y - tw.y / 2},
+                   fs, 0.5f, text_col);
+    }
+}
+
+void vehicle_set_ghost_alpha(vehicle_t *v, float alpha) {
+    v->ghost_alpha = alpha;
+}
+
+void vehicle_draw_correlation_curtain(
+    const vehicle_t *va, const vehicle_t *vb,
+    const theme_t *theme, Vector3 cam_pos) {
+    (void)theme;  // colors come from vehicle->color, theme kept for API consistency
+    if (va->trail_count < 2 || vb->trail_count < 2) return;
+
+    int n = va->trail_count < vb->trail_count ? va->trail_count : vb->trail_count;
+    if (n < 2) return;
+
+    int start_a = (va->trail_count < va->trail_capacity) ? 0 : va->trail_head;
+    int start_b = (vb->trail_count < vb->trail_capacity) ? 0 : vb->trail_head;
+
+    Color ca = va->color;
+    Color cb = vb->color;
+
+    rlDisableDepthMask();
+    rlBegin(RL_TRIANGLES);
+    for (int i = 1; i < n; i++) {
+        // Map index through fractional position for trail length alignment
+        int idx_a0 = (start_a + (int)((float)(i - 1) / n * va->trail_count)) % va->trail_capacity;
+        int idx_a1 = (start_a + (int)((float)i / n * va->trail_count)) % va->trail_capacity;
+        int idx_b0 = (start_b + (int)((float)(i - 1) / n * vb->trail_count)) % vb->trail_capacity;
+        int idx_b1 = (start_b + (int)((float)i / n * vb->trail_count)) % vb->trail_capacity;
+
+        Vector3 pa0 = va->trail[idx_a0];
+        Vector3 pa1 = va->trail[idx_a1];
+        Vector3 pb0 = vb->trail[idx_b0];
+        Vector3 pb1 = vb->trail[idx_b1];
+
+        float t = (float)i / (float)n;
+        unsigned char alpha_a = (unsigned char)(t * 255 * va->ghost_alpha);
+        unsigned char alpha_b = (unsigned char)(t * 255 * vb->ghost_alpha);
+
+        // Front face: pa0 → pb0 → pa1, then pb0 → pb1 → pa1
+        rlColor4ub(ca.r, ca.g, ca.b, alpha_a);
+        rlVertex3f(pa0.x, pa0.y, pa0.z);
+        rlColor4ub(cb.r, cb.g, cb.b, alpha_b);
+        rlVertex3f(pb0.x, pb0.y, pb0.z);
+        rlColor4ub(ca.r, ca.g, ca.b, alpha_a);
+        rlVertex3f(pa1.x, pa1.y, pa1.z);
+
+        rlColor4ub(cb.r, cb.g, cb.b, alpha_b);
+        rlVertex3f(pb0.x, pb0.y, pb0.z);
+        rlVertex3f(pb1.x, pb1.y, pb1.z);
+        rlColor4ub(ca.r, ca.g, ca.b, alpha_a);
+        rlVertex3f(pa1.x, pa1.y, pa1.z);
+
+        // Back face: pa1 → pb0 → pa0, then pa1 → pb1 → pb0
+        rlColor4ub(ca.r, ca.g, ca.b, alpha_a);
+        rlVertex3f(pa1.x, pa1.y, pa1.z);
+        rlColor4ub(cb.r, cb.g, cb.b, alpha_b);
+        rlVertex3f(pb0.x, pb0.y, pb0.z);
+        rlColor4ub(ca.r, ca.g, ca.b, alpha_a);
+        rlVertex3f(pa0.x, pa0.y, pa0.z);
+
+        rlColor4ub(ca.r, ca.g, ca.b, alpha_a);
+        rlVertex3f(pa1.x, pa1.y, pa1.z);
+        rlColor4ub(cb.r, cb.g, cb.b, alpha_b);
+        rlVertex3f(pb1.x, pb1.y, pb1.z);
+        rlVertex3f(pb0.x, pb0.y, pb0.z);
+    }
+    rlEnd();
+    rlEnableDepthMask();
+}
+
+void vehicle_draw_correlation_line(
+    const vehicle_t *va, const vehicle_t *vb) {
+    // Offset to model center of mass (model origin is at bottom)
+    float off_a = va->model_scale * 0.15f;
+    float off_b = vb->model_scale * 0.15f;
+    Vector3 pa = { va->position.x, va->position.y + off_a, va->position.z };
+    Vector3 pb = { vb->position.x, vb->position.y + off_b, vb->position.z };
+
+    Vector3 seg = { pb.x - pa.x, pb.y - pa.y, pb.z - pa.z };
+    float seg_len = sqrtf(seg.x*seg.x + seg.y*seg.y + seg.z*seg.z);
+    if (seg_len < 0.001f) return;
+
+    Vector3 dir = { seg.x/seg_len, seg.y/seg_len, seg.z/seg_len };
+
+    // Build two perpendicular vectors to form the cylinder cross-section
+    Vector3 perp1, perp2;
+    if (fabsf(dir.y) < 0.9f) {
+        Vector3 up = {0, 1, 0};
+        perp1 = (Vector3){ dir.y*up.z - dir.z*up.y,
+                           dir.z*up.x - dir.x*up.z,
+                           dir.x*up.y - dir.y*up.x };
+    } else {
+        Vector3 right = {1, 0, 0};
+        perp1 = (Vector3){ dir.y*right.z - dir.z*right.y,
+                           dir.z*right.x - dir.x*right.z,
+                           dir.x*right.y - dir.y*right.x };
+    }
+    float p1len = sqrtf(perp1.x*perp1.x + perp1.y*perp1.y + perp1.z*perp1.z);
+    perp1.x /= p1len; perp1.y /= p1len; perp1.z /= p1len;
+    perp2 = (Vector3){ dir.y*perp1.z - dir.z*perp1.y,
+                       dir.z*perp1.x - dir.x*perp1.z,
+                       dir.x*perp1.y - dir.y*perp1.x };
+
+    Color ca = va->color;
+    Color cb = vb->color;
+    unsigned char alpha_a = (unsigned char)(220 * va->ghost_alpha);
+    unsigned char alpha_b = (unsigned char)(220 * vb->ghost_alpha);
+    float radius = 0.04f;
+    int slices = 8;
+    int rings = 6;
+
+    // Precompute sin/cos for the circle
+    float sin_t[9], cos_t[9];  // slices + 1
+    for (int s = 0; s <= slices; s++) {
+        float a = (float)s / slices * 2.0f * M_PI;
+        sin_t[s] = sinf(a);
+        cos_t[s] = cosf(a);
+    }
+
+    rlBegin(RL_TRIANGLES);
+    for (int r = 0; r < rings; r++) {
+        float t0 = (float)r / rings;
+        float t1 = (float)(r + 1) / rings;
+
+        // Interpolated positions along axis
+        Vector3 c0 = { pa.x + seg.x*t0, pa.y + seg.y*t0, pa.z + seg.z*t0 };
+        Vector3 c1 = { pa.x + seg.x*t1, pa.y + seg.y*t1, pa.z + seg.z*t1 };
+
+        // Interpolated colors
+        unsigned char r0 = (unsigned char)(ca.r + (cb.r - ca.r) * t0);
+        unsigned char g0 = (unsigned char)(ca.g + (cb.g - ca.g) * t0);
+        unsigned char b0 = (unsigned char)(ca.b + (cb.b - ca.b) * t0);
+        unsigned char a0 = (unsigned char)(alpha_a + (alpha_b - alpha_a) * t0);
+        unsigned char r1 = (unsigned char)(ca.r + (cb.r - ca.r) * t1);
+        unsigned char g1 = (unsigned char)(ca.g + (cb.g - ca.g) * t1);
+        unsigned char b1 = (unsigned char)(ca.b + (cb.b - ca.b) * t1);
+        unsigned char a1 = (unsigned char)(alpha_a + (alpha_b - alpha_a) * t1);
+
+        for (int s = 0; s < slices; s++) {
+            // Four corners of this quad on the cylinder surface
+            float ox0 = radius * (perp1.x*cos_t[s]   + perp2.x*sin_t[s]);
+            float oy0 = radius * (perp1.y*cos_t[s]   + perp2.y*sin_t[s]);
+            float oz0 = radius * (perp1.z*cos_t[s]   + perp2.z*sin_t[s]);
+            float ox1 = radius * (perp1.x*cos_t[s+1] + perp2.x*sin_t[s+1]);
+            float oy1 = radius * (perp1.y*cos_t[s+1] + perp2.y*sin_t[s+1]);
+            float oz1 = radius * (perp1.z*cos_t[s+1] + perp2.z*sin_t[s+1]);
+
+            // Triangle 1
+            rlColor4ub(r0, g0, b0, a0);
+            rlVertex3f(c0.x+ox0, c0.y+oy0, c0.z+oz0);
+            rlColor4ub(r1, g1, b1, a1);
+            rlVertex3f(c1.x+ox0, c1.y+oy0, c1.z+oz0);
+            rlColor4ub(r0, g0, b0, a0);
+            rlVertex3f(c0.x+ox1, c0.y+oy1, c0.z+oz1);
+
+            // Triangle 2
+            rlColor4ub(r0, g0, b0, a0);
+            rlVertex3f(c0.x+ox1, c0.y+oy1, c0.z+oz1);
+            rlColor4ub(r1, g1, b1, a1);
+            rlVertex3f(c1.x+ox0, c1.y+oy0, c1.z+oz0);
+            rlVertex3f(c1.x+ox1, c1.y+oy1, c1.z+oz1);
+        }
+    }
+    rlEnd();
+}
+
 void vehicle_cleanup(vehicle_t *v) {
+    for (int i = 0; i < v->model.materialCount; i++)
+        v->model.materials[i].shader.id = rlGetShaderIdDefault();
     UnloadModel(v->model);
     free(v->trail);
     free(v->trail_roll);
     free(v->trail_pitch);
     free(v->trail_vert);
     free(v->trail_speed);
+    free(v->trail_time);
     v->trail = NULL;
     v->trail_roll = NULL;
     v->trail_pitch = NULL;
     v->trail_vert = NULL;
     v->trail_speed = NULL;
+    v->trail_time = NULL;
 }

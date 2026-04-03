@@ -1,0 +1,104 @@
+[theme]
+name: Snow
+priority: 10
+thick_trails: 1
+
+[scene]
+sky: 240 242 245 255
+ground: 228 230 233 255
+grid_minor: 155 160 168 140
+grid_major: 70 75 85 200
+axis_x: 210 30 30 230
+axis_z: 30 30 210 230
+fog: 215 218 222 255
+tint: 215 218 222 255
+
+[hud]
+accent: 15 15 20 255
+accent_dim: 60 65 75 200
+highlight: 255 255 255 255
+warn: 200 40 0 255
+bg: 248 248 250 235
+border: 15 15 20 140
+adi_sky: 160 185 215 220
+adi_ground: 20 30 55 220
+adi_horizon: 255 255 255 255
+adi_wing: 200 40 0 255
+value: 10 10 15 255
+dim: 80 85 95 160
+climb: 0 120 50 255
+connected: 0 130 60 255
+
+[trail]
+forward: 200 140 20 200
+backward: 140 20 200 255
+climb: 0 150 60 255
+descend: 200 50 0 255
+roll_pos: 20 160 40 255
+roll_neg: 200 20 60 255
+
+[arms]
+front: 200 140 20 255
+back: 140 20 200 255
+port: 180 30 30 255
+starboard: 20 160 50 255
+classic_front: 200 30 30 255
+classic_back: 30 60 180 255
+classic_side: 160 160 170 255
+
+[ribbon_gradient]
+stop_0: 20 30 80 255
+stop_1: 40 60 180 255
+stop_2: 0 140 160 255
+stop_3: 40 160 60 255
+stop_4: 200 200 0 255
+stop_5: 220 80 0 255
+stop_6: 200 30 30 255
+
+[debug]
+accent: 40 50 70 220
+text: 30 35 50 230
+dim: 100 110 130 140
+bg: 235 237 240 230
+graph_bg: 220 222 226 220
+graph_grid: 180 185 195 100
+tier1: 20 140 60 255
+tier2: 180 130 0 255
+tier3: 200 60 20 255
+
+[prompt]
+scrim: 255 255 255 140
+box_bg: 248 248 250 240
+border: 15 15 20 120
+subtitle: 60 65 75 255
+hint: 120 125 135 200
+key: 15 15 20 220
+text: 10 10 15 255
+title: 200 140 0 255
+
+[ground_track]
+fill: 0 0 0 100
+edge: 80 80 80 180
+shadow: 150 150 150 120
+
+[ortho]
+grid_minor: 140 145 155 180
+grid_major: 50 55 65 230
+
+[drone_palette]
+color_0: 60 65 75 255
+color_1: 30 80 200 255
+color_2: 200 30 50 255
+color_3: 180 140 20 255
+color_4: 20 140 50 255
+color_5: 200 100 0 255
+color_6: 130 30 200 255
+color_7: 200 70 120 255
+color_8: 0 140 140 255
+color_9: 180 160 60 255
+color_10: 60 60 180 255
+color_11: 200 130 100 255
+color_12: 100 180 140 255
+color_13: 200 40 140 255
+color_14: 100 140 200 255
+color_15: 140 180 40 255

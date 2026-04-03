@@ -1,4 +1,5 @@
 #include "scene.h"
+#include "theme.h"
 #include "asset_path.h"
 #include "raymath.h"
 #include "rlgl.h"
@@ -12,38 +13,6 @@
 #define GRID_EXTENT      500.0f
 #define GRID_SPACING     10.0f
 #define GRID_MAJOR_EVERY 5
-
-// Grid mode colors
-#define GRID_SKY       (Color){ 56,  56,  60, 255 }
-#define GRID_GROUND    (Color){ 32,  32,  34, 255 }
-#define GRID_MINOR     (Color){ 97,  97,  97, 128 }
-#define GRID_MAJOR     (Color){ 143, 143, 143, 128 }
-#define GRID_AXIS_X    (Color){ 200,  60,  60, 180 }
-#define GRID_AXIS_Z    (Color){ 60,   60, 200, 180 }
-
-// Rez mode colors
-#define REZ_SKY        (Color){ 12,  12,  18, 255 }  // near-black
-#define REZ_GROUND     (Color){ 2,    2,   4, 255 }  // black
-#define REZ_MINOR      (Color){ 0,  204, 218, 50 }   // teal, subtle
-#define REZ_MAJOR      (Color){ 0,  204, 218, 140 }  // teal, bright
-#define REZ_AXIS_X     (Color){ 0,  204, 218, 220 }  // teal, full
-#define REZ_AXIS_Z     (Color){ 0,  204, 218, 220 }  // teal, full
-
-// Snow mode colors (outdoor high-contrast)
-#define SNOW_SKY       (Color){ 240, 242, 245, 255 }
-#define SNOW_GROUND    (Color){ 228, 230, 233, 255 }
-#define SNOW_MINOR     (Color){ 155, 160, 168, 140 }
-#define SNOW_MAJOR     (Color){ 70,  75,  85, 200 }
-#define SNOW_AXIS_X    (Color){ 210,  30,  30, 230 }
-#define SNOW_AXIS_Z    (Color){ 30,   30, 210, 230 }
-
-// 1988 mode colors (synthwave)
-#define SYNTH_SKY      (Color){ 8,   8,  20, 255 }
-#define SYNTH_GROUND   (Color){ 5,   5,  16, 255 }
-#define SYNTH_MINOR    (Color){ 255, 20, 100, 50 }   // hot pink, subtle
-#define SYNTH_MAJOR    (Color){ 255, 20, 100, 160 }   // hot pink, bright
-#define SYNTH_AXIS_X   (Color){ 255, 20, 100, 220 }   // hot pink, full
-#define SYNTH_AXIS_Z   (Color){ 255, 20, 100, 220 }   // hot pink, full
 
 // ── Procedural terrain texture: packed dirt atlas ─────────────────────────────
 // 4 x 256x256 tiles in a 512x512 atlas. Torus-mapped noise for seamless edges.
@@ -223,9 +192,13 @@ static Texture2D gen_ground_texture(void) {
 
 void scene_init(scene_t *s) {
     s->cam_mode = CAM_MODE_CHASE;
-    s->view_mode = VIEW_GRID;
+    theme_registry_init(&s->theme_reg);
+    s->theme_index = 0;
+    s->theme_1988_active = false;
+    s->theme = s->theme_reg.themes[0];
     s->ortho_mode = ORTHO_NONE;
     s->ortho_span = 60.0f;
+    s->ortho_pan = (Vector3){0};
     s->chase_distance = 3.0f;
     s->chase_yaw = 0.0f;
     s->chase_pitch = 0.4f;  // ~23° above horizontal
@@ -258,8 +231,8 @@ void scene_init(scene_t *s) {
 
     s->loc_texEnabled = GetShaderLocation(s->grid_shader, "texEnabled");
     s->loc_groundTex  = GetShaderLocation(s->grid_shader, "groundTex");
-    s->loc_colFog     = GetShaderLocation(s->grid_shader, "colFog");
     s->loc_colTint    = GetShaderLocation(s->grid_shader, "colTint");
+    s->loc_camPos     = GetShaderLocation(s->grid_shader, "camPos");
 
     // Load terrain texture from pre-baked PNG
     double t0 = GetTime();
@@ -305,6 +278,11 @@ void scene_init(scene_t *s) {
     SetShaderValue(s->lighting_shader, s->loc_lightDir, &sun, SHADER_UNIFORM_VEC3);
     float ambient = 0.35f;
     SetShaderValue(s->lighting_shader, s->loc_ambient, &ambient, SHADER_UNIFORM_FLOAT);
+
+    // Default ghostAlpha to 1.0 — vehicle draw overrides per-vehicle
+    int loc_ghost = GetShaderLocation(s->lighting_shader, "ghostAlpha");
+    float ghost_default = 1.0f;
+    SetShaderValue(s->lighting_shader, loc_ghost, &ghost_default, SHADER_UNIFORM_FLOAT);
 }
 
 static void update_chase_camera(scene_t *s, Vector3 pos) {
@@ -351,35 +329,38 @@ static void update_ortho_camera(scene_t *s, Vector3 pos) {
     s->camera.projection = CAMERA_ORTHOGRAPHIC;
     s->camera.fovy = span;
 
+    // Apply pan offset
+    Vector3 p = { pos.x + s->ortho_pan.x, pos.y + s->ortho_pan.y, pos.z + s->ortho_pan.z };
+
     switch (s->ortho_mode) {
         case ORTHO_TOP:
-            s->camera.position = (Vector3){ pos.x, pos.y + 100.0f, pos.z };
-            s->camera.target = pos;
+            s->camera.position = (Vector3){ p.x, p.y + 100.0f, p.z };
+            s->camera.target = p;
             s->camera.up = (Vector3){ 0, 0, -1 };
             break;
         case ORTHO_BOTTOM:
-            s->camera.position = (Vector3){ pos.x, pos.y - 100.0f, pos.z };
-            s->camera.target = pos;
+            s->camera.position = (Vector3){ p.x, p.y - 100.0f, p.z };
+            s->camera.target = p;
             s->camera.up = (Vector3){ 0, 0, 1 };
             break;
         case ORTHO_FRONT:
-            s->camera.position = (Vector3){ pos.x, pos.y, pos.z - 100.0f };
-            s->camera.target = pos;
+            s->camera.position = (Vector3){ p.x, p.y, p.z - 100.0f };
+            s->camera.target = p;
             s->camera.up = (Vector3){ 0, 1, 0 };
             break;
         case ORTHO_BACK:
-            s->camera.position = (Vector3){ pos.x, pos.y, pos.z + 100.0f };
-            s->camera.target = pos;
+            s->camera.position = (Vector3){ p.x, p.y, p.z + 100.0f };
+            s->camera.target = p;
             s->camera.up = (Vector3){ 0, 1, 0 };
             break;
         case ORTHO_LEFT:
-            s->camera.position = (Vector3){ pos.x - 100.0f, pos.y, pos.z };
-            s->camera.target = pos;
+            s->camera.position = (Vector3){ p.x - 100.0f, p.y, p.z };
+            s->camera.target = p;
             s->camera.up = (Vector3){ 0, 1, 0 };
             break;
         case ORTHO_RIGHT:
-            s->camera.position = (Vector3){ pos.x + 100.0f, pos.y, pos.z };
-            s->camera.target = pos;
+            s->camera.position = (Vector3){ p.x + 100.0f, p.y, p.z };
+            s->camera.target = p;
             s->camera.up = (Vector3){ 0, 1, 0 };
             break;
         default:
@@ -401,6 +382,69 @@ void scene_update_camera(scene_t *s, Vector3 vehicle_pos, Quaternion vehicle_rot
         case CAM_MODE_FPV:
             update_fpv_camera(s, vehicle_pos, vehicle_rot);
             break;
+        case CAM_MODE_FREE: {
+            float dt = GetFrameTime();
+            float speed = 20.0f * dt;
+
+            // WASDQE breaks tracking
+            bool move = IsKeyDown(KEY_W) || IsKeyDown(KEY_S) || IsKeyDown(KEY_A) ||
+                        IsKeyDown(KEY_D) || IsKeyDown(KEY_Q) || IsKeyDown(KEY_E);
+            if (move) s->free_track = false;
+
+            if (s->free_track) {
+                // Track mode: camera looks at vehicle, scroll zooms in/out
+                s->camera.target = vehicle_pos;
+                float wheel = GetMouseWheelMove();
+                if (wheel != 0.0f) {
+                    Vector3 dir = Vector3Subtract(s->camera.position, vehicle_pos);
+                    float dist = Vector3Length(dir);
+                    dist -= wheel * 2.0f;
+                    if (dist < 2.0f) dist = 2.0f;
+                    s->camera.position = Vector3Add(vehicle_pos, Vector3Scale(Vector3Normalize(dir), dist));
+                }
+                // Mouse: orbit around vehicle
+                if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) || IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
+                    Vector2 delta = GetMouseDelta();
+                    float sensitivity = 0.003f;
+                    Vector3 offset = Vector3Subtract(s->camera.position, vehicle_pos);
+                    Vector3 right = Vector3Normalize(Vector3CrossProduct(
+                        Vector3Normalize(Vector3Subtract(vehicle_pos, s->camera.position)), s->camera.up));
+                    Matrix yaw_m = MatrixRotate((Vector3){0,1,0}, -delta.x * sensitivity);
+                    Matrix pitch_m = MatrixRotate(right, -delta.y * sensitivity);
+                    offset = Vector3Transform(offset, yaw_m);
+                    offset = Vector3Transform(offset, pitch_m);
+                    s->camera.position = Vector3Add(vehicle_pos, offset);
+                }
+            } else {
+                // Free-fly mode
+                Vector3 forward = Vector3Normalize(Vector3Subtract(s->camera.target, s->camera.position));
+                Vector3 right = Vector3Normalize(Vector3CrossProduct(forward, s->camera.up));
+
+                // Shift = boost (must be before movement to take effect)
+                if (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT))
+                    speed *= 3.0f;
+
+                if (IsKeyDown(KEY_W)) { s->camera.position = Vector3Add(s->camera.position, Vector3Scale(forward, speed)); s->camera.target = Vector3Add(s->camera.target, Vector3Scale(forward, speed)); }
+                if (IsKeyDown(KEY_S)) { s->camera.position = Vector3Add(s->camera.position, Vector3Scale(forward, -speed)); s->camera.target = Vector3Add(s->camera.target, Vector3Scale(forward, -speed)); }
+                if (IsKeyDown(KEY_D)) { s->camera.position = Vector3Add(s->camera.position, Vector3Scale(right, speed)); s->camera.target = Vector3Add(s->camera.target, Vector3Scale(right, speed)); }
+                if (IsKeyDown(KEY_A)) { s->camera.position = Vector3Add(s->camera.position, Vector3Scale(right, -speed)); s->camera.target = Vector3Add(s->camera.target, Vector3Scale(right, -speed)); }
+                if (IsKeyDown(KEY_E)) { s->camera.position.y += speed; s->camera.target.y += speed; }
+                if (IsKeyDown(KEY_Q)) { s->camera.position.y -= speed; s->camera.target.y -= speed; }
+
+                // Mouse look (any click held)
+                if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) || IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
+                    Vector2 delta = GetMouseDelta();
+                    float sensitivity = 0.003f;
+                    Matrix yaw = MatrixRotate((Vector3){0,1,0}, -delta.x * sensitivity);
+                    Matrix pitch = MatrixRotate(right, -delta.y * sensitivity);
+                    Vector3 dir = Vector3Subtract(s->camera.target, s->camera.position);
+                    dir = Vector3Transform(dir, yaw);
+                    dir = Vector3Transform(dir, pitch);
+                    s->camera.target = Vector3Add(s->camera.position, dir);
+                }
+            }
+            break;
+        }
         default:
             break;
     }
@@ -415,6 +459,7 @@ void scene_handle_input(scene_t *s) {
         for (int i = 0; i < 7; i++) {
             if (IsKeyPressed(keys[i])) {
                 s->ortho_mode = modes[i];
+                s->ortho_pan = (Vector3){0};
                 printf("View: %s\n", names[i]);
                 break;
             }
@@ -430,8 +475,10 @@ void scene_handle_input(scene_t *s) {
 
     if (IsKeyPressed(KEY_C)) {
         s->ortho_mode = ORTHO_NONE;  // return to perspective on camera toggle
+        s->free_track = false;
+        s->ortho_pan = (Vector3){0};
         s->cam_mode = (s->cam_mode + 1) % CAM_MODE_COUNT;
-        const char *names[] = {"Chase", "FPV"};
+        const char *names[] = {"Chase", "FPV", "Free"};
         printf("Camera: %s\n", names[s->cam_mode]);
 
         s->camera.up = (Vector3){0, 1, 0};
@@ -445,13 +492,13 @@ void scene_handle_input(scene_t *s) {
     }
 
     if (IsKeyPressed(KEY_V)) {
-        // If in hidden mode, return to Grid; otherwise cycle public modes
-        if (s->view_mode >= VIEW_COUNT)
-            s->view_mode = VIEW_GRID;
-        else
-            s->view_mode = (s->view_mode + 1) % VIEW_COUNT;
-        const char *names[] = {"Grid", "Rez", "Snow"};
-        printf("View: %s\n", names[s->view_mode]);
+        if (s->theme_1988_active) {
+            s->theme_1988_active = false;
+        } else {
+            s->theme_index = (s->theme_index + 1) % s->theme_reg.cyclable;
+        }
+        s->theme = s->theme_reg.themes[s->theme_index];
+        printf("View: %s\n", s->theme->name);
     }
 
     // Ctrl+1988 sequence detection for hidden mode
@@ -460,7 +507,8 @@ void scene_handle_input(scene_t *s) {
         if (s->seq_1988 < 4 && IsKeyPressed(expected[s->seq_1988])) {
             s->seq_1988++;
             if (s->seq_1988 == 4) {
-                s->view_mode = (s->view_mode == VIEW_1988) ? VIEW_GRID : VIEW_1988;
+                s->theme_1988_active = !s->theme_1988_active;
+                s->theme = s->theme_1988_active ? &theme_1988 : s->theme_reg.themes[s->theme_index];
                 s->seq_1988 = 0;
             }
         } else if (IsKeyPressed(KEY_ONE) || IsKeyPressed(KEY_TWO) || IsKeyPressed(KEY_THREE) ||
@@ -487,6 +535,38 @@ void scene_handle_input(scene_t *s) {
             // Full yaw, pitch only downward (0 = forward, -PI/2 = straight down)
             if (s->fpv_pitch < -1.57f) s->fpv_pitch = -1.57f;
             if (s->fpv_pitch > 0.0f) s->fpv_pitch = 0.0f;
+        }
+    }
+
+    // Right-click drag to pan in ortho mode
+    if (s->ortho_mode != ORTHO_NONE && IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
+        Vector2 delta = GetMouseDelta();
+        // Convert pixel delta to world units based on ortho span and screen size
+        int screen_h = GetScreenHeight();
+        float scale = s->ortho_span / (float)screen_h;
+        switch (s->ortho_mode) {
+            case ORTHO_TOP:
+            case ORTHO_BOTTOM:
+                s->ortho_pan.x -= delta.x * scale;
+                s->ortho_pan.z -= delta.y * scale * (s->ortho_mode == ORTHO_BOTTOM ? -1.0f : 1.0f);
+                break;
+            case ORTHO_FRONT:
+                s->ortho_pan.x -= delta.x * scale;
+                s->ortho_pan.y += delta.y * scale;
+                break;
+            case ORTHO_BACK:
+                s->ortho_pan.x += delta.x * scale;
+                s->ortho_pan.y += delta.y * scale;
+                break;
+            case ORTHO_LEFT:
+                s->ortho_pan.z += delta.x * scale;
+                s->ortho_pan.y += delta.y * scale;
+                break;
+            case ORTHO_RIGHT:
+                s->ortho_pan.z -= delta.x * scale;
+                s->ortho_pan.y += delta.y * scale;
+                break;
+            default: break;
         }
     }
 
@@ -529,7 +609,7 @@ static void color_to_vec4(Color c, float out[4]) {
 
 static void draw_shader_grid(const scene_t *s,
     Color ground, Color minor, Color major, Color axis_x, Color axis_z,
-    Color fog, Color tint)
+    Color tint)
 {
     float v[4];
     color_to_vec4(ground, v); SetShaderValue(s->grid_shader, s->loc_colGround, v, SHADER_UNIFORM_VEC4);
@@ -537,7 +617,6 @@ static void draw_shader_grid(const scene_t *s,
     color_to_vec4(major, v);  SetShaderValue(s->grid_shader, s->loc_colMajor, v, SHADER_UNIFORM_VEC4);
     color_to_vec4(axis_x, v); SetShaderValue(s->grid_shader, s->loc_colAxisX, v, SHADER_UNIFORM_VEC4);
     color_to_vec4(axis_z, v); SetShaderValue(s->grid_shader, s->loc_colAxisZ, v, SHADER_UNIFORM_VEC4);
-    color_to_vec4(fog, v);    SetShaderValue(s->grid_shader, s->loc_colFog, v, SHADER_UNIFORM_VEC4);
     color_to_vec4(tint, v);   SetShaderValue(s->grid_shader, s->loc_colTint, v, SHADER_UNIFORM_VEC4);
 
     float spacing = GRID_SPACING;
@@ -546,7 +625,6 @@ static void draw_shader_grid(const scene_t *s,
     SetShaderValue(s->grid_shader, s->loc_spacing, &spacing, SHADER_UNIFORM_FLOAT);
     SetShaderValue(s->grid_shader, s->loc_majorEvery, &majorEvery, SHADER_UNIFORM_FLOAT);
     SetShaderValue(s->grid_shader, s->loc_axisWidth, &axisWidth, SHADER_UNIFORM_FLOAT);
-
     // Terrain texture toggle
     int texOn = s->ground_tex_on ? 1 : 0;
     SetShaderValue(s->grid_shader, s->loc_texEnabled, &texOn, SHADER_UNIFORM_INT);
@@ -560,6 +638,10 @@ static void draw_shader_grid(const scene_t *s,
     Matrix model = MatrixIdentity();
     SetShaderValueMatrix(s->grid_shader, s->loc_matModel, model);
 
+    // Pass camera position for distance-based LOD
+    float cp[3] = { s->camera.position.x, s->camera.position.y, s->camera.position.z };
+    SetShaderValue(s->grid_shader, s->loc_camPos, cp, SHADER_UNIFORM_VEC3);
+
     DrawModel(s->grid_plane, (Vector3){0, 0, 0}, 1.0f, WHITE);
 
     if (texOn) {
@@ -570,73 +652,52 @@ static void draw_shader_grid(const scene_t *s,
 }
 
 void scene_draw(const scene_t *s) {
-    if (s->view_mode == VIEW_GRID) {
-        draw_shader_grid(s, GRID_GROUND, GRID_MINOR, GRID_MAJOR, GRID_AXIS_X, GRID_AXIS_Z,
-            (Color){ 30, 34, 28, 255 }, (Color){ 42, 38, 32, 255 });
-    } else if (s->view_mode == VIEW_REZ) {
-        draw_shader_grid(s, REZ_GROUND, REZ_MINOR, REZ_MAJOR, REZ_AXIS_X, REZ_AXIS_Z,
-            REZ_GROUND, (Color){ 31, 31, 59, 255 });
-    } else if (s->view_mode == VIEW_SNOW) {
-        draw_shader_grid(s, SNOW_GROUND, SNOW_MINOR, SNOW_MAJOR, SNOW_AXIS_X, SNOW_AXIS_Z,
-            SNOW_GROUND, (Color){ 215, 218, 222, 255 });
-    } else if (s->view_mode == VIEW_1988) {
-        draw_shader_grid(s, SYNTH_GROUND, SYNTH_MINOR, SYNTH_MAJOR, SYNTH_AXIS_X, SYNTH_AXIS_Z,
-            SYNTH_GROUND, (Color){ 25, 25, 82, 255 });
-    }
+    const theme_t *t = s->theme;
+    draw_shader_grid(s, t->ground, t->grid_minor, t->grid_major,
+                     t->axis_x, t->axis_z, t->tint);
 
-    // Fullscreen ortho: distance grid + ground line
-    if (s->ortho_mode != ORTHO_NONE) {
+    // Fullscreen ortho: distance grid for side views (top/bottom use the shader ground grid)
+    if (s->ortho_mode >= ORTHO_FRONT && s->ortho_mode <= ORTHO_RIGHT) {
         float ext = s->ortho_span * 2.0f;
         float spacing = 10.0f;
         if (s->ortho_span > 200.0f) spacing = 50.0f;
         else if (s->ortho_span > 80.0f) spacing = 20.0f;
         else if (s->ortho_span < 20.0f) spacing = 2.0f;
 
-        Color grid_minor = { 40, 40, 55, 60 };
-        Color grid_major = { 60, 60, 80, 100 };
+        Color grid_minor = t->ortho_grid_minor;
+        Color grid_major = t->ortho_grid_major;
         Vector3 center = s->camera.target;
 
-        if (s->ortho_mode == ORTHO_TOP || s->ortho_mode == ORTHO_BOTTOM) {
-            float snap_x = floorf(center.x / spacing) * spacing;
-            float snap_z = floorf(center.z / spacing) * spacing;
-            for (float g = -ext; g <= ext; g += spacing) {
-                bool major = fabsf(fmodf(snap_x + g, spacing * 5)) < 0.1f;
-                DrawLine3D((Vector3){snap_x + g, 0.01f, center.z - ext},
-                           (Vector3){snap_x + g, 0.01f, center.z + ext}, major ? grid_major : grid_minor);
-            }
-            for (float g = -ext; g <= ext; g += spacing) {
-                bool major = fabsf(fmodf(snap_z + g, spacing * 5)) < 0.1f;
-                DrawLine3D((Vector3){center.x - ext, 0.01f, snap_z + g},
-                           (Vector3){center.x + ext, 0.01f, snap_z + g}, major ? grid_major : grid_minor);
-            }
-        } else if (s->ortho_mode == ORTHO_FRONT || s->ortho_mode == ORTHO_BACK) {
-            float snap_x = floorf(center.x / spacing) * spacing;
-            float snap_y = floorf(center.y / spacing) * spacing;
+        // Grid lines anchored to world origin (multiples of spacing from 0)
+        float start_h, start_v;  // horizontal and vertical axis start values
+        if (s->ortho_mode == ORTHO_FRONT || s->ortho_mode == ORTHO_BACK) {
             float z = center.z;
-            for (float g = -ext; g <= ext; g += spacing) {
-                bool major = fabsf(fmodf(snap_x + g, spacing * 5)) < 0.1f;
-                DrawLine3D((Vector3){snap_x + g, center.y - ext, z},
-                           (Vector3){snap_x + g, center.y + ext, z}, major ? grid_major : grid_minor);
+            start_h = floorf((center.x - ext) / spacing) * spacing;
+            start_v = floorf((center.y - ext) / spacing) * spacing;
+            for (float x = start_h; x <= center.x + ext; x += spacing) {
+                bool major = fabsf(fmodf(x, spacing * 5)) < 0.1f;
+                DrawLine3D((Vector3){x, center.y - ext, z},
+                           (Vector3){x, center.y + ext, z}, major ? grid_major : grid_minor);
             }
-            for (float g = -ext; g <= ext; g += spacing) {
-                bool major = fabsf(fmodf(snap_y + g, spacing * 5)) < 0.1f;
-                DrawLine3D((Vector3){center.x - ext, snap_y + g, z},
-                           (Vector3){center.x + ext, snap_y + g, z}, major ? grid_major : grid_minor);
+            for (float y = start_v; y <= center.y + ext; y += spacing) {
+                bool major = fabsf(fmodf(y, spacing * 5)) < 0.1f;
+                DrawLine3D((Vector3){center.x - ext, y, z},
+                           (Vector3){center.x + ext, y, z}, major ? grid_major : grid_minor);
             }
         } else {
             // Left / Right: ZY grid
-            float snap_z = floorf(center.z / spacing) * spacing;
-            float snap_y = floorf(center.y / spacing) * spacing;
             float x = center.x;
-            for (float g = -ext; g <= ext; g += spacing) {
-                bool major = fabsf(fmodf(snap_z + g, spacing * 5)) < 0.1f;
-                DrawLine3D((Vector3){x, center.y - ext, snap_z + g},
-                           (Vector3){x, center.y + ext, snap_z + g}, major ? grid_major : grid_minor);
+            start_h = floorf((center.z - ext) / spacing) * spacing;
+            start_v = floorf((center.y - ext) / spacing) * spacing;
+            for (float z = start_h; z <= center.z + ext; z += spacing) {
+                bool major = fabsf(fmodf(z, spacing * 5)) < 0.1f;
+                DrawLine3D((Vector3){x, center.y - ext, z},
+                           (Vector3){x, center.y + ext, z}, major ? grid_major : grid_minor);
             }
-            for (float g = -ext; g <= ext; g += spacing) {
-                bool major = fabsf(fmodf(snap_y + g, spacing * 5)) < 0.1f;
-                DrawLine3D((Vector3){x, snap_y + g, center.z - ext},
-                           (Vector3){x, snap_y + g, center.z + ext}, major ? grid_major : grid_minor);
+            for (float y = start_v; y <= center.y + ext; y += spacing) {
+                bool major = fabsf(fmodf(y, spacing * 5)) < 0.1f;
+                DrawLine3D((Vector3){x, y, center.z - ext},
+                           (Vector3){x, y, center.z + ext}, major ? grid_major : grid_minor);
             }
         }
 
@@ -673,13 +734,7 @@ void scene_draw_ortho_ground(const scene_t *s, int screen_w, int screen_h) {
 }
 
 void scene_draw_sky(const scene_t *s) {
-    switch (s->view_mode) {
-        case VIEW_GRID: ClearBackground(GRID_SKY); break;
-        case VIEW_REZ:  ClearBackground(REZ_SKY);   break;
-        case VIEW_SNOW: ClearBackground(SNOW_SKY); break;
-        case VIEW_1988: ClearBackground(SYNTH_SKY); break;
-        default:        ClearBackground(GRID_SKY); break;
-    }
+    ClearBackground(s->theme->sky);
 }
 
 void scene_cleanup(scene_t *s) {

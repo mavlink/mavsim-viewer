@@ -1,4 +1,5 @@
 #include "hud.h"
+#include "theme.h"
 #include "asset_path.h"
 #include "ulog_replay.h"
 #include "raylib.h"
@@ -18,26 +19,6 @@
 #define NUMPAD_BTN_SIZE 22
 #define NUMPAD_GAP 2
 
-// Rez HUD accent colors
-#define REZ_ACCENT (Color){ 0, 204, 218, 255 }
-#define REZ_ACCENT_DIM (Color){ 0, 204, 218, 140 }
-#define REZ_ORANGE (Color){ 255, 106, 0, 255 }
-#define REZ_BG (Color){ 8, 8, 12, 220 }
-#define REZ_BORDER (Color){ 0, 204, 218, 100 }
-
-// 1988 HUD accent colors
-#define SYNTH_ACCENT (Color){ 255, 20, 100, 255 }
-#define SYNTH_ACCENT_DIM (Color){ 255, 20, 100, 140 }
-#define SYNTH_HIGHLIGHT (Color){ 21, 190, 254, 255 }
-#define SYNTH_BG (Color){ 5, 5, 16, 220 }
-#define SYNTH_BORDER (Color){ 255, 20, 100, 100 }
-
-// Snow HUD accent colors (dark on bright, black outlines)
-#define SNOW_ACCENT (Color){ 15, 15, 20, 255 }
-#define SNOW_ACCENT_DIM (Color){ 60, 65, 75, 200 }
-#define SNOW_ORANGE (Color){ 200, 40, 0, 255 }
-#define SNOW_BG (Color){ 248, 248, 250, 235 }
-#define SNOW_BORDER (Color){ 15, 15, 20, 140 }
 
 void hud_init(hud_t *h) {
     h->sim_time_s = 0.0f;
@@ -63,25 +44,37 @@ void hud_init(hud_t *h) {
 
 void hud_update(hud_t *h, uint64_t time_usec, bool connected, float dt) {
     if (time_usec > 0) {
-        // Use sim timestamp directly when available
         h->sim_time_s = (float)(time_usec / 1000000.0);
     } else if (connected) {
-        // Accumulate wall time while connected (fallback when sim doesn't send timestamps)
         h->sim_time_s += dt;
     }
+    // Tick toast timer
+    if (h->toast_timer > 0.0f)
+        h->toast_timer -= dt;
 }
 
-static void draw_compass(float cx, float cy, float radius, float heading_deg, view_mode_t vm, Font font_value) {
-    bool rez = (vm == VIEW_REZ);
-    bool synth = (vm == VIEW_1988);
-    bool snow = (vm == VIEW_SNOW);
-    Color bg = snow ? SNOW_BG : rez ? REZ_BG : synth ? SYNTH_BG : (Color){30, 30, 30, 220};
-    Color border = snow ? SNOW_BORDER : rez ? REZ_BORDER : synth ? SYNTH_BORDER : (Color){100, 100, 100, 255};
-    Color tick_major = snow ? SNOW_ACCENT : rez ? REZ_ACCENT : synth ? SYNTH_HIGHLIGHT : WHITE;
-    Color tick_minor = snow ? SNOW_ACCENT_DIM : rez ? REZ_ACCENT_DIM : synth ? (Color){ 10, 120, 160, 255 } : (Color){160, 160, 160, 255};
-    Color text_color = snow ? SNOW_ACCENT : rez ? REZ_ACCENT : synth ? SYNTH_HIGHLIGHT : WHITE;
-    Color north_color = snow ? SNOW_ORANGE : rez ? REZ_ORANGE : synth ? SYNTH_ACCENT : RED;
-    Color pointer_color = snow ? SNOW_ORANGE : rez ? REZ_ORANGE : synth ? SYNTH_ACCENT : RED;
+void hud_toast(hud_t *h, const char *text, float duration_s) {
+    snprintf(h->toast_text, sizeof(h->toast_text), "%s", text);
+    h->toast_timer = duration_s;
+    h->toast_total = duration_s;
+    h->toast_color = (Color){0, 0, 0, 0};  // use default
+}
+
+void hud_toast_color(hud_t *h, const char *text, float duration_s, Color color) {
+    snprintf(h->toast_text, sizeof(h->toast_text), "%s", text);
+    h->toast_timer = duration_s;
+    h->toast_total = duration_s;
+    h->toast_color = color;
+}
+
+static void draw_compass(float cx, float cy, float radius, float heading_deg, const theme_t *theme, Font font_value) {
+    Color bg = theme->hud_bg;
+    Color border = theme->hud_border;
+    Color tick_major = theme->hud_highlight;
+    Color tick_minor = theme->hud_accent_dim;
+    Color text_color = theme->hud_highlight;
+    Color north_color = theme->hud_warn;
+    Color pointer_color = theme->hud_warn;
 
     DrawCircle((int)cx, (int)cy, radius, bg);
     DrawCircleLines((int)cx, (int)cy, radius, border);
@@ -120,18 +113,15 @@ static void draw_compass(float cx, float cy, float radius, float heading_deg, vi
     DrawTextEx(font_value, hdg_buf, (Vector2){cx - tw.x / 2, cy + radius * 0.6f}, 14, 0.5f, text_color);
 }
 
-static void draw_attitude(float cx, float cy, float radius, float roll_deg, float pitch_deg, view_mode_t vm) {
-    bool rez = (vm == VIEW_REZ);
-    bool synth = (vm == VIEW_1988);
-    bool snow = (vm == VIEW_SNOW);
-    Color bg = snow ? SNOW_BG : rez ? REZ_BG : synth ? SYNTH_BG : (Color){30, 30, 30, 220};
-    Color border = snow ? SNOW_BORDER : rez ? REZ_BORDER : synth ? SYNTH_BORDER : (Color){100, 100, 100, 255};
-    Color horizon_color = snow ? WHITE : rez ? REZ_ACCENT : synth ? (Color){ 112, 40, 21, 255 } : WHITE;
-    Color pitch_bar_color = snow ? (Color){ 80, 90, 110, 180 } : rez ? REZ_ACCENT_DIM : synth ? SYNTH_ACCENT_DIM : (Color){200, 200, 200, 160};
-    Color wing_color = snow ? SNOW_ORANGE : rez ? REZ_ORANGE : synth ? SYNTH_HIGHLIGHT : YELLOW;
-    Color roll_tri_color = snow ? SNOW_ACCENT : rez ? REZ_ACCENT : synth ? SYNTH_ACCENT : WHITE;
-    Color sky_color = snow ? (Color){ 160, 185, 215, 220 } : rez ? (Color){ 0, 40, 45, 200 } : synth ? (Color){ 0, 4, 12, 200 } : (Color){ 80, 140, 200, 200 };
-    Color gnd_color = snow ? (Color){ 20, 30, 55, 220 } : rez ? (Color){ 20, 10, 2, 200 } : synth ? (Color){ 251, 153, 54, 200 } : (Color){ 120, 85, 50, 200 };
+static void draw_attitude(float cx, float cy, float radius, float roll_deg, float pitch_deg, const theme_t *theme) {
+    Color bg = theme->hud_bg;
+    Color border = theme->hud_border;
+    Color horizon_color = theme->adi_horizon;
+    Color pitch_bar_color = theme->hud_accent_dim;
+    Color wing_color = theme->adi_wing;
+    Color roll_tri_color = theme->hud_accent;
+    Color sky_color = theme->adi_sky;
+    Color gnd_color = theme->adi_ground;
 
     DrawCircle((int)cx, (int)cy, radius, bg);
 
@@ -280,6 +270,7 @@ static void draw_numpad(const hud_t *h, const vehicle_t *vehicles,
 }
 
 static void draw_secondary_row(const hud_t *h, const vehicle_t *pv, int pidx,
+                                const playback_state_t *pb, int selected,
                                 int row_y, int screen_w, float nav_start,
                                 float nav_step, float energy_start, float energy_step,
                                 Font font_label, Font font_value,
@@ -301,15 +292,54 @@ static void draw_secondary_row(const hud_t *h, const vehicle_t *pv, int pidx,
     // Vehicle number
     char vnum[4];
     snprintf(vnum, sizeof(vnum), "%d", pidx + 1);
-    DrawTextEx(font_value, vnum, (Vector2){8 * scale, (float)(row_y + (int)(10 * scale))}, fsv, 0.5f, pv->color);
+    float vnum_x = 8 * scale;
+    DrawTextEx(font_value, vnum, (Vector2){vnum_x, (float)(row_y + (int)(10 * scale))}, fsv, 0.5f, pv->color);
+
+    // CONF / PRSN / RMSE badges (skip for the selected/reference drone)
+    if (pb && pidx != selected && pb->takeoff_conf >= 0.0f) {
+        float badge_fs = fsl;
+        float bx = vnum_x + MeasureTextEx(font_value, vnum, fsv, 0.5f).x + 8 * scale;
+        float by = (float)(row_y + (int)(10 * scale));
+
+        char conf_buf[16];
+        snprintf(conf_buf, sizeof(conf_buf), "CONF %d%%", (int)(pb->takeoff_conf * 100));
+        Color conf_c = (pb->takeoff_conf >= 0.8f) ? climb_color :
+                       (pb->takeoff_conf >= 0.5f) ? value_color : warn_color;
+        DrawTextEx(font_label, conf_buf, (Vector2){bx, by}, badge_fs, 0.5f, conf_c);
+        bx += MeasureTextEx(font_label, conf_buf, badge_fs, 0.5f).x + 6 * scale;
+
+        if (!isnan(pb->correlation)) {
+            char prsn_buf[16];
+            snprintf(prsn_buf, sizeof(prsn_buf), "PRSN %.2f", pb->correlation);
+            Color prsn_c = (pb->correlation >= 0.7f) ? climb_color :
+                           (pb->correlation >= 0.4f) ? value_color : warn_color;
+            DrawTextEx(font_label, prsn_buf, (Vector2){bx, by}, badge_fs, 0.5f, prsn_c);
+            bx += MeasureTextEx(font_label, prsn_buf, badge_fs, 0.5f).x + 6 * scale;
+        }
+
+        if (!isnan(pb->rmse)) {
+            char rmse_buf[16];
+            snprintf(rmse_buf, sizeof(rmse_buf), "RMSE %.1fm", pb->rmse);
+            Color rmse_c = (pb->rmse <= 1.0f) ? climb_color :
+                           (pb->rmse <= 5.0f) ? value_color : warn_color;
+            DrawTextEx(font_label, rmse_buf, (Vector2){bx, by}, badge_fs, 0.5f, rmse_c);
+        }
+    }
 
     int text_y = row_y + (int)(10 * scale);
     float label_off_y = (float)(row_y + (int)(4 * scale));
     char b[16];
 
-    // NAV: HDG, ROLL, PITCH — same X positions as primary
-    DrawTextEx(font_label, "HDG", (Vector2){nav_start, label_off_y}, fsl, 0.5f, label_color_dim);
-    snprintf(b, sizeof(b), "%03d", ((int)pv->heading_deg % 360 + 360) % 360);
+    // NAV: HDG/YAW, ROLL, PITCH — same X positions as primary
+    if (h->show_yaw) {
+        DrawTextEx(font_label, "YAW", (Vector2){nav_start, label_off_y}, fsl, 0.5f, label_color_dim);
+        float yaw_p = pv->heading_deg;
+        if (yaw_p > 180.0f) yaw_p -= 360.0f;
+        snprintf(b, sizeof(b), "%+.0f", yaw_p);
+    } else {
+        DrawTextEx(font_label, "HDG", (Vector2){nav_start, label_off_y}, fsl, 0.5f, label_color_dim);
+        snprintf(b, sizeof(b), "%03d", ((int)pv->heading_deg % 360 + 360) % 360);
+    }
     DrawTextEx(font_value, b, (Vector2){nav_start + label_val_gap, (float)text_y}, fsv, 0.5f, value_color);
 
     DrawTextEx(font_label, "ROLL", (Vector2){nav_start + nav_step, label_off_y}, fsl, 0.5f, label_color_dim);
@@ -349,47 +379,23 @@ static void draw_secondary_row(const hud_t *h, const vehicle_t *pv, int pidx,
 
 void hud_draw(const hud_t *h, const vehicle_t *vehicles,
               const data_source_t *sources, int vehicle_count,
-              int selected, int screen_w, int screen_h, view_mode_t view_mode) {
+              int selected, int screen_w, int screen_h, const theme_t *theme,
+              int trail_mode,
+              const hud_marker_data_t *markers,
+              const hud_marker_data_t *sys_markers,
+              bool ghost_mode, bool has_tier3, bool has_awaiting_gps) {
 
-    bool rez = (view_mode == VIEW_REZ);
-    bool synth = (view_mode == VIEW_1988);
-    bool snow = (view_mode == VIEW_SNOW);
-
-    // Semantic color variables
-    Color accent, accent_dim, bg, border, warn;
-    Color label_color, value_color, dim_color;
-    Color climb_color, connected_color;
-
-    if (snow) {
-        accent = SNOW_ACCENT;  accent_dim = SNOW_ACCENT_DIM;
-        bg = SNOW_BG;  border = SNOW_BORDER;  warn = SNOW_ORANGE;
-    } else if (rez) {
-        accent = REZ_ACCENT;  accent_dim = REZ_ACCENT_DIM;
-        bg = REZ_BG;  border = REZ_BORDER;  warn = REZ_ORANGE;
-    } else if (synth) {
-        accent = SYNTH_ACCENT;  accent_dim = SYNTH_ACCENT_DIM;
-        bg = SYNTH_BG;  border = SYNTH_BORDER;  warn = SYNTH_ACCENT;
-    } else {
-        accent = (Color){0, 180, 204, 255};
-        accent_dim = (Color){0, 180, 204, 140};
-        bg = (Color){10, 14, 20, 220};
-        border = (Color){0, 180, 204, 64};
-        warn = (Color){255, 106, 0, 255};
-    }
-
-    if (snow) {
-        label_color = SNOW_ACCENT_DIM;
-        value_color = (Color){10, 10, 15, 255};
-        dim_color = (Color){80, 85, 95, 160};
-        climb_color = (Color){ 0, 120, 50, 255 };
-        connected_color = (Color){ 0, 130, 60, 255 };
-    } else {
-        label_color = accent_dim;
-        value_color = (Color){200, 208, 218, 255};
-        dim_color = (Color){200, 208, 218, 100};
-        climb_color = GREEN;
-        connected_color = (Color){100, 200, 100, 255};
-    }
+    // Semantic color variables from theme
+    Color accent = theme->hud_accent;
+    Color accent_dim = theme->hud_accent_dim;
+    Color bg = theme->hud_bg;
+    Color border = theme->hud_border;
+    Color warn = theme->hud_warn;
+    Color label_color = accent_dim;
+    Color value_color = theme->hud_value;
+    Color dim_color = theme->hud_dim;
+    Color climb_color = theme->hud_climb;
+    Color connected_color = theme->hud_connected;
 
     // Scale factor: 1.0 at 720p, ~1.33 at 1080p, ~1.6 at 1440p
     float s = powf(screen_h / 720.0f, 0.7f);
@@ -416,6 +422,47 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
     // Bar background (full height including transport row)
     DrawRectangle(0, bar_y, screen_w, total_bar_h, bg);
     DrawLineEx((Vector2){0, (float)bar_y}, (Vector2){(float)screen_w, (float)bar_y}, 1.0f, border);
+
+    // Toast notification (fades in/out, always above other notices)
+    float toast_h_used = 0.0f;
+    if (h->toast_timer > 0.0f) {
+        float toast_fs = 14 * s;
+        Vector2 tw = MeasureTextEx(h->font_label, h->toast_text, toast_fs, 0.5f);
+        // Fade: full opacity for most of duration, fade out in last 0.5s
+        float fade = 1.0f;
+        if (h->toast_timer < 0.5f)
+            fade = h->toast_timer / 0.5f;
+        Color base_tc = (h->toast_color.a > 0) ? h->toast_color : climb_color;
+        Color toast_c = (Color){base_tc.r, base_tc.g, base_tc.b,
+                                (unsigned char)(fade * 255)};
+        float toast_y = (float)bar_y - tw.y - 8 * s;
+        float toast_x = (float)(screen_w / 2) - tw.x / 2.0f;
+        DrawTextEx(h->font_label, h->toast_text, (Vector2){toast_x, toast_y},
+                   toast_fs, 0.5f, toast_c);
+        toast_h_used = tw.y + 8 * s;
+    }
+
+    // ESTIMATED POSITION warning above timeline when any drone is Tier 3
+    if (has_tier3 && is_replay_source) {
+        const char *est_text = "ESTIMATED POSITION";
+        float est_fs = 11 * s;
+        Vector2 est_w = MeasureTextEx(h->font_label, est_text, est_fs, 0.5f);
+        float est_y = (float)bar_y - est_w.y - 4 * s - toast_h_used;
+        float est_x = (float)(screen_w / 2) - est_w.x / 2.0f;
+        DrawTextEx(h->font_label, est_text, (Vector2){est_x, est_y}, est_fs, 0.5f, warn);
+    }
+
+    // AWAITING GPS warning when a drone is parked at origin because
+    // GPOS data exists in the log but hasn't arrived in the stream yet
+    if (has_awaiting_gps && is_replay_source) {
+        const char *gps_text = "AWAITING GPS";
+        float gps_fs = 11 * s;
+        Vector2 gps_w = MeasureTextEx(h->font_label, gps_text, gps_fs, 0.5f);
+        float gps_y_off = (has_tier3 ? gps_w.y + 4 * s : 0);
+        float gps_y = (float)bar_y - gps_w.y - 4 * s - gps_y_off - toast_h_used;
+        float gps_x = (float)(screen_w / 2) - gps_w.x / 2.0f;
+        DrawTextEx(h->font_label, gps_text, (Vector2){gps_x, gps_y}, gps_fs, 0.5f, warn);
+    }
 
     // Replay transport row (above the main HUD bar)
     if (is_replay_source) {
@@ -494,9 +541,20 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
                 (Rectangle){prog_x, prog_y, fill_w, prog_h},
                 0.5f, 4, accent);
         }
-        // Playhead dot
+        // Playhead ring — colored to match the drone's current trail color
         float dot_x = prog_x + prog_w * pb->progress;
-        DrawCircle((int)dot_x, (int)(prog_y + prog_h / 2.0f), 3 * s, accent);
+        float dot_y = prog_y + prog_h / 2.0f;
+        {
+            const vehicle_t *pv = &vehicles[selected];
+            Color ph_col = vehicle_marker_color(pv->roll_deg, pv->pitch_deg,
+                                                pv->vertical_speed,
+                                                sqrtf(pv->ground_speed * pv->ground_speed +
+                                                      pv->vertical_speed * pv->vertical_speed),
+                                                pv->trail_speed_max, theme, trail_mode);
+            float r_outer = 6.5f * s;
+            float r_inner = 5.5f * s;
+            DrawRing((Vector2){dot_x, dot_y}, r_inner, r_outer, 0, 360, 24, ph_col);
+        }
 
         // Flight mode markers on timeline
         if (pb->mode_changes && pb->mode_change_count > 0 && pb->duration_s > 0.0f) {
@@ -525,6 +583,124 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
                                (Vector2){lx, prog_y - tw.y - 2 * s},
                                fs_marker, 0.5f, tick_col);
                     last_label_x = mx;
+                }
+            }
+        }
+
+        // Frame markers on timeline (colored diamonds with labels)
+        if (markers && markers->times && markers->count > 0 && pb->duration_s > 0.0f) {
+            float fs_mlabel = 9 * s;
+            float last_mlabel_x = -100.0f;
+            for (int i = 0; i < markers->count; i++) {
+                float t = markers->times[i] / pb->duration_s;
+                if (t < 0.0f || t > 1.0f) continue;
+                float mx = prog_x + prog_w * t;
+                float my = prog_y + prog_h / 2.0f;
+
+                bool is_cur = (i == markers->current);
+                Color mc = vehicle_marker_color(markers->roll[i], markers->pitch[i],
+                                                markers->vert[i], markers->speed[i],
+                                                markers->speed_max, theme, trail_mode);
+                if (is_cur) {
+                    if (theme->thick_trails) {
+                        mc.r = (unsigned char)(mc.r * 0.55f);
+                        mc.g = (unsigned char)(mc.g * 0.55f);
+                        mc.b = (unsigned char)(mc.b * 0.55f);
+                    } else {
+                        mc.r = (unsigned char)(mc.r + (230 - mc.r) * 0.7f);
+                        mc.g = (unsigned char)(mc.g + (230 - mc.g) * 0.7f);
+                        mc.b = (unsigned char)(mc.b + (230 - mc.b) * 0.7f);
+                    }
+                }
+                mc.a = is_cur ? 255 : 220;
+
+                float d = is_cur ? 5.0f * s : 3.5f * s;
+                Vector2 diamond[4] = {
+                    {mx, my - d}, {mx + d, my}, {mx, my + d}, {mx - d, my},
+                };
+                DrawTriangle(diamond[0], diamond[3], diamond[1], mc);
+                DrawTriangle(diamond[1], diamond[3], diamond[2], mc);
+
+                {
+                    char mlbl[56];
+                    if (markers->labels && markers->labels[i][0] != '\0')
+                        snprintf(mlbl, sizeof(mlbl), "%d:%s", i + 1, markers->labels[i]);
+                    else
+                        snprintf(mlbl, sizeof(mlbl), "%d", i + 1);
+                    Vector2 mlw = MeasureTextEx(h->font_label, mlbl, fs_mlabel, 0.5f);
+                    float min_gap = is_cur ? 0 : (mlw.x + 6 * s);
+                    if (is_cur || mx - last_mlabel_x > min_gap) {
+                        float lx = mx - mlw.x / 2.0f;
+                        if (lx < prog_x) lx = prog_x;
+                        if (lx + mlw.x > prog_x + prog_w) lx = prog_x + prog_w - mlw.x;
+                        float ly = prog_y + prog_h + 3 * s;
+                        if (is_cur) {
+                            float px = 4 * s, py = 2 * s;
+                            DrawRectangleRounded(
+                                (Rectangle){lx - px, ly - py, mlw.x + px * 2, mlw.y + py * 2},
+                                0.4f, 4, bg);
+                        }
+                        DrawTextEx(h->font_label, mlbl,
+                                   (Vector2){lx, ly}, fs_mlabel, 0.5f, mc);
+                        last_mlabel_x = mx;
+                    }
+                }
+            }
+        }
+
+        // System markers on timeline (squares)
+        if (sys_markers && sys_markers->times && sys_markers->count > 0 && pb->duration_s > 0.0f) {
+            float fs_mlabel = 9 * s;
+            float last_slabel_x = -100.0f;
+            for (int i = 0; i < sys_markers->count; i++) {
+                float t = sys_markers->times[i] / pb->duration_s;
+                if (t < 0.0f || t > 1.0f) continue;
+                float mx = prog_x + prog_w * t;
+                float my = prog_y + prog_h / 2.0f;
+
+                bool is_cur = sys_markers->selected && (i == sys_markers->current);
+                Color mc = vehicle_marker_color(sys_markers->roll[i], sys_markers->pitch[i],
+                                                sys_markers->vert[i], sys_markers->speed[i],
+                                                sys_markers->speed_max, theme, trail_mode);
+                if (is_cur) {
+                    if (theme->thick_trails) {
+                        mc.r = (unsigned char)(mc.r * 0.55f);
+                        mc.g = (unsigned char)(mc.g * 0.55f);
+                        mc.b = (unsigned char)(mc.b * 0.55f);
+                    } else {
+                        mc.r = (unsigned char)(mc.r + (230 - mc.r) * 0.7f);
+                        mc.g = (unsigned char)(mc.g + (230 - mc.g) * 0.7f);
+                        mc.b = (unsigned char)(mc.b + (230 - mc.b) * 0.7f);
+                    }
+                }
+                mc.a = is_cur ? 255 : 200;
+
+                float d = is_cur ? 5.0f * s : 3.5f * s;
+                DrawRectangle((int)(mx - d), (int)(my - d), (int)(d * 2), (int)(d * 2), mc);
+
+                {
+                    char mlbl[56];
+                    if (sys_markers->labels && sys_markers->labels[i][0] != '\0')
+                        snprintf(mlbl, sizeof(mlbl), "S:%s", sys_markers->labels[i]);
+                    else
+                        snprintf(mlbl, sizeof(mlbl), "S%d", i + 1);
+                    Vector2 mlw = MeasureTextEx(h->font_label, mlbl, fs_mlabel, 0.5f);
+                    float min_gap = is_cur ? 0 : (mlw.x + 6 * s);
+                    if (is_cur || mx - last_slabel_x > min_gap) {
+                        float lx = mx - mlw.x / 2.0f;
+                        if (lx < prog_x) lx = prog_x;
+                        if (lx + mlw.x > prog_x + prog_w) lx = prog_x + prog_w - mlw.x;
+                        float ly = prog_y - mlw.y - 3 * s;
+                        if (is_cur) {
+                            float px = 4 * s, py = 2 * s;
+                            DrawRectangleRounded(
+                                (Rectangle){lx - px, ly - py, mlw.x + px * 2, mlw.y + py * 2},
+                                0.4f, 4, bg);
+                        }
+                        DrawTextEx(h->font_label, mlbl,
+                                   (Vector2){lx, ly}, fs_mlabel, 0.5f, mc);
+                        last_slabel_x = mx;
+                    }
                 }
             }
         }
@@ -579,10 +755,10 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
     float inst_pad = INSTRUMENT_PADDING * s;
     float inst_y = bar_y + primary_h / 2.0f - 5 * s;
     float comp_cx = inst_pad + inst_radius + 8 * s;
-    draw_compass(comp_cx, inst_y, inst_radius, v->heading_deg, view_mode, h->font_value);
+    draw_compass(comp_cx, inst_y, inst_radius, v->heading_deg, theme, h->font_value);
 
     float adi_cx = comp_cx + inst_radius * 2 + inst_pad + 8 * s;
-    draw_attitude(adi_cx, inst_y, inst_radius, v->roll_deg, v->pitch_deg, view_mode);
+    draw_attitude(adi_cx, inst_y, inst_radius, v->roll_deg, v->pitch_deg, theme);
 
     // Separator drawing helper
     Color sep_color = (Color){accent.r, accent.g, accent.b, 50};
@@ -627,12 +803,19 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
     float unit_y_off = (float)(int)(6 * s);
 
     // NAV group: HDG, ROLL, PITCH (evenly spaced)
-    // HDG
+    // HDG / YAW (Y key toggles)
     {
         char b[8];
         float x = nav_start + nav_step * 0;
-        DrawTextEx(h->font_label, "HDG", (Vector2){x, (float)label_y}, fs_label, 0.5f, label_color);
-        snprintf(b, sizeof(b), "%03d", ((int)v->heading_deg % 360 + 360) % 360);
+        if (h->show_yaw) {
+            DrawTextEx(h->font_label, "YAW", (Vector2){x, (float)label_y}, fs_label, 0.5f, label_color);
+            float yaw = v->heading_deg;
+            if (yaw > 180.0f) yaw -= 360.0f;
+            snprintf(b, sizeof(b), "%+.0f", yaw);
+        } else {
+            DrawTextEx(h->font_label, "HDG", (Vector2){x, (float)label_y}, fs_label, 0.5f, label_color);
+            snprintf(b, sizeof(b), "%03d", ((int)v->heading_deg % 360 + 360) % 360);
+        }
         DrawTextEx(h->font_value, b, (Vector2){x, (float)value_y}, fs_value, 0.5f, value_color);
         Vector2 vw = MeasureTextEx(h->font_value, b, fs_value, 0.5f);
         Vector2 uw = MeasureTextEx(h->font_label, "deg", fs_unit, 0.5f);
@@ -750,17 +933,24 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
                     numpad_x, np_y, h->font_label, np_btn, np_gap, s);
     }
 
-    // Status group (right edge)
+    // Status group (right edge) — vertically centered as a block
     {
         bool connected = sources[selected].connected;
         bool is_replay = sources[selected].playback.duration_s > 0.0f;
-        int status_y = bar_y + primary_h / 2 - (int)(12 * s);
+        float line_gap = 4 * s;
+        float status_line_h = fs_dim;
+        float fps_line_h = fs_dim;
+        float badge_h = ghost_mode ? (fs_dim * 0.8f + 4 * s) : 0;
+        float badge_gap = ghost_mode ? line_gap : 0;
+        float total_h = status_line_h + line_gap + fps_line_h + badge_gap + badge_h;
+        float top_y = bar_y + primary_h / 2.0f - total_h / 2.0f;
+        float cx = status_x + 14 * s;
 
         // Connection dot
         Color dot_color = connected ? connected_color : (Color){200, 60, 60, 255};
-        DrawCircle((int)(status_x + 4 * s), status_y + (int)(6 * s), 4 * s, dot_color);
+        DrawCircle((int)(status_x + 4 * s), (int)(top_y + 6 * s), 4 * s, dot_color);
 
-        // Status text — simple data source label
+        // Status text
         char status_buf[48];
         if (is_replay) {
             if (!connected)
@@ -774,13 +964,31 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
         } else {
             snprintf(status_buf, sizeof(status_buf), "Waiting...");
         }
-        DrawTextEx(h->font_label, status_buf, (Vector2){status_x + 14 * s, (float)status_y}, fs_dim, 0.5f,
+        DrawTextEx(h->font_label, status_buf, (Vector2){cx, top_y}, fs_dim, 0.5f,
                    connected ? connected_color : dim_color);
 
         // FPS
         char fps_buf[16];
         snprintf(fps_buf, sizeof(fps_buf), "FPS: %d", GetFPS());
-        DrawTextEx(h->font_label, fps_buf, (Vector2){status_x + 14 * s, (float)(status_y + (int)(18 * s))}, fs_dim, 0.5f, dim_color);
+        float fps_y = top_y + status_line_h + line_gap;
+        DrawTextEx(h->font_label, fps_buf, (Vector2){cx, fps_y}, fs_dim, 0.5f, dim_color);
+
+        // GHOST badge (small purple pill)
+        if (ghost_mode) {
+            float badge_fs = fs_dim * 0.8f;
+            float badge_y = fps_y + fps_line_h + badge_gap;
+            const char *badge_text = "GHOST";
+            Vector2 tw = MeasureTextEx(h->font_label, badge_text, badge_fs, 0.5f);
+            float pad_x = 10 * s, pad_y = 1.5f * s;
+            float pill_w = tw.x + pad_x * 2;
+            float pill_h = tw.y + pad_y * 2;
+            float pill_x = cx + (MeasureTextEx(h->font_label, "FPS: 60", fs_dim, 0.5f).x - pill_w) / 2.0f;
+            Color purple_bg = (Color){140, 80, 220, 180};
+            Color purple_text = (Color){255, 255, 255, 230};
+            Rectangle pill_r = {pill_x, badge_y, pill_w, pill_h};
+            DrawRectangleRounded(pill_r, 1.0f, 12, purple_bg);
+            DrawTextEx(h->font_label, badge_text, (Vector2){pill_x + pad_x, badge_y + pad_y}, badge_fs, 0.5f, purple_text);
+        }
     }
 
     // Secondary row: position info
@@ -790,6 +998,10 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
         snprintf(b, sizeof(b), "Pos: %.1f, %.1f, %.1f",
                  v->position.x, v->position.y, v->position.z);
         DrawTextEx(h->font_label, b, (Vector2){nav_group_x, (float)row2_y}, fs_dim, 0.5f, dim_color);
+        if (sources[selected].ref_rejected) {
+            Vector2 pw = MeasureTextEx(h->font_label, b, fs_dim, 0.5f);
+            DrawTextEx(h->font_label, "  BAD REF", (Vector2){nav_group_x + pw.x, (float)row2_y}, fs_dim, 0.5f, warn);
+        }
     }
 
     // Draw pinned vehicle secondary rows
@@ -797,7 +1009,8 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
         int pidx = h->pinned[p];
         if (pidx < 0 || pidx >= vehicle_count) continue;
         int row_y = bar_y + primary_h + (int)(4 * s) + (p * secondary_h);
-        draw_secondary_row(h, &vehicles[pidx], pidx, row_y, screen_w,
+        draw_secondary_row(h, &vehicles[pidx], pidx, &sources[pidx].playback,
+                           selected, row_y, screen_w,
                            nav_start, nav_step, energy_start, energy_step,
                            h->font_label, h->font_value,
                            dim_color, value_color, warn, climb_color,
@@ -809,85 +1022,128 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
         // Dim the background
         DrawRectangle(0, 0, screen_w, screen_h, (Color){0, 0, 0, 160});
 
-        float help_fs_title = 22 * s;
-        float help_fs = 16 * s;
-        float line_h = 24 * s;
-        float col_gap = 24 * s;
-
         // Grouped shortcut entries: NULL key = section header
         typedef struct { const char *key; const char *action; } shortcut_entry_t;
 
-        // Left column: VIEW + VEHICLE
-        shortcut_entry_t left_col[] = {
+        // 3 balanced columns
+        shortcut_entry_t col1[] = {
             {NULL,          "VIEW"},
-            {"C",           "Camera mode (Chase / FPV)"},
-            {"V",           "View mode (Grid / Rez / Snow)"},
+            {"C",           "Camera mode (Chase/FPV/Free)"},
+            {"V",           "View mode (Grid/Rez/Snow)"},
             {"F",           "Terrain texture"},
-            {"K",           "Arm colors (classic / modern)"},
+            {"K",           "Arm colors (classic/modern)"},
             {"O",           "Orthographic side panel"},
             {"Ctrl+D",      "Debug overlay"},
             {"Alt+1-7",     "Ortho views (1=perspective)"},
-            {NULL,          "VEHICLE MODEL"},
-            {"M",           "Switch variant (Shift: all)"},
+            {NULL,          "VEHICLE"},
+            {"M",           "Switch variant (Sh: all)"},
             {NULL,          "MULTI-VEHICLE"},
             {"TAB",         "Next vehicle"},
             {"[ / ]",       "Prev / next vehicle"},
             {"1-9",         "Select vehicle"},
             {"Sh+1-9",      "Pin / unpin to HUD"},
         };
-
-        // Right column: HUD + CAMERA + REPLAY
-        shortcut_entry_t right_col[] = {
+        shortcut_entry_t col2[] = {
             {NULL,          "HUD"},
             {"H",           "Toggle HUD"},
             {"T",           "Cycle trail mode"},
+            {"Sh+T",        "Correlation (curtain/line)"},
             {"G",           "Ground track projection"},
             {"?",           "Toggle this help"},
             {NULL,          "CAMERA"},
-            {"Drag",        "Orbit (chase mode)"},
-            {"Scroll",      "Zoom FOV"},
+            {"Drag",        "Orbit (chase) / look (free)"},
+            {"Scroll",      "Zoom FOV / distance"},
+            {"WASDQE",      "Fly (free cam)"},
             {"Alt+Scrl",    "Zoom ortho span"},
+            {NULL,          "EDGE INDICATORS"},
+            {"Ctrl+L",      "Toggle edge indicators"},
+        };
+        shortcut_entry_t col3[] = {
             {NULL,          "REPLAY"},
             {"Space",       "Pause / resume"},
             {"+/-",         "Playback speed"},
-            {"<-/->",       "Seek 5s (Shift: 30s)"},
-            {"L",           "Toggle loop"},
+            {"<-/->",       "Seek 5s"},
+            {"Sh+<-/->",    "Frame step"},
+            {"Ctrl+Sh+<->", "Seek 1s"},
+            {"L",           "Toggle labels"},
+            {"Sh+L",        "Toggle loop"},
             {"I",           "Interpolation"},
             {"R",           "Restart"},
+            {NULL,          "MARKERS"},
+            {"B",           "Drop marker"},
+            {"B then L",    "Drop + label marker"},
+            {"Sh+B",        "Delete current marker"},
+            {"[ / ]",       "Jump to prev/next marker"},
+            {"Sh+[ / ]",    "Track from marker"},
+            {"A",           "Takeoff alignment"},
         };
 
-        int left_count = sizeof(left_col) / sizeof(left_col[0]);
-        int right_count = sizeof(right_col) / sizeof(right_col[0]);
-        int max_rows = left_count > right_count ? left_count : right_count;
+        int counts[3] = {
+            sizeof(col1) / sizeof(col1[0]),
+            sizeof(col2) / sizeof(col2[0]),
+            sizeof(col3) / sizeof(col3[0]),
+        };
+        shortcut_entry_t *cols[3] = { col1, col2, col3 };
 
-        float help_fs_group = 14 * s;
-        float group_top_pad = 6 * s;
+        // Find tallest column (entries + headers)
+        int max_rows = 0;
+        int max_headers = 0;
+        for (int c = 0; c < 3; c++) {
+            if (counts[c] > max_rows) max_rows = counts[c];
+            int hdr = 0;
+            for (int i = 0; i < counts[c]; i++) if (!cols[c][i].key) hdr++;
+            if (hdr > max_headers) max_headers = hdr;
+        }
 
-        // Measure max key width across both columns
+        // Scale font to fit screen height
+        float base_fs = 14 * s;
+        float base_line_h = 20 * s;
+        float base_group_pad = 5 * s;
+        float title_h = 36 * s;
+        float margin = 20 * s;
+        float needed_h = title_h + max_rows * base_line_h + max_headers * base_group_pad + margin * 2;
+        float scale_down = 1.0f;
+        if (needed_h > screen_h * 0.95f) {
+            scale_down = (screen_h * 0.95f) / needed_h;
+            if (scale_down < 0.6f) scale_down = 0.6f;
+        }
+
+        float help_fs_title = 20 * s * scale_down;
+        float help_fs = base_fs * scale_down;
+        float help_fs_group = 12 * s * scale_down;
+        float line_h = base_line_h * scale_down;
+        float group_top_pad = base_group_pad * scale_down;
+        float col_gap = 16 * s * scale_down;
+
+        // Measure max key width across all columns
         float max_key_w = 0;
-        for (int i = 0; i < left_count; i++) {
-            if (!left_col[i].key) continue;
-            Vector2 kw = MeasureTextEx(h->font_value, left_col[i].key, help_fs, 0.5f);
-            if (kw.x > max_key_w) max_key_w = kw.x;
-        }
-        for (int i = 0; i < right_count; i++) {
-            if (!right_col[i].key) continue;
-            Vector2 kw = MeasureTextEx(h->font_value, right_col[i].key, help_fs, 0.5f);
-            if (kw.x > max_key_w) max_key_w = kw.x;
+        for (int c = 0; c < 3; c++) {
+            for (int i = 0; i < counts[c]; i++) {
+                if (!cols[c][i].key) continue;
+                Vector2 kw = MeasureTextEx(h->font_value, cols[c][i].key, help_fs, 0.5f);
+                if (kw.x > max_key_w) max_key_w = kw.x;
+            }
         }
 
-        // Count group headers for extra padding
-        int left_headers = 0, right_headers = 0;
-        for (int i = 0; i < left_count; i++) if (!left_col[i].key) left_headers++;
-        for (int i = 0; i < right_count; i++) if (!right_col[i].key) right_headers++;
-        int max_headers = left_headers > right_headers ? left_headers : right_headers;
+        // Measure max action text width across all columns
+        float max_action_w = 0;
+        for (int c = 0; c < 3; c++) {
+            for (int i = 0; i < counts[c]; i++) {
+                if (!cols[c][i].key) continue;
+                Vector2 aw = MeasureTextEx(h->font_label, cols[c][i].action, help_fs, 0.5f);
+                if (aw.x > max_action_w) max_action_w = aw.x;
+            }
+        }
 
-        float col_w = max_key_w + col_gap + 220 * s;
-        float mid_gap = 32 * s;
-        float panel_w = col_w * 2 + mid_gap + 40 * s;
-        float panel_h = 40 * s + max_rows * line_h + max_headers * group_top_pad + 20 * s;
+        float col_w = max_key_w + col_gap + max_action_w;
+        float mid_gap = 24 * s * scale_down;
+        float panel_w = col_w * 3 + mid_gap * 2 + margin * 2;
+        // Clamp panel width to screen
+        if (panel_w > screen_w * 0.98f) panel_w = screen_w * 0.98f;
+        float panel_h = title_h * scale_down + max_rows * line_h + max_headers * group_top_pad + margin * 2;
         float panel_x = (screen_w - panel_w) / 2.0f;
         float panel_y = (screen_h - panel_h) / 2.0f;
+        if (panel_y < 4) panel_y = 4;
 
         // Panel background
         DrawRectangleRounded(
@@ -901,16 +1157,17 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
         const char *title = "Keyboard Shortcuts";
         Vector2 tw = MeasureTextEx(h->font_label, title, help_fs_title, 0.5f);
         DrawTextEx(h->font_label, title,
-                   (Vector2){panel_x + (panel_w - tw.x) / 2, panel_y + 12 * s},
+                   (Vector2){panel_x + (panel_w - tw.x) / 2, panel_y + 10 * s * scale_down},
                    help_fs_title, 0.5f, accent);
 
-        // Draw a column of grouped entries
-        float ey_start = panel_y + 40 * s;
-        shortcut_entry_t *cols[] = { left_col, right_col };
-        int counts[] = { left_count, right_count };
+        // Draw 3 columns
+        float ey_start = panel_y + title_h * scale_down;
+        // Recompute col_w to distribute evenly within actual panel
+        float usable_w = panel_w - margin * 2 - mid_gap * 2;
+        float actual_col_w = usable_w / 3.0f;
 
-        for (int c = 0; c < 2; c++) {
-            float key_x = panel_x + 20 * s + c * (col_w + mid_gap);
+        for (int c = 0; c < 3; c++) {
+            float key_x = panel_x + margin + c * (actual_col_w + mid_gap);
             float action_x = key_x + max_key_w + col_gap;
             float ey = ey_start;
             for (int i = 0; i < counts[c]; i++) {

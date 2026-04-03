@@ -50,7 +50,6 @@ jobs:
         run: make BUILD_TYPE=${{ matrix.build_type }}
 
       - name: Test
-        if: runner.os != 'Windows'
         run: make test BUILD_TYPE=${{ matrix.build_type }}
 
   test:

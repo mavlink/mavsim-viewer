@@ -4,7 +4,7 @@
       "Bash(lsof:*)",
       "Bash(gh pr:*)",
       "Bash(git:*)",
-      "Bash(./mavsim-viewer:*)",
+      "Bash(./hawkeye:*)",
       "Bash(lldb:*)",
       "Bash(pkill:*)",
       "WebFetch(domain:raw.githubusercontent.com)",

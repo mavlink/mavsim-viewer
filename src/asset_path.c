@@ -63,27 +63,27 @@ void asset_path_init(void) {
     const char *home = getenv("HOME");
     if (home) {
         snprintf(s_user_data, sizeof(s_user_data),
-                 "%s/Library/Application Support/mavsim-viewer", home);
+                 "%s/Library/Application Support/hawkeye", home);
     }
 #elif !defined(_WIN32)
     // Linux: XDG_DATA_HOME or ~/.local/share
     const char *xdg = getenv("XDG_DATA_HOME");
     if (xdg && xdg[0]) {
         snprintf(s_user_data, sizeof(s_user_data),
-                 "%s/mavsim-viewer", xdg);
+                 "%s/hawkeye", xdg);
     } else {
         const char *home = getenv("HOME");
         if (home) {
             snprintf(s_user_data, sizeof(s_user_data),
-                     "%s/.local/share/mavsim-viewer", home);
+                     "%s/.local/share/hawkeye", home);
         }
     }
 #endif
 
     // Compile-time install prefix (set by CMake)
-#ifdef MAVSIM_INSTALL_DATADIR
+#ifdef HAWKEYE_INSTALL_DATADIR
     snprintf(s_install_data, sizeof(s_install_data),
-             "%s", MAVSIM_INSTALL_DATADIR);
+             "%s", HAWKEYE_INSTALL_DATADIR);
 #endif
 }
 

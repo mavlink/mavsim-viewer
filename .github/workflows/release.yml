@@ -30,14 +30,14 @@ jobs:
         id: tarball
         run: |
           VERSION=${{ steps.version.outputs.version }}
-          tar czf /tmp/mavsim-viewer-${VERSION}.tar.gz \
+          tar czf /tmp/hawkeye-${VERSION}.tar.gz \
             --exclude='.git' \
             --exclude='tests/fixtures/*.ulg' \
             --exclude='build' \
-            --transform="s,^\.,mavsim-viewer-${VERSION}," \
+            --transform="s,^\.,hawkeye-${VERSION}," \
             .
-          mv /tmp/mavsim-viewer-${VERSION}.tar.gz .
-          SHA=$(sha256sum mavsim-viewer-${VERSION}.tar.gz | awk '{print $1}')
+          mv /tmp/hawkeye-${VERSION}.tar.gz .
+          SHA=$(sha256sum hawkeye-${VERSION}.tar.gz | awk '{print $1}')
           echo "sha256=${SHA}" >> "$GITHUB_OUTPUT"
           echo "Tarball SHA256: ${SHA}"
 
@@ -52,7 +52,7 @@ jobs:
       - name: Upload source tarball
         run: |
           VERSION=${{ steps.version.outputs.version }}
-          gh release upload ${{ github.ref_name }} mavsim-viewer-${VERSION}.tar.gz
+          gh release upload ${{ github.ref_name }} hawkeye-${VERSION}.tar.gz
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -72,14 +72,14 @@ jobs:
           TARBALL_SHA: ${{ needs.source-tarball.outputs.tarball_sha256 }}
           TAG: ${{ github.ref_name }}
         run: |
-          export FORMULA_DIR="$(brew --repo)/Library/Taps/mavlink/homebrew-tap/Formula"
+          export FORMULA_DIR="$(brew --repo)/Library/Taps/PX4/homebrew-tap/Formula"
           mkdir -p "$FORMULA_DIR"
           python3 -c "
           import os
-          formula = '''class MavsimViewer < Formula
+          formula = '''class Hawkeye < Formula
             desc \"3D MAVLink vehicle viewer for SITL simulation\"
-            homepage \"https://github.com/mavlink/mavsim-viewer\"
-            url \"https://github.com/mavlink/mavsim-viewer/releases/download/{tag}/mavsim-viewer-{version}.tar.gz\"
+            homepage \"https://github.com/PX4/Hawkeye\"
+            url \"https://github.com/PX4/Hawkeye/releases/download/{tag}/hawkeye-{version}.tar.gz\"
             sha256 \"{sha}\"
             license \"BSD-3-Clause\"
 
@@ -92,7 +92,7 @@ jobs:
             end
 
             test do
-              assert_predicate bin/\"mavsim-viewer\", :executable?
+              assert_predicate bin/\"hawkeye\", :executable?
             end
           end
           '''.format(
@@ -100,12 +100,12 @@ jobs:
               version=os.environ['VERSION'],
               sha=os.environ['TARBALL_SHA'],
           )
-          with open(os.environ['FORMULA_DIR'] + '/mavsim-viewer.rb', 'w') as f:
+          with open(os.environ['FORMULA_DIR'] + '/hawkeye.rb', 'w') as f:
               f.write(formula)
           "
 
       - name: Build bottle
-        run: brew install --build-bottle mavlink/tap/mavsim-viewer
+        run: brew install --build-bottle PX4/tap/hawkeye
 
       - name: Package bottle
         id: bottle
@@ -113,11 +113,11 @@ jobs:
           TAG=${{ github.ref_name }}
           brew bottle \
             --json \
-            --root-url="https://github.com/mavlink/mavsim-viewer/releases/download/${TAG}" \
-            mavlink/tap/mavsim-viewer
+            --root-url="https://github.com/PX4/Hawkeye/releases/download/${TAG}" \
+            PX4/tap/hawkeye
 
-          BOTTLE_JSON=$(ls mavsim-viewer--*.bottle.json)
-          BOTTLE_FILE=$(ls mavsim-viewer--*.bottle.tar.gz)
+          BOTTLE_JSON=$(ls hawkeye--*.bottle.json)
+          BOTTLE_FILE=$(ls hawkeye--*.bottle.tar.gz)
           CLEAN_NAME=$(echo "$BOTTLE_FILE" | sed 's/--/-/')
           mv "$BOTTLE_FILE" "$CLEAN_NAME"
 
@@ -169,7 +169,7 @@ jobs:
           cmake -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX=/usr \
-            -DMAVSIM_VERSION=${{ needs.source-tarball.outputs.version }}
+            -DHAWKEYE_VERSION=${{ needs.source-tarball.outputs.version }}
 
       - name: Build
         run: cmake --build build --config Release
@@ -180,10 +180,10 @@ jobs:
       - name: Smoke test
         run: |
           sudo dpkg -i build/*.deb
-          which mavsim-viewer
-          ls /usr/share/mavsim-viewer/models/
-          ls /usr/share/mavsim-viewer/shaders/
-          ls /usr/share/mavsim-viewer/fonts/
+          which hawkeye
+          ls /usr/share/hawkeye/models/
+          ls /usr/share/hawkeye/shaders/
+          ls /usr/share/hawkeye/fonts/
 
       - name: Upload .deb to release
         run: gh release upload ${{ github.ref_name }} build/*.deb
@@ -206,20 +206,20 @@ jobs:
           ARM64_TAG: ${{ needs.bottle-arm64.outputs.bottle_tag }}
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
-          git clone https://x-access-token:${TAP_TOKEN}@github.com/mavlink/homebrew-tap.git tap
+          git clone https://x-access-token:${TAP_TOKEN}@github.com/PX4/homebrew-tap.git tap
           mkdir -p tap/Formula
 
           python3 -c "
           import os
-          formula = '''class MavsimViewer < Formula
+          formula = '''class Hawkeye < Formula
             desc \"3D MAVLink vehicle viewer for SITL simulation\"
-            homepage \"https://github.com/mavlink/mavsim-viewer\"
-            url \"https://github.com/mavlink/mavsim-viewer/releases/download/{tag}/mavsim-viewer-{version}.tar.gz\"
+            homepage \"https://github.com/PX4/Hawkeye\"
+            url \"https://github.com/PX4/Hawkeye/releases/download/{tag}/hawkeye-{version}.tar.gz\"
             sha256 \"{tarball_sha}\"
             license \"BSD-3-Clause\"
 
             bottle do
-              root_url \"https://github.com/mavlink/mavsim-viewer/releases/download/{tag}\"
+              root_url \"https://github.com/PX4/Hawkeye/releases/download/{tag}\"
               sha256 cellar: :any_skip_relocation, {arm64_tag}: \"{arm64_sha}\"
             end
 
@@ -235,7 +235,7 @@ jobs:
             end
 
             test do
-              assert_predicate bin/\"mavsim-viewer\", :executable?
+              assert_predicate bin/\"hawkeye\", :executable?
             end
           end
           '''.format(
@@ -245,13 +245,13 @@ jobs:
               arm64_sha=os.environ['ARM64_SHA'],
               arm64_tag=os.environ['ARM64_TAG'],
           )
-          with open('tap/Formula/mavsim-viewer.rb', 'w') as f:
+          with open('tap/Formula/hawkeye.rb', 'w') as f:
               f.write(formula)
           "
 
           cd tap
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Formula/mavsim-viewer.rb
-          git commit -m "mavsim-viewer ${VERSION}"
+          git add Formula/hawkeye.rb
+          git commit -m "hawkeye ${VERSION}"
           git push

@@ -6,11 +6,11 @@ CMAKE_EXTRA ?=
 ifeq ($(OS),Windows_NT)
     JOBS := $(NUMBER_OF_PROCESSORS)
     RM   := rmdir /s /q
-    EXE  := $(BUILD_DIR)\mavsim-viewer.exe
+    EXE  := $(BUILD_DIR)\hawkeye.exe
 else
     JOBS := $(shell sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
     RM   := rm -rf
-    EXE  := $(BUILD_DIR)/mavsim-viewer
+    EXE  := $(BUILD_DIR)/hawkeye
 endif
 
 .PHONY: build configure test clean release run test-core sanitize

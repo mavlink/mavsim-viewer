@@ -1,12 +1,12 @@
-# MAVSim Viewer
+# Hawkeye
 
-[![Release](https://img.shields.io/github/v/release/mavlink/mavsim-viewer)](https://github.com/mavlink/mavsim-viewer/releases/latest)
+[![Release](https://img.shields.io/github/v/release/PX4/Hawkeye)](https://github.com/PX4/Hawkeye/releases/latest)
 
 Lightweight 3D viewer for MAVLink-based flight simulators. Receives `HIL_STATE_QUATERNION` messages over UDP and renders the vehicle with real-time telemetry.
 
 Built with [Raylib](https://www.raylib.com/) and [MAVLink](https://mavlink.io/).
 
-![MAVSim Viewer](docs/screenshot.png)
+![Hawkeye](docs/screenshot.png)
 
 ## Features
 
@@ -34,16 +34,16 @@ Built with [Raylib](https://www.raylib.com/) and [MAVLink](https://mavlink.io/).
 ### macOS (Homebrew)
 
 ```bash
-brew tap mavlink/tap
-brew install mavlink/tap/mavsim-viewer
+brew tap PX4/tap
+brew install PX4/tap/hawkeye
 ```
 
 ### Linux (Debian/Ubuntu)
 
-Download the `.deb` from the [latest release](https://github.com/mavlink/mavsim-viewer/releases/latest):
+Download the `.deb` from the [latest release](https://github.com/PX4/Hawkeye/releases/latest):
 
 ```bash
-sudo dpkg -i mavsim-viewer-*.deb
+sudo dpkg -i hawkeye-*.deb
 ```
 
 ### From source
@@ -52,8 +52,8 @@ sudo dpkg -i mavsim-viewer-*.deb
 
 ```bash
 brew install cmake git
-git clone --recursive https://github.com/mavlink/mavsim-viewer.git
-cd mavsim-viewer
+git clone --recursive https://github.com/PX4/Hawkeye.git
+cd Hawkeye
 make release
 ```
 
@@ -63,8 +63,8 @@ make release
 sudo apt-get install -y cmake git build-essential \
   libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
 
-git clone --recursive https://github.com/mavlink/mavsim-viewer.git
-cd mavsim-viewer
+git clone --recursive https://github.com/PX4/Hawkeye.git
+cd Hawkeye
 make release
 ```
 
@@ -72,12 +72,12 @@ make release
 
 ```powershell
 # Requires Visual Studio with C/C++ workload, CMake, and Git
-git clone --recursive https://github.com/mavlink/mavsim-viewer.git
-cd mavsim-viewer
+git clone --recursive https://github.com/PX4/Hawkeye.git
+cd Hawkeye
 make release
 ```
 
-The binary will be at `build/mavsim-viewer` (or `build\Release\mavsim-viewer.exe` on Windows).
+The binary will be at `build/hawkeye` (or `build\Release\hawkeye.exe` on Windows).
 
 #### Makefile targets
 
@@ -92,7 +92,7 @@ The binary will be at `build/mavsim-viewer` (or `build\Release\mavsim-viewer.exe
 ## Usage
 
 ```bash
-./mavsim-viewer [options]
+./hawkeye [options]
 ```
 
 | Option | Description |
@@ -118,7 +118,7 @@ Each vehicle listens on its own UDP port: `base_port`, `base_port+1`, ..., `base
 make px4_sitl sihsim_quadx
 
 # Terminal 2: Launch viewer
-./mavsim-viewer
+./hawkeye
 ```
 
 ### Multi-vehicle swarm
@@ -143,8 +143,8 @@ rm -rf build/px4_sitl_sih/instance_*/parameters*.bson
 PX4_SIM_SPEED_FACTOR=10 ./Tools/simulation/sitl_multiple_run.sh 5 sihsim_quadx px4_sitl_sih
 
 # 4. In a new terminal, launch the viewer
-cd mavsim-viewer
-./build/mavsim-viewer -n 5
+cd Hawkeye
+./build/hawkeye -n 5
 
 # 5. In a new terminal, install MAVSDK and run the swarm test
 pip install mavsdk
@@ -169,7 +169,7 @@ The test script accepts these options:
 Replay PX4 `.ulg` flight logs directly in the viewer:
 
 ```bash
-./mavsim-viewer --replay path/to/flight.ulg
+./hawkeye --replay path/to/flight.ulg
 ```
 
 The viewer parses `vehicle_attitude`, `vehicle_local_position`, and `vehicle_global_position` topics from the log. Vehicle type is auto-detected from `vehicle_status`. Logs without GPS data (e.g. indoor optical flow flights) fall back to local position with reference point conversion.
@@ -182,10 +182,10 @@ Load multiple ULog files to replay swarm flights together:
 
 ```bash
 # Formation mode — drones at real relative GPS positions
-./mavsim-viewer --replay drone1.ulg drone2.ulg drone3.ulg
+./hawkeye --replay drone1.ulg drone2.ulg drone3.ulg
 
 # Ghost mode — overlay flights for visual comparison
-./mavsim-viewer --ghost flight_before.ulg flight_after.ulg
+./hawkeye --ghost flight_before.ulg flight_after.ulg
 ```
 
 On startup, the viewer pre-scans each log for home position data (`home_position` topic with GPOS fallback) and detects conflicts automatically. If drones share the same launch point, are too far apart (>1km), or lack position data, a deconfliction prompt offers resolution options:

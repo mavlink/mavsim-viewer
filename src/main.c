@@ -210,7 +210,7 @@ int main(int argc, char *argv[]) {
 
     // Init Raylib
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
-    InitWindow(win_w, win_h, "MAVSim Viewer");
+    InitWindow(win_w, win_h, "Hawkeye");
     SetTargetFPS(60);
 
     // Init data sources

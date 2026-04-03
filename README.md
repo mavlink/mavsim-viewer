@@ -10,7 +10,7 @@ Built with [Raylib](https://www.raylib.com/) and [MAVLink](https://mavlink.io/).
 
 ## Features
 
-- Real-time 3D visualization of vehicle position and orientation
+- **Real-time 3D visualization** — vehicle position and orientation from MAVLink telemetry
 - **Multi-vehicle swarm support** — up to 16 vehicles simultaneously
 - **Multi-drone ULog replay** — load multiple `.ulg` files and replay swarm flights side by side
 - **Ghost mode** — overlay flights with translucent non-primary drones for visual comparison
@@ -19,15 +19,15 @@ Built with [Raylib](https://www.raylib.com/) and [MAVLink](https://mavlink.io/).
 - **CUSUM takeoff detection** — automatically detects launch times and aligns multi-drone timelines for synchronized comparison
 - **Frame markers** — drop markers at any point during replay (`B`), add labels (`B` then `L`), and navigate between them
 - **Theme engine** — `.mvt` theme files with drag-and-drop loading and `V` key cycling
-- Multiple vehicle models: quadrotor, hexarotor, fixed-wing, tailsitter, VTOL, rover, ROV
-- Three camera modes: Chase, FPV, and Free (WASDQE fly with shift boost) — press `C` to cycle
-- Vehicle selection and pinning: TAB cycles, 1-9 select, Shift+number pins, two-digit chords for drones 10-16
-- Mouse orbit (left-drag) and FOV zoom (scroll wheel)
-- HUD with compass, attitude indicator, telemetry, CONF/PRSN/RMSE badges, and ESTIMATED POSITION warnings
-- Orthographic views: sidebar (Top/Front/Right) and fullscreen (Alt+2-7) with 2D trail rendering
-- Screen edge indicators for off-screen drones in multi-vehicle mode
-- Theme-driven color palettes for drones, trails, grid, and HUD
-- Cross-platform: macOS, Linux, and Windows supported out of the box thanks to Raylib
+- **Vehicle models** — quadrotor, hexarotor, fixed-wing, tailsitter, VTOL, rover, ROV
+- **Three camera modes** — Chase, FPV, and Free (WASDQE fly with shift boost) — press `C` to cycle
+- **Vehicle selection** — TAB cycles, 1-9 select, Shift+number pins, two-digit chords for drones 10-16
+- **Mouse controls** — orbit (left-drag), FOV zoom (scroll wheel), ortho pan (right-drag)
+- **HUD** — compass, attitude indicator, telemetry, CONF/PRSN/RMSE badges, and ESTIMATED POSITION warnings
+- **Orthographic views** — sidebar (Top/Front/Right) and fullscreen (Alt+2-7) with 2D trail rendering
+- **Edge indicators** — screen-edge chevrons pointing toward off-screen drones in multi-vehicle mode
+- **Color palettes** — theme-driven colors for drones, trails, grid, and HUD
+- **Cross-platform** — macOS, Linux, and Windows supported out of the box thanks to Raylib
 
 ## Install
 

@@ -862,6 +862,7 @@ int main(int argc, char *argv[]) {
 
                 bool shift_held = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
                 bool ctrl_held = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+                bool alt_held = IsKeyDown(KEY_LEFT_ALT) || IsKeyDown(KEY_RIGHT_ALT);
 
                 // Check chord timeout
                 if (chord_first >= 0 && GetTime() - chord_time > CHORD_TIMEOUT_S) {
@@ -872,7 +873,7 @@ int main(int argc, char *argv[]) {
                     chord_first = -1;
                 }
 
-                if (digit >= 0 && !ctrl_held) {
+                if (digit >= 0 && !ctrl_held && !alt_held) {
                     if (chord_first >= 0) {
                         // Second digit of chord: combine into two-digit number
                         int two_digit = chord_first * 10 + digit;

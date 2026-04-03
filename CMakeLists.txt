@@ -43,6 +43,14 @@ if(NOT BUILD_TESTING_ONLY)
         src/vehicle.c
         src/scene.c
         src/hud.c
+        src/hud_help.c
+        src/hud_instruments.c
+        src/hud_transport.c
+        src/hud_telemetry.c
+        src/replay_conflict.c
+        src/replay_trail.c
+        src/replay_markers.c
+        src/ui_marker_input.c
         src/debug_panel.c
         src/ortho_panel.c
         src/asset_path.c

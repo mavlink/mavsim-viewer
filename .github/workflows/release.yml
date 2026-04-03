@@ -204,16 +204,17 @@ jobs:
       - name: Install cross-compilation toolchain
         run: |
           sudo dpkg --add-architecture arm64
-          # Pin existing sources to amd64 only, skip non-deb lines and files that already have arch qualifiers
-          for f in /etc/apt/sources.list.d/*.list; do
-            sudo sed -i '/^\s*#/!{/\[arch=/!s/^deb /deb [arch=amd64] /}' "$f" 2>/dev/null || true
+          # Pin all existing sources (DEB822 .sources and legacy .list) to amd64
+          for f in /etc/apt/sources.list.d/*.sources; do
+            [ -f "$f" ] && sudo sed -i '/^Architectures:/d; /^Types:/a Architectures: amd64' "$f" || true
           done
-          # Also handle /etc/apt/sources.list if it exists
+          for f in /etc/apt/sources.list.d/*.list; do
+            [ -f "$f" ] && sudo sed -i '/^\s*#/!{/\[arch=/!s/^deb /deb [arch=amd64] /}' "$f" || true
+          done
           [ -f /etc/apt/sources.list ] && sudo sed -i '/^\s*#/!{/\[arch=/!s/^deb /deb [arch=amd64] /}' /etc/apt/sources.list || true
           # Add arm64 ports
           CODENAME=$(lsb_release -cs)
-          echo "deb [arch=arm64] http://ports.ubuntu.com/ ${CODENAME} main restricted universe multiverse" | sudo tee /etc/apt/sources.list.d/arm64.list
-          echo "deb [arch=arm64] http://ports.ubuntu.com/ ${CODENAME}-updates main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list.d/arm64.list
+          printf "Types: deb\nURIs: http://ports.ubuntu.com/\nSuites: %s %s-updates\nComponents: main restricted universe multiverse\nArchitectures: arm64\n" "$CODENAME" "$CODENAME" | sudo tee /etc/apt/sources.list.d/arm64-ports.sources
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
           sudo apt-get install -y libgl1-mesa-dev:arm64 libx11-dev:arm64 libxrandr-dev:arm64 \

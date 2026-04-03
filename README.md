@@ -34,8 +34,8 @@ Built with [Raylib](https://www.raylib.com/) and [MAVLink](https://mavlink.io/).
 ### macOS (Homebrew)
 
 ```bash
-brew tap PX4/tap
-brew install PX4/tap/hawkeye
+brew tap PX4/px4
+brew install PX4/px4/hawkeye
 ```
 
 ### Linux (Debian/Ubuntu)

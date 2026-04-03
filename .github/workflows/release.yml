@@ -72,12 +72,12 @@ jobs:
           TARBALL_SHA: ${{ needs.source-tarball.outputs.tarball_sha256 }}
           TAG: ${{ github.ref_name }}
         run: |
-          export FORMULA_DIR="$(brew --repo)/Library/Taps/PX4/homebrew-tap/Formula"
+          export FORMULA_DIR="$(brew --repo)/Library/Taps/PX4/homebrew-px4/Formula"
           mkdir -p "$FORMULA_DIR"
           python3 -c "
           import os
           formula = '''class Hawkeye < Formula
-            desc \"3D MAVLink vehicle viewer for SITL simulation\"
+            desc \"Real-time 3D flight visualizer for PX4 with ULog replay and multi-drone analysis\"
             homepage \"https://github.com/PX4/Hawkeye\"
             url \"https://github.com/PX4/Hawkeye/releases/download/{tag}/hawkeye-{version}.tar.gz\"
             sha256 \"{sha}\"
@@ -105,7 +105,7 @@ jobs:
           "
 
       - name: Build bottle
-        run: brew install --build-bottle PX4/tap/hawkeye
+        run: brew install --build-bottle PX4/px4/hawkeye
 
       - name: Package bottle
         id: bottle
@@ -114,7 +114,7 @@ jobs:
           brew bottle \
             --json \
             --root-url="https://github.com/PX4/Hawkeye/releases/download/${TAG}" \
-            PX4/tap/hawkeye
+            PX4/px4/hawkeye
 
           BOTTLE_JSON=$(ls hawkeye--*.bottle.json)
           BOTTLE_FILE=$(ls hawkeye--*.bottle.tar.gz)
@@ -206,13 +206,12 @@ jobs:
           ARM64_TAG: ${{ needs.bottle-arm64.outputs.bottle_tag }}
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
-          git clone https://x-access-token:${TAP_TOKEN}@github.com/PX4/homebrew-tap.git tap
-          mkdir -p tap/Formula
+          git clone https://x-access-token:${TAP_TOKEN}@github.com/PX4/homebrew-px4.git tap
 
           python3 -c "
           import os
           formula = '''class Hawkeye < Formula
-            desc \"3D MAVLink vehicle viewer for SITL simulation\"
+            desc \"Real-time 3D flight visualizer for PX4 with ULog replay and multi-drone analysis\"
             homepage \"https://github.com/PX4/Hawkeye\"
             url \"https://github.com/PX4/Hawkeye/releases/download/{tag}/hawkeye-{version}.tar.gz\"
             sha256 \"{tarball_sha}\"
@@ -245,13 +244,13 @@ jobs:
               arm64_sha=os.environ['ARM64_SHA'],
               arm64_tag=os.environ['ARM64_TAG'],
           )
-          with open('tap/Formula/hawkeye.rb', 'w') as f:
+          with open('tap/hawkeye.rb', 'w') as f:
               f.write(formula)
           "
 
           cd tap
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Formula/hawkeye.rb
+          git add hawkeye.rb
           git commit -m "hawkeye ${VERSION}"
           git push

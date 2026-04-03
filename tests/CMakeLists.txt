@@ -2,40 +2,43 @@ set(FIXTURES_DIR ${CMAKE_SOURCE_DIR}/tests/fixtures)
 
 # Tests use assert() for both setup and checks — ensure NDEBUG is never set
 # so asserts are always active, even in Release builds.
-remove_definitions(-DNDEBUG)
+# remove_definitions is a no-op on per-target flags added by CMake, so we
+# strip them from the Release flags directly.
+if(MSVC)
+    string(REPLACE "/DNDEBUG" "" CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE}")
+    string(REPLACE "/DNDEBUG" "" CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELWITHDEBINFO}")
+else()
+    string(REPLACE "-DNDEBUG" "" CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE}")
+    string(REPLACE "-DNDEBUG" "" CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELWITHDEBINFO}")
+endif()
 
 # ULog parser tests
 add_executable(test_ulog_parser test_ulog_parser.c)
 target_link_libraries(test_ulog_parser PRIVATE mavsim-core)
 target_compile_definitions(test_ulog_parser PRIVATE FIXTURES_DIR="${FIXTURES_DIR}")
-target_compile_options(test_ulog_parser PRIVATE -UNDEBUG)
 add_test(NAME ulog_parser COMMAND test_ulog_parser)
 
 # ULog replay tests
 add_executable(test_ulog_replay test_ulog_replay.c)
 target_link_libraries(test_ulog_replay PRIVATE mavsim-core)
 target_compile_definitions(test_ulog_replay PRIVATE FIXTURES_DIR="${FIXTURES_DIR}")
-target_compile_options(test_ulog_replay PRIVATE -UNDEBUG)
 add_test(NAME ulog_replay COMMAND test_ulog_replay)
 
 # Data source integration tests
 add_executable(test_data_source test_data_source.c)
 target_link_libraries(test_data_source PRIVATE mavsim-core)
 target_compile_definitions(test_data_source PRIVATE FIXTURES_DIR="${FIXTURES_DIR}")
-target_compile_options(test_data_source PRIVATE -UNDEBUG)
 add_test(NAME data_source COMMAND test_data_source)
 
 # Algorithm tests (CUSUM takeoff detection, Pearson correlation, home tier)
 add_executable(test_algorithms test_algorithms.c)
 target_link_libraries(test_algorithms PRIVATE mavsim-core)
 target_compile_definitions(test_algorithms PRIVATE FIXTURES_DIR="${FIXTURES_DIR}")
-target_compile_options(test_algorithms PRIVATE -UNDEBUG)
 add_test(NAME algorithms COMMAND test_algorithms)
 
 # UI logic tests (vehicle selection, edge-indicator math — no Raylib needed)
 add_executable(test_ui_logic test_ui_logic.c)
 target_include_directories(test_ui_logic PRIVATE ${CMAKE_SOURCE_DIR}/src)
-target_compile_options(test_ui_logic PRIVATE -UNDEBUG)
 if(UNIX AND NOT APPLE)
     target_link_libraries(test_ui_logic PRIVATE m)
 endif()
@@ -52,6 +55,5 @@ if(TARGET raylib)
     target_include_directories(test_theme PRIVATE ${CMAKE_SOURCE_DIR}/src)
     target_link_libraries(test_theme PRIVATE raylib)
     target_compile_definitions(test_theme PRIVATE FIXTURES_DIR="${FIXTURES_DIR}")
-    target_compile_options(test_theme PRIVATE -UNDEBUG)
     add_test(NAME theme COMMAND test_theme)
 endif()

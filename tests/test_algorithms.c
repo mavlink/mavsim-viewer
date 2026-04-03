@@ -6,6 +6,7 @@
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define QUAD_LOG   FIXTURES_DIR "/dde9a24c-34c5-4868-b09c-bd3481ed1029.ulg"
@@ -14,90 +15,102 @@
 // ── CUSUM takeoff detection tests ───────────────────────────────────────────
 
 static void test_cusum_quad_takeoff_detected(void) {
-    ulog_replay_ctx_t ctx;
-    assert(ulog_replay_init(&ctx, QUAD_LOG) == 0);
+    ulog_replay_ctx_t *ctx = malloc(sizeof(*ctx));
+    assert(ctx);
+    assert(ulog_replay_init(ctx, QUAD_LOG) == 0);
 
-    assert(ctx.takeoff_detected);
-    assert(ctx.takeoff_time_s > 0.0f);
+    assert(ctx->takeoff_detected);
+    assert(ctx->takeoff_time_s > 0.0f);
 
-    float duration = (float)((double)(ctx.parser.end_timestamp -
-                                       ctx.parser.start_timestamp) / 1e6);
-    assert(ctx.takeoff_time_s < duration);
+    float duration = (float)((double)(ctx->parser.end_timestamp -
+                                       ctx->parser.start_timestamp) / 1e6);
+    assert(ctx->takeoff_time_s < duration);
 
-    ulog_replay_close(&ctx);
+    float t = ctx->takeoff_time_s;
+    ulog_replay_close(ctx);
+    free(ctx);
     printf("  PASS cusum_quad_takeoff_detected (t=%.1fs within %.1fs log)\n",
-           ctx.takeoff_time_s, duration);
+           t, duration);
 }
 
 static void test_cusum_confidence_range(void) {
-    ulog_replay_ctx_t ctx;
-    assert(ulog_replay_init(&ctx, QUAD_LOG) == 0);
+    ulog_replay_ctx_t *ctx = malloc(sizeof(*ctx));
+    assert(ctx);
+    assert(ulog_replay_init(ctx, QUAD_LOG) == 0);
 
-    assert(ctx.takeoff_conf >= 0.0f);
-    assert(ctx.takeoff_conf <= 1.0f);
+    assert(ctx->takeoff_conf >= 0.0f);
+    assert(ctx->takeoff_conf <= 1.0f);
     // CUSUM alone gives at least 0.3 when triggered
-    assert(ctx.takeoff_conf >= 0.3f);
+    assert(ctx->takeoff_conf >= 0.3f);
 
-    ulog_replay_close(&ctx);
-    printf("  PASS cusum_confidence_range (conf=%.0f%%)\n", ctx.takeoff_conf * 100);
+    float conf = ctx->takeoff_conf;
+    ulog_replay_close(ctx);
+    free(ctx);
+    printf("  PASS cusum_confidence_range (conf=%.0f%%)\n", conf * 100);
 }
 
 static void test_cusum_fw_takeoff_detected(void) {
-    ulog_replay_ctx_t ctx;
-    assert(ulog_replay_init(&ctx, FW_LOG) == 0);
+    ulog_replay_ctx_t *ctx = malloc(sizeof(*ctx));
+    assert(ctx);
+    assert(ulog_replay_init(ctx, FW_LOG) == 0);
 
     // Fixed-wing log should also have a detectable takeoff
     // (if not, the test documents the actual behavior)
-    if (ctx.takeoff_detected) {
-        assert(ctx.takeoff_time_s > 0.0f);
-        assert(ctx.takeoff_conf >= 0.3f);
-        assert(ctx.takeoff_conf <= 1.0f);
+    if (ctx->takeoff_detected) {
+        assert(ctx->takeoff_time_s > 0.0f);
+        assert(ctx->takeoff_conf >= 0.3f);
+        assert(ctx->takeoff_conf <= 1.0f);
         printf("  PASS cusum_fw_takeoff_detected (t=%.1fs, conf=%.0f%%)\n",
-               ctx.takeoff_time_s, ctx.takeoff_conf * 100);
+               ctx->takeoff_time_s, ctx->takeoff_conf * 100);
     } else {
         // Not detected is acceptable for some logs (already airborne at log start)
-        assert(ctx.takeoff_time_s == 0.0f);
+        assert(ctx->takeoff_time_s == 0.0f);
         printf("  PASS cusum_fw_takeoff_detected (not detected, conf=%.0f%%)\n",
-               ctx.takeoff_conf * 100);
+               ctx->takeoff_conf * 100);
     }
 
-    ulog_replay_close(&ctx);
+    ulog_replay_close(ctx);
+    free(ctx);
 }
 
 // ── Home position tier resolution tests ─────────────────────────────────────
 
 static void test_home_tier_fw(void) {
-    ulog_replay_ctx_t ctx;
-    assert(ulog_replay_init(&ctx, FW_LOG) == 0);
+    ulog_replay_ctx_t *ctx = malloc(sizeof(*ctx));
+    assert(ctx);
+    assert(ulog_replay_init(ctx, FW_LOG) == 0);
 
     // FW log with GPS should have a valid home from either Tier 1 or Tier 2
-    assert(ctx.home.valid);
+    assert(ctx->home.valid);
     // Position should be non-zero
-    assert(ctx.home.lat != 0 || ctx.home.lon != 0);
+    assert(ctx->home.lat != 0 || ctx->home.lon != 0);
 
     printf("  PASS home_tier_fw (valid=%d, from_topic=%d, rejected=%d, "
            "lat=%d, lon=%d)\n",
-           ctx.home.valid, ctx.home_from_topic, ctx.home_rejected,
-           ctx.home.lat, ctx.home.lon);
-    ulog_replay_close(&ctx);
+           ctx->home.valid, ctx->home_from_topic, ctx->home_rejected,
+           ctx->home.lat, ctx->home.lon);
+    ulog_replay_close(ctx);
+    free(ctx);
 }
 
 static void test_home_tier_quad(void) {
-    ulog_replay_ctx_t ctx;
-    assert(ulog_replay_init(&ctx, QUAD_LOG) == 0);
+    ulog_replay_ctx_t *ctx = malloc(sizeof(*ctx));
+    assert(ctx);
+    assert(ulog_replay_init(ctx, QUAD_LOG) == 0);
 
     // Document the quad log's home resolution behavior.
     // Indoor/local-only logs may have home rejected (no GPOS).
-    if (ctx.home.valid) {
-        assert(ctx.home.lat != 0 || ctx.home.lon != 0);
+    if (ctx->home.valid) {
+        assert(ctx->home.lat != 0 || ctx->home.lon != 0);
         printf("  PASS home_tier_quad (valid, from_topic=%d)\n",
-               ctx.home_from_topic);
+               ctx->home_from_topic);
     } else {
         printf("  PASS home_tier_quad (no valid home, rejected=%d)\n",
-               ctx.home_rejected);
+               ctx->home_rejected);
     }
 
-    ulog_replay_close(&ctx);
+    ulog_replay_close(ctx);
+    free(ctx);
 }
 
 // ── Correlation computation tests ───────────────────────────────────────────

@@ -15,6 +15,7 @@ typedef struct {
     char buf[HUD_MARKER_LABEL_MAX];
     int len;
     int target;
+    int drone_idx;
 } marker_input_t;
 
 void marker_input_update(marker_input_t *mi, user_markers_t *um,

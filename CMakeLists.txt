@@ -55,6 +55,7 @@ if(NOT BUILD_TESTING_ONLY)
         src/ortho_panel.c
         src/asset_path.c
         src/theme.c
+        src/tactical_hud.c
     )
 
     target_include_directories(hawkeye PRIVATE

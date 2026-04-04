@@ -1040,29 +1040,27 @@ int main(int argc, char *argv[]) {
             if (IsKeyPressed(KEY_RIGHT)) {
                 float step;
                 if (shift && ctrl) step = 1.0f;
-                else if (shift) { step = 0.02f; sources[0].playback.paused = true; }
+                else if (shift) { step = 0.02f; sources[selected].playback.paused = true; }
                 else step = 5.0f;
-                float seek_target = sources[0].playback.position_s + step;
+                float seek_target = sources[selected].playback.position_s + step;
                 for (int i = 0; i < nrf; i++) {
                     data_source_seek(&sources[i], seek_target);
                     vehicle_reset_trail(&vehicles[i]);
                 }
                 memset(corr, 0, sizeof(corr));
-                replay_sync_vehicle(&sources[0], &vehicles[0]);
             }
             if (IsKeyPressed(KEY_LEFT)) {
                 float step;
                 if (shift && ctrl) step = 1.0f;
-                else if (shift) { step = 0.02f; sources[0].playback.paused = true; }
+                else if (shift) { step = 0.02f; sources[selected].playback.paused = true; }
                 else step = 5.0f;
-                float target = sources[0].playback.position_s - step;
+                float target = sources[selected].playback.position_s - step;
                 if (target < 0.0f) target = 0.0f;
                 for (int i = 0; i < nrf; i++) {
                     data_source_seek(&sources[i], target);
                     vehicle_reset_trail(&vehicles[i]);
                 }
                 memset(corr, 0, sizeof(corr));
-                replay_sync_vehicle(&sources[0], &vehicles[0]);
             }
 
             // Frame markers: B = drop marker, B->L = drop + label, Shift+B = delete current
@@ -1105,6 +1103,15 @@ int main(int argc, char *argv[]) {
                     marker_cycle(&markers[selected], &sys_markers[selected], dir, shift,
                                  &sources[selected], &vehicles[selected],
                                  &precomp[selected], &scene, &last_pos[selected]);
+                }
+                // Sync all drones to the same playback time after marker seek
+                if (!shift && vehicle_count > 1) {
+                    float sync_time = sources[selected].playback.position_s;
+                    for (int i = 0; i < vehicle_count; i++) {
+                        if (i == selected) continue;
+                        data_source_seek(&sources[i], sync_time);
+                        vehicle_reset_trail(&vehicles[i]);
+                    }
                 }
             }
         }

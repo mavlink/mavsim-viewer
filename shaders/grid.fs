@@ -20,6 +20,19 @@ uniform vec3 camPos;
 
 out vec4 finalColor;
 
+// Hash helpers
+vec2 hash2(vec2 p) {
+    return vec2(
+        fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453),
+        fract(sin(dot(p, vec2(269.5, 183.3))) * 43758.5453)
+    );
+}
+
+// Grid line type: 0 = L (light), 1 = D (dark)
+int gridLineType(float idx) {
+    return fract(sin(idx * 127.1) * 43758.5453) > 0.5 ? 1 : 0;
+}
+
 void main() {
     vec2 coord = fragWorldPos.xz;
     float dist = length(coord - camPos.xz);
@@ -29,15 +42,54 @@ void main() {
     if (texEnabled != 0) {
         if (dist < 200.0) {
             // Near: full texture sampling — detail is visible
-            vec2 tileCoord = floor(coord / 10.0);
-            vec2 tileUV = fract(coord / 10.0);
+            float cellSize = 3.0;
+            float warpStrength = 0.75;
 
+            // Vertex wobble: per-vertex displacement, bilinearly interpolated
+            vec2 cell = floor(coord / cellSize);
+            vec2 f = fract(coord / cellSize);
+            vec2 d00 = (hash2(cell) * 2.0 - 1.0) * warpStrength;
+            vec2 d10 = (hash2(cell + vec2(1.0, 0.0)) * 2.0 - 1.0) * warpStrength;
+            vec2 d01 = (hash2(cell + vec2(0.0, 1.0)) * 2.0 - 1.0) * warpStrength;
+            vec2 d11 = (hash2(cell + vec2(1.0, 1.0)) * 2.0 - 1.0) * warpStrength;
+            vec2 disp = mix(mix(d00, d10, f.x), mix(d01, d11, f.x), f.y);
+            vec2 warped = coord + disp;
+
+            vec2 tileCoord = floor(warped / cellSize);
+            vec2 tileUV = fract(warped / cellSize);
+
+            // Runtime edge matching via grid-line types.
+            // Each grid line (vertical and horizontal) is hashed to L(0) or D(1).
+            // The cell's 4 edges inherit from its bounding grid lines.
+            // Atlas row = edge group = top*8 + right*4 + bottom*2 + left.
+            int eTop    = gridLineType(tileCoord.y);
+            int eBottom = gridLineType(tileCoord.y + 1.0);
+            int eLeft   = gridLineType(tileCoord.x);
+            int eRight  = gridLineType(tileCoord.x + 1.0);
+
+            // Random flip: swap UV axes and adjust edge group accordingly
+            float flipH = fract(sin(dot(tileCoord, vec2(53.14, 197.3))) * 43758.5453);
+            float flipV = fract(sin(dot(tileCoord, vec2(91.72, 43.87))) * 43758.5453);
+            int tmp;
+            if (flipH > 0.5) {
+                tileUV.x = 1.0 - tileUV.x;
+                tmp = eLeft; eLeft = eRight; eRight = tmp;
+            }
+            if (flipV > 0.5) {
+                tileUV.y = 1.0 - tileUV.y;
+                tmp = eTop; eTop = eBottom; eBottom = tmp;
+            }
+
+            int group = eTop * 8 + eRight * 4 + eBottom * 2 + eLeft;
+
+            // Pick variant within group (14 per group)
             float h = fract(sin(dot(tileCoord, vec2(127.1, 311.7))) * 43758.5453);
-            int variant = int(h * 8.0);
-            variant = clamp(variant, 0, 7);
+            int local = int(h * 14.0);
+            local = clamp(local, 0, 13);
 
-            vec2 atlasOffset = vec2(float(variant % 4) / 4.0, float(variant / 4) / 2.0);
-            vec2 texUV = atlasOffset + tileUV * vec2(1.0 / 4.0, 1.0 / 2.0);
+            // Atlas: 14 columns × 16 rows, column = variant, row = group
+            vec2 atlasOffset = vec2(float(local) / 14.0, float(group) / 16.0);
+            vec2 texUV = atlasOffset + tileUV * vec2(1.0 / 14.0, 1.0 / 16.0);
 
             vec4 texColor = texture(groundTex, texUV);
             float lum = dot(texColor.rgb, vec3(0.299, 0.587, 0.114));

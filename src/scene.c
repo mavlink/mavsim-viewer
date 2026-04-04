@@ -14,8 +14,12 @@
 #define GRID_SPACING     10.0f
 #define GRID_MAJOR_EVERY 5
 
-// ── Procedural terrain texture: packed dirt atlas ─────────────────────────────
-// 4 x 256x256 tiles in a 512x512 atlas. Torus-mapped noise for seamless edges.
+// ── Grammar-based terrain texture: packed dirt atlas ─────────────────────────
+// 224 tiles at 16×16 in a 256×224 atlas (16 cols × 14 rows).
+// 7 edge profiles × 32 gradient-reach variants per profile.
+// Torus-mapped noise with dual windowing: noise_win (fixed sin², kills
+// seed-dependent noise at edges) and grad_win (variable exponent, controls
+// brightness gradient reach). Shared base noise ensures seamless tiling.
 // Double domain-warped FBM + Voronoi pebbles + warm color variation.
 
 static float gtex_hash(int x, int y) {
@@ -104,73 +108,114 @@ static float clampf(float v, float lo, float hi) {
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
-#define GTEX_COLS  4       // atlas columns
-#define GTEX_ROWS  2       // atlas rows
-#define GTEX_TILE  256     // individual tile size
-#define GTEX_VARIANTS (GTEX_COLS * GTEX_ROWS)  // 8
-#define GTEX_ATLAS_W (GTEX_COLS * GTEX_TILE)   // 1024
-#define GTEX_ATLAS_H (GTEX_ROWS * GTEX_TILE)   // 512
+#define GTEX_TILE      16     // individual tile size
+#define GTEX_GROUPS    16     // edge combo groups (2^4: L/D on each of 4 edges)
+#define GTEX_PER_GROUP 14     // tiles per group
+#define GTEX_VARIANTS  (GTEX_GROUPS * GTEX_PER_GROUP)  // 224
+#define GTEX_ATLAS_W   (GTEX_PER_GROUP * GTEX_TILE)    // 224
+#define GTEX_ATLAS_H   (GTEX_GROUPS * GTEX_TILE)       // 256
+
+// Edge brightness levels (±10% from midpoint)
+#define GTEX_BRIGHT_L 35.2f
+#define GTEX_BRIGHT_D 28.8f
 
 static Texture2D gen_ground_texture(void) {
     unsigned char *pixels = RL_CALLOC(GTEX_ATLAS_W * GTEX_ATLAS_H * 4, 1);
     float tile_inv = 1.0f / (float)GTEX_TILE;
 
-    float seed_offsets[GTEX_VARIANTS][2] = {
-        {  0.0f,  0.0f }, { 17.3f, 41.7f }, { 63.2f, 11.9f }, { 34.8f, 78.1f },
-        { 91.4f, 23.6f }, { 48.7f, 55.3f }, { 12.1f, 89.4f }, { 76.5f, 37.2f }
-    };
+    // 16 groups: each group encodes (top, right, bottom, left) as L/D bits.
+    // Group index = top*8 + right*4 + bottom*2 + left (0=L, 1=D).
+    // Atlas row = group, column = variant within group.
+    for (int group = 0; group < GTEX_GROUPS; group++) {
+        float eb_t = (group & 8) ? GTEX_BRIGHT_D : GTEX_BRIGHT_L;
+        float eb_r = (group & 4) ? GTEX_BRIGHT_D : GTEX_BRIGHT_L;
+        float eb_b = (group & 2) ? GTEX_BRIGHT_D : GTEX_BRIGHT_L;
+        float eb_l = (group & 1) ? GTEX_BRIGHT_D : GTEX_BRIGHT_L;
+        float center_b = (GTEX_BRIGHT_L + GTEX_BRIGHT_D) * 0.5f;
 
-    for (int tile = 0; tile < GTEX_VARIANTS; tile++) {
-        int tile_ox = (tile % GTEX_COLS) * GTEX_TILE;
-        int tile_oy = (tile / GTEX_COLS) * GTEX_TILE;
-        float sox = seed_offsets[tile][0];
-        float soy = seed_offsets[tile][1];
+        for (int vi = 0; vi < GTEX_PER_GROUP; vi++) {
+            int tile = group * GTEX_PER_GROUP + vi;
+            int tile_ox = vi * GTEX_TILE;        // column = variant
+            int tile_oy = group * GTEX_TILE;     // row = group
 
-        for (int ty = 0; ty < GTEX_TILE; ty++) {
-            for (int tx = 0; tx < GTEX_TILE; tx++) {
-                float u = (float)tx * tile_inv;
-                float v = (float)ty * tile_inv;
+            // Unique seed per tile
+            float sox = gtex_hash(tile * 7 + 31, tile * 13 + 97) * 100.0f;
+            float soy = gtex_hash(tile * 19 + 53, tile * 29 + 71) * 100.0f;
 
-                float wu = sinf(u * 3.14159265f);
-                float wv = sinf(v * 3.14159265f);
-                float window = wu * wu * wv * wv;
+            // Gradient reach varies: narrow → wide across variants
+            float t = (GTEX_PER_GROUP > 1)
+                ? (float)vi / (float)(GTEX_PER_GROUP - 1) : 0.5f;
+            float exponent = 3.0f * (1.0f - t) + 0.5f * t;
 
-                float qx = gtex_fbm(u, v);
-                float qy = gtex_fbm(u + 0.52f, v + 0.13f);
-                float base_warped = gtex_fbm(u + 0.15f*qx, v + 0.15f*qy);
+            for (int ty = 0; ty < GTEX_TILE; ty++) {
+                for (int tx = 0; tx < GTEX_TILE; tx++) {
+                    float u = (float)tx * tile_inv;
+                    float v = (float)ty * tile_inv;
 
-                float dx = gtex_fbm(u + sox, v + soy);
-                float dy = gtex_fbm(u + sox + 0.52f, v + soy + 0.13f);
-                float detail_warped = gtex_fbm(u + 0.4f*dx + sox, v + 0.4f*dy + soy);
-                float detail = (detail_warped - 0.5f) * window;
+                    // Noise window (fixed sin², zeros at all edges)
+                    float wu = sinf(u * 3.14159265f);
+                    float wv = sinf(v * 3.14159265f);
+                    float noise_win = wu * wu * wv * wv;
+                    float grad_win = powf(noise_win, exponent);
 
-                float warped = base_warped + detail * 1.2f;
+                    // Per-edge brightness blending: weighted by proximity
+                    float wt = (1.0f - v) * (1.0f - fabsf(u - 0.5f) * 2.0f);
+                    float wr = u * (1.0f - fabsf(v - 0.5f) * 2.0f);
+                    float wb = v * (1.0f - fabsf(u - 0.5f) * 2.0f);
+                    float wl = (1.0f - u) * (1.0f - fabsf(v - 0.5f) * 2.0f);
+                    float wsum = wt + wr + wb + wl;
+                    float edge_b;
+                    if (wsum > 0.001f)
+                        edge_b = (eb_t*wt + eb_r*wr + eb_b*wb + eb_l*wl) / wsum;
+                    else
+                        edge_b = center_b;
 
-                float f1_base = gtex_voronoi_f1(u, v, 18);
-                float f1_detail = gtex_voronoi_f1(u + sox, v + soy, 14);
-                float f1 = f1_base * (1.0f - window * 0.8f) + f1_detail * window * 0.8f;
-                float pebble = powf(clampf(1.0f - f1 * 2.5f, 0, 1), 4.0f) * 0.5f;
+                    // Base noise (seed-independent)
+                    float qx = gtex_fbm(u, v);
+                    float qy = gtex_fbm(u + 0.52f, v + 0.13f);
+                    float base_warped = gtex_fbm(u + 0.15f*qx, v + 0.15f*qy);
 
-                float grit = gtex_tnoise(u + sox, v + soy, 8.0f);
+                    // Detail noise (seed-dependent, windowed)
+                    float dx = gtex_fbm(u + sox, v + soy);
+                    float dy = gtex_fbm(u + sox + 0.52f, v + soy + 0.13f);
+                    float detail_warped = gtex_fbm(
+                        u + 0.4f*dx + sox, v + 0.4f*dy + soy);
+                    float detail = (detail_warped - 0.5f) * noise_win;
+                    float warped = base_warped + detail * 1.2f;
 
-                float brightness = 32.0f;
-                brightness += (warped - 0.5f) * 16.0f;
-                brightness += pebble * 12.0f;
-                brightness += (grit - 0.5f) * 3.0f;
-                brightness = clampf(brightness, 20.0f, 46.0f);
+                    // Voronoi pebbles
+                    float f1_base = gtex_voronoi_f1(u, v, 18);
+                    float f1_detail = gtex_voronoi_f1(u + sox, v + soy, 14);
+                    float f1 = f1_base * (1.0f - noise_win * 0.8f)
+                             + f1_detail * noise_win * 0.8f;
+                    float pebble = powf(clampf(1.0f - f1*2.5f, 0, 1), 4.0f)
+                                 * 0.5f;
 
-                float warm = (qx + detail * 0.6f - 0.5f) * 0.12f;
-                float r = brightness * (1.0f + warm) + 2.0f;
-                float g = brightness + 1.0f;
-                float b = brightness * (1.0f - warm);
+                    // Grit (windowed)
+                    float grit = (gtex_tnoise(u + sox, v + soy, 8.0f) - 0.5f)
+                               * noise_win;
 
-                int px = tile_ox + tx;
-                int py = tile_oy + ty;
-                int idx = (py * GTEX_ATLAS_W + px) * 4;
-                pixels[idx + 0] = (unsigned char)clampf(r, 0, 255);
-                pixels[idx + 1] = (unsigned char)clampf(g, 0, 255);
-                pixels[idx + 2] = (unsigned char)clampf(b, 0, 255);
-                pixels[idx + 3] = 255;
+                    float noise_bright = (warped - 0.5f) * 16.0f
+                                       + pebble * 12.0f + grit * 3.0f;
+
+                    // Brightness: edge → center via gradient window
+                    float brightness = edge_b + grad_win * (center_b - edge_b);
+                    brightness += noise_bright * 0.5f;
+                    brightness = clampf(brightness, 20.0f, 46.0f);
+
+                    float warm = (qx + detail * 0.6f - 0.5f) * 0.12f;
+                    float r = brightness * (1.0f + warm) + 2.0f;
+                    float g = brightness + 1.0f;
+                    float b = brightness * (1.0f - warm);
+
+                    int px = tile_ox + tx;
+                    int py = tile_oy + ty;
+                    int idx = (py * GTEX_ATLAS_W + px) * 4;
+                    pixels[idx + 0] = (unsigned char)clampf(r, 0, 255);
+                    pixels[idx + 1] = (unsigned char)clampf(g, 0, 255);
+                    pixels[idx + 2] = (unsigned char)clampf(b, 0, 255);
+                    pixels[idx + 3] = 255;
+                }
             }
         }
     }

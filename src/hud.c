@@ -236,8 +236,9 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
               const data_source_t *sources, int vehicle_count,
               int selected, int screen_w, int screen_h, const theme_t *theme,
               int trail_mode,
-              const hud_marker_data_t *markers,
-              const hud_marker_data_t *sys_markers,
+              const hud_marker_data_t *markers_all,
+              const hud_marker_data_t *sys_markers_all,
+              int marker_vehicle_count,
               bool ghost_mode, bool has_tier3, bool has_awaiting_gps) {
 
     // Semantic color variables from theme
@@ -323,7 +324,8 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
     if (is_replay_source) {
         hud_draw_transport(h, &sources[selected].playback,
                            sources[selected].connected, &vehicles[selected],
-                           markers, sys_markers,
+                           markers_all, sys_markers_all,
+                           marker_vehicle_count, selected,
                            screen_w, (float)bar_y, (float)transport_h,
                            s, trail_mode, theme);
     }

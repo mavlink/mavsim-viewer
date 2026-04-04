@@ -34,16 +34,20 @@ void replay_init_sys_markers(sys_markers_t *sm, const data_source_t *source) {
 void replay_resolve_and_build_trail(sys_markers_t *sm, precomp_trail_t *pt,
                                     data_source_t *source, vehicle_t *vehicle) {
     float saved_pos = source->playback.position_s;
+    float offset = source->playback.time_offset_s;
     int valid = 0;
     for (int i = 0; i < sm->count; i++) {
-        data_source_seek(source, sm->times[i]);
+        // Adjust marker time to playback space (subtract offset)
+        float playback_time = sm->times[i] - offset;
+        if (playback_time < 0.0f) continue;
+        data_source_seek(source, playback_time);
         replay_sync_vehicle(source, vehicle);
         if (source->state.lat == 0 && source->state.lon == 0) continue;
         Vector3 mp = vehicle->position;
         if (mp.x == 0.0f && mp.y == 0.0f && mp.z == 0.0f) continue;
         float mdist = sqrtf(mp.x * mp.x + mp.y * mp.y + mp.z * mp.z);
         if (mdist > 5000.0f) continue;
-        sm->times[valid] = sm->times[i];
+        sm->times[valid] = playback_time;
         memcpy(sm->labels[valid], sm->labels[i], HUD_MARKER_LABEL_MAX);
         sm->positions[valid] = vehicle->position;
         sm->roll[valid] = vehicle->roll_deg;

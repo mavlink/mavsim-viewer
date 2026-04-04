@@ -131,12 +131,12 @@ void vehicle_reset_trail(vehicle_t *v);
 void vehicle_truncate_trail(vehicle_t *v, float time_s);
 
 // Draw marker shapes (spheres for MARKER_USER, cubes for MARKER_SYSTEM).
-// Call inside BeginMode3D.
+// Call inside BeginMode3D. drone_color used when trail_mode == 3 (ID trails).
 void vehicle_draw_markers(Vector3 *positions, char labels[][48], int count,
                           int current_marker, Vector3 cam_pos, Camera3D camera,
                           float *m_roll, float *m_pitch, float *m_vert, float *m_speed,
                           float speed_max, const theme_t *theme, int trail_mode,
-                          marker_type_t type);
+                          marker_type_t type, Color drone_color, bool multi_drone);
 
 // Draw billboarded marker labels (call AFTER EndMode3D, in 2D pass).
 void vehicle_draw_marker_labels(Vector3 *positions, char labels[][48], int count,
@@ -144,11 +144,13 @@ void vehicle_draw_marker_labels(Vector3 *positions, char labels[][48], int count
                                 Font font_label, Font font_value,
                                 float *m_roll, float *m_pitch, float *m_vert, float *m_speed,
                                 float speed_max, const theme_t *theme, int trail_mode,
-                                marker_type_t type);
+                                marker_type_t type, Color drone_color, bool multi_drone);
 
 // Compute marker color from snapshotted telemetry.
+// drone_color used when trail_mode == 3 (ID trails) or multi-drone mode.
 Color vehicle_marker_color(float roll, float pitch, float vert, float speed,
-                           float speed_max, const theme_t *theme, int trail_mode);
+                           float speed_max, const theme_t *theme, int trail_mode,
+                           Color drone_color, bool multi_drone);
 
 // Draw correlation curtain between two vehicles (cross-vehicle overlay).
 void vehicle_draw_correlation_curtain(

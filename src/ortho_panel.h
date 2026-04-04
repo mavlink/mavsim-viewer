@@ -35,6 +35,15 @@ void ortho_draw_fullscreen_2d(const scene_t *s, const vehicle_t *vehicles,
 void ortho_panel_draw_fullscreen_label(int screen_w, int screen_h, int ortho_mode,
                                        float ortho_span, const theme_t *theme,
                                        Font font, bool show_axes);
+// Draw a single ortho view at an arbitrary screen position/size.
+// view_index: 0=top, 1=front, 2=side (right). grid_alpha: 0.0-1.0 grid opacity.
+void ortho_panel_draw_single(const ortho_panel_t *op, int view_index,
+                             float x, float y, float size, float grid_alpha,
+                             const theme_t *theme, Font font,
+                             const vehicle_t *vehicles, int vehicle_count,
+                             int selected, int trail_mode,
+                             int corr_mode, const int *pinned, int pinned_count);
+
 void ortho_panel_cleanup(ortho_panel_t *op);
 
 // Draw XYZ axis gizmo at a world position, rotated by quaternion (call inside BeginMode3D).

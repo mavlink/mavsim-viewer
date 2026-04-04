@@ -27,6 +27,7 @@
 #include "replay_trail.h"
 #include "replay_markers.h"
 #include "ui_marker_input.h"
+#include "tactical_hud.h"
 
 #define MAX_VEHICLES 16
 #define EARTH_RADIUS 6371000.0
@@ -424,6 +425,8 @@ int main(int argc, char *argv[]) {
     Vector3 last_pos[MAX_VEHICLES];
     memset(last_pos, 0, sizeof(last_pos));
     bool show_hud = true;
+    float saved_chase_distance = 0.0f;
+    float tactical_chase_target = 1.6f;
 
     // Key chord state for two-digit drone selection (10-16)
     int chord_first = -1;       // first digit pressed (-1 = no chord in progress)
@@ -441,21 +444,18 @@ int main(int argc, char *argv[]) {
     int insufficient_check_frames = 0;
     bool insufficient_toasted = false;
 
-    // Frame markers for replay
-    user_markers_t markers = {0};
-    markers.current = -1;
-    markers.last_drop_idx = -1;
-
-    // System markers (from ULog mode changes) — cubes, not user-editable
-    sys_markers_t sys_markers = {0};
-    sys_markers.current = -1;
-    if (is_replay) {
-        replay_init_sys_markers(&sys_markers, &sources[0]);
+    // Per-drone markers, system markers, and pre-computed trails
+    user_markers_t markers[MAX_VEHICLES] = {0};
+    sys_markers_t sys_markers[MAX_VEHICLES] = {0};
+    precomp_trail_t precomp[MAX_VEHICLES] = {0};
+    for (int i = 0; i < vehicle_count; i++) {
+        markers[i].current = -1;
+        markers[i].last_drop_idx = -1;
+        sys_markers[i].current = -1;
+        precomp_trail_init(&precomp[i]);
+        if (is_replay)
+            replay_init_sys_markers(&sys_markers[i], &sources[i]);
     }
-
-    // Pre-computed flight trail (built once after origin is established)
-    precomp_trail_t precomp = {0};
-    precomp_trail_init(&precomp);
 
     // Marker label input state
     bool show_marker_labels = true;
@@ -505,8 +505,12 @@ int main(int argc, char *argv[]) {
         }
 
         // Lazy-resolve system marker positions once origin is established
-        if (is_replay && !sys_markers.resolved && sys_markers.count > 0 && vehicles[0].origin_set) {
-            replay_resolve_and_build_trail(&sys_markers, &precomp, &sources[0], &vehicles[0]);
+        for (int i = 0; i < vehicle_count; i++) {
+            if (is_replay && !sys_markers[i].resolved && sys_markers[i].count > 0
+                && vehicles[i].origin_set) {
+                replay_resolve_and_build_trail(&sys_markers[i], &precomp[i],
+                                               &sources[i], &vehicles[i]);
+            }
         }
 
         // Detect drones with insufficient position data (~2s after start)
@@ -759,9 +763,20 @@ int main(int argc, char *argv[]) {
             hud.show_help = !hud.show_help;
         }
 
-        // Toggle HUD visibility
+        // Cycle HUD mode: Console → Tactical → Off
         if (IsKeyPressed(KEY_H)) {
-            show_hud = !show_hud;
+            hud_mode_t prev_mode = hud.mode;
+            hud.mode = (hud.mode + 1) % HUD_MODE_COUNT;
+            const char *mode_names[] = { "Console HUD", "Tactical HUD", "HUD Off" };
+            hud_toast(&hud, mode_names[hud.mode], 2.0f);
+            show_hud = (hud.mode != HUD_OFF);
+
+            if (hud.mode == HUD_TACTICAL) {
+                saved_chase_distance = scene.chase_distance;
+                scene.chase_distance = tactical_chase_target;
+            } else if (prev_mode == HUD_TACTICAL) {
+                scene.chase_distance = saved_chase_distance;
+            }
         }
 
         // Shift+T: cycle correlation overlay (off → ribbon → line → off)
@@ -904,7 +919,8 @@ int main(int argc, char *argv[]) {
 
         // Marker label text input — consumes all keyboard while active
         if (marker_input.active) {
-            marker_input_update(&marker_input, &markers, &sources[0], &vehicles[0]);
+            int di = marker_input.drone_idx;
+            marker_input_update(&marker_input, &markers[di], &sources[di], &vehicles[di]);
         }
 
         // Re-toast insufficient data warning when switching to a bad drone
@@ -946,7 +962,7 @@ int main(int argc, char *argv[]) {
             if (IsKeyPressed(KEY_Y)) {
                 hud.show_yaw = !hud.show_yaw;
             }
-            if (IsKeyPressed(KEY_L) && !IsKeyDown(KEY_LEFT_CONTROL) && !IsKeyDown(KEY_RIGHT_CONTROL) && !shift && (markers.last_drop_idx < 0 || GetTime() - markers.last_drop_time >= 0.5)) {
+            if (IsKeyPressed(KEY_L) && !IsKeyDown(KEY_LEFT_CONTROL) && !IsKeyDown(KEY_RIGHT_CONTROL) && !shift && (markers[selected].last_drop_idx < 0 || GetTime() - markers[selected].last_drop_time >= 0.5)) {
                 show_marker_labels = !show_marker_labels;
             }
             if (IsKeyPressed(KEY_I)) {
@@ -985,8 +1001,10 @@ int main(int argc, char *argv[]) {
                     vehicle_reset_trail(&vehicles[i]);
                 }
                 memset(corr, 0, sizeof(corr));
-                markers.count = 0;
-                markers.current = -1;
+                for (int i = 0; i < vehicle_count; i++) {
+                    markers[i].count = 0;
+                    markers[i].current = -1;
+                }
             }
             // A key: toggle takeoff time alignment
             if (IsKeyPressed(KEY_A) && num_replay_files > 1) {
@@ -1011,6 +1029,9 @@ int main(int argc, char *argv[]) {
                     sources[i].playback.correlation = NAN;
                     sources[i].playback.rmse = NAN;
                 }
+                // Re-resolve system marker positions with new time offsets
+                for (int i = 0; i < nrf; i++)
+                    sys_markers[i].resolved = false;
                 hud_toast(&hud, takeoff_aligned ? "Auto Align On" : "Auto Align Off", 2.0f);
             }
 
@@ -1019,57 +1040,79 @@ int main(int argc, char *argv[]) {
             if (IsKeyPressed(KEY_RIGHT)) {
                 float step;
                 if (shift && ctrl) step = 1.0f;
-                else if (shift) { step = 0.02f; sources[0].playback.paused = true; }
+                else if (shift) { step = 0.02f; sources[selected].playback.paused = true; }
                 else step = 5.0f;
-                float seek_target = sources[0].playback.position_s + step;
+                float seek_target = sources[selected].playback.position_s + step;
                 for (int i = 0; i < nrf; i++) {
                     data_source_seek(&sources[i], seek_target);
                     vehicle_reset_trail(&vehicles[i]);
                 }
                 memset(corr, 0, sizeof(corr));
-                replay_sync_vehicle(&sources[0], &vehicles[0]);
             }
             if (IsKeyPressed(KEY_LEFT)) {
                 float step;
                 if (shift && ctrl) step = 1.0f;
-                else if (shift) { step = 0.02f; sources[0].playback.paused = true; }
+                else if (shift) { step = 0.02f; sources[selected].playback.paused = true; }
                 else step = 5.0f;
-                float target = sources[0].playback.position_s - step;
+                float target = sources[selected].playback.position_s - step;
                 if (target < 0.0f) target = 0.0f;
                 for (int i = 0; i < nrf; i++) {
                     data_source_seek(&sources[i], target);
                     vehicle_reset_trail(&vehicles[i]);
                 }
                 memset(corr, 0, sizeof(corr));
-                replay_sync_vehicle(&sources[0], &vehicles[0]);
             }
 
             // Frame markers: B = drop marker, B->L = drop + label, Shift+B = delete current
-            if (IsKeyPressed(KEY_B) && vehicles[0].active && !marker_input.active) {
+            if (IsKeyPressed(KEY_B) && vehicles[selected].active && !marker_input.active) {
                 if (shift) {
-                    marker_delete(&markers);
-                } else if (markers.count < REPLAY_MAX_MARKERS) {
-                    marker_drop(&markers, sources[0].playback.position_s,
-                                vehicles[0].position, &vehicles[0], &sys_markers);
+                    marker_delete(&markers[selected]);
+                } else if (markers[selected].count < REPLAY_MAX_MARKERS) {
+                    marker_drop(&markers[selected], sources[selected].playback.position_s,
+                                vehicles[selected].position, &vehicles[selected],
+                                &sys_markers[selected]);
                 }
             }
 
             // B->L chord: if L pressed within 0.5s of dropping a marker, open label input
-            if (IsKeyPressed(KEY_L) && !marker_input.active && markers.last_drop_idx >= 0) {
-                double elapsed = GetTime() - markers.last_drop_time;
+            if (IsKeyPressed(KEY_L) && !marker_input.active
+                && markers[selected].last_drop_idx >= 0) {
+                double elapsed = GetTime() - markers[selected].last_drop_time;
                 if (elapsed < 0.5) {
-                    marker_input_begin(&marker_input, markers.last_drop_idx, &sources[0]);
-                    markers.last_drop_idx = -1;
+                    marker_input_begin(&marker_input, markers[selected].last_drop_idx,
+                                       &sources[selected]);
+                    marker_input.drone_idx = selected;
+                    markers[selected].last_drop_idx = -1;
+                    // Pause all drones during label input
+                    for (int i = 0; i < vehicle_count; i++)
+                        sources[i].playback.paused = true;
                 }
             }
 
-            // Unified [/] cycling through both user markers and system markers (sorted by time)
-            if ((IsKeyPressed(KEY_LEFT_BRACKET) || IsKeyPressed(KEY_RIGHT_BRACKET))
-                && (markers.count > 0 || sys_markers.count > 0)) {
+            // [/] cycling: per-drone or global (Ctrl)
+            if (IsKeyPressed(KEY_LEFT_BRACKET) || IsKeyPressed(KEY_RIGHT_BRACKET)) {
                 int dir = IsKeyPressed(KEY_LEFT_BRACKET) ? -1 : 1;
-                marker_cycle(&markers, &sys_markers, dir, shift,
-                             &sources[0], &vehicles[0], &precomp,
-                             &scene, &last_pos[0]);
+                bool ctrl = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+                if (ctrl) {
+                    marker_cycle_result_t r = marker_cycle_global(
+                        markers, sys_markers, vehicle_count, selected, dir,
+                        sources, vehicles, precomp, &scene, last_pos);
+                    if (r.jumped && r.drone_idx != selected)
+                        selected = r.drone_idx;
+                } else if (markers[selected].count > 0 || sys_markers[selected].count > 0) {
+                    marker_cycle(&markers[selected], &sys_markers[selected], dir, shift,
+                                 &sources[selected], &vehicles[selected],
+                                 &precomp[selected], &scene, &last_pos[selected]);
+                }
+                // Sync all drones to the same playback time after marker seek
+                if (!shift && vehicle_count > 1) {
+                    float sync_time = sources[selected].playback.position_s;
+                    for (int i = 0; i < vehicle_count; i++) {
+                        if (i == selected) continue;
+                        data_source_seek(&sources[i], sync_time);
+                        vehicle_reset_trail(&vehicles[i]);
+                    }
+                }
             }
         }
 
@@ -1077,10 +1120,16 @@ int main(int argc, char *argv[]) {
         debug_panel_update(&dbg_panel, GetFrameTime());
 
         // Update camera to follow selected vehicle
-        scene_update_camera(&scene, vehicles[selected].position, vehicles[selected].rotation);
+        {
+            Vector3 cam_target = vehicles[selected].position;
+            if (hud.mode == HUD_TACTICAL)
+                cam_target.y += scene.chase_distance * 0.10f;
+            scene_update_camera(&scene, cam_target, vehicles[selected].rotation);
+        }
 
         // Render ortho views to textures (before main BeginDrawing)
-        if (ortho.visible) {
+        // Always render when tactical HUD is active (radar uses top-down data)
+        if (ortho.visible || hud.mode == HUD_TACTICAL) {
             ortho_panel_update(&ortho, vehicles[selected].position);
             ortho_panel_render(&ortho, vehicles, vehicle_count,
                                selected, scene.theme,
@@ -1106,23 +1155,32 @@ int main(int argc, char *argv[]) {
                                      classic_colors);
                     }
                 }
-                // Draw frame marker spheres during replay
-                if (is_replay && markers.count > 0) {
-                    vehicle_draw_markers(markers.positions, markers.labels, markers.count,
-                                         sys_markers.selected ? -1 : markers.current,
-                                         scene.camera.position, scene.camera,
-                                         markers.roll, markers.pitch, markers.vert, markers.speed,
-                                         vehicles[0].trail_speed_max, scene.theme, trail_mode,
-                                         MARKER_USER);
-                }
-                // Draw system marker cubes during replay
-                if (is_replay && sys_markers.count > 0) {
-                    vehicle_draw_markers(sys_markers.positions, sys_markers.labels, sys_markers.count,
-                                         sys_markers.selected ? sys_markers.current : -1,
-                                         scene.camera.position, scene.camera,
-                                         sys_markers.roll, sys_markers.pitch, sys_markers.vert, sys_markers.speed,
-                                         vehicles[0].trail_speed_max, scene.theme, trail_mode,
-                                         MARKER_SYSTEM);
+                // Draw frame marker spheres and system marker cubes for all drones
+                for (int i = 0; i < vehicle_count; i++) {
+                    if (is_replay && markers[i].count > 0) {
+                        int cur = (i == selected && !sys_markers[i].selected)
+                                  ? markers[i].current : -1;
+                        vehicle_draw_markers(markers[i].positions, markers[i].labels,
+                                             markers[i].count, cur,
+                                             scene.camera.position, scene.camera,
+                                             markers[i].roll, markers[i].pitch,
+                                             markers[i].vert, markers[i].speed,
+                                             vehicles[i].trail_speed_max, scene.theme,
+                                             trail_mode, MARKER_USER,
+                                             vehicles[i].color, vehicle_count > 1);
+                    }
+                    if (is_replay && sys_markers[i].count > 0) {
+                        int cur = (i == selected && sys_markers[i].selected)
+                                  ? sys_markers[i].current : -1;
+                        vehicle_draw_markers(sys_markers[i].positions, sys_markers[i].labels,
+                                             sys_markers[i].count, cur,
+                                             scene.camera.position, scene.camera,
+                                             sys_markers[i].roll, sys_markers[i].pitch,
+                                             sys_markers[i].vert, sys_markers[i].speed,
+                                             vehicles[i].trail_speed_max, scene.theme,
+                                             trail_mode, MARKER_SYSTEM,
+                                             vehicles[i].color, vehicle_count > 1);
+                    }
                 }
 
                 // Home position markers (formation mode only)
@@ -1189,24 +1247,35 @@ int main(int argc, char *argv[]) {
             }
 
             // Marker labels (2D billboarded text, after EndMode3D)
-            if (is_replay && markers.count > 0 && show_marker_labels) {
-                vehicle_draw_marker_labels(markers.positions, markers.labels, markers.count,
-                                           sys_markers.selected ? -1 : markers.current,
-                                           scene.camera.position, scene.camera,
-                                           hud.font_label, hud.font_value,
-                                           markers.roll, markers.pitch, markers.vert, markers.speed,
-                                           vehicles[0].trail_speed_max, scene.theme, trail_mode,
-                                           MARKER_USER);
-            }
-            // System marker labels
-            if (is_replay && sys_markers.count > 0 && show_marker_labels) {
-                vehicle_draw_marker_labels(sys_markers.positions, sys_markers.labels, sys_markers.count,
-                                           sys_markers.selected ? sys_markers.current : -1,
-                                           scene.camera.position, scene.camera,
-                                           hud.font_label, hud.font_value,
-                                           sys_markers.roll, sys_markers.pitch, sys_markers.vert, sys_markers.speed,
-                                           vehicles[0].trail_speed_max, scene.theme, trail_mode,
-                                           MARKER_SYSTEM);
+            if (is_replay && show_marker_labels) {
+                for (int i = 0; i < vehicle_count; i++) {
+                    if (markers[i].count > 0) {
+                        int cur = (i == selected && !sys_markers[i].selected)
+                                  ? markers[i].current : -1;
+                        vehicle_draw_marker_labels(markers[i].positions, markers[i].labels,
+                                                   markers[i].count, cur,
+                                                   scene.camera.position, scene.camera,
+                                                   hud.font_label, hud.font_value,
+                                                   markers[i].roll, markers[i].pitch,
+                                                   markers[i].vert, markers[i].speed,
+                                                   vehicles[i].trail_speed_max, scene.theme,
+                                                   trail_mode, MARKER_USER,
+                                                   vehicles[i].color, vehicle_count > 1);
+                    }
+                    if (sys_markers[i].count > 0) {
+                        int cur = (i == selected && sys_markers[i].selected)
+                                  ? sys_markers[i].current : -1;
+                        vehicle_draw_marker_labels(sys_markers[i].positions, sys_markers[i].labels,
+                                                   sys_markers[i].count, cur,
+                                                   scene.camera.position, scene.camera,
+                                                   hud.font_label, hud.font_value,
+                                                   sys_markers[i].roll, sys_markers[i].pitch,
+                                                   sys_markers[i].vert, sys_markers[i].speed,
+                                                   vehicles[i].trail_speed_max, scene.theme,
+                                                   trail_mode, MARKER_SYSTEM,
+                                                   vehicles[i].color, vehicle_count > 1);
+                    }
+                }
             }
 
             // Fullscreen ortho 2D overlays (trails + correlation line)
@@ -1220,28 +1289,50 @@ int main(int argc, char *argv[]) {
             if (show_hud) {
                 bool has_awaiting_gps = vehicles[selected].active &&
                     !vehicles[selected].origin_set && sources[selected].home.valid;
-                hud_marker_data_t user_markers = {
-                    .times = markers.times, .labels = markers.labels,
-                    .roll = markers.roll, .pitch = markers.pitch,
-                    .vert = markers.vert, .speed = markers.speed,
-                    .speed_max = markers.speed_max,
-                    .count = markers.count, .current = markers.current,
-                    .selected = true,
-                };
-                hud_marker_data_t sys_marker_data = {
-                    .times = sys_markers.times, .labels = sys_markers.labels,
-                    .roll = sys_markers.roll, .pitch = sys_markers.pitch,
-                    .vert = sys_markers.vert, .speed = sys_markers.speed,
-                    .speed_max = markers.speed_max,
-                    .count = sys_markers.count, .current = sys_markers.current,
-                    .selected = sys_markers.selected,
-                };
-                hud_draw(&hud, vehicles, sources, vehicle_count,
-                         selected, GetScreenWidth(), GetScreenHeight(),
-                         scene.theme, trail_mode,
-                         markers.count > 0 ? &user_markers : NULL,
-                         sys_markers.count > 0 ? &sys_marker_data : NULL,
-                         ghost_mode, has_tier3, has_awaiting_gps);
+                hud_marker_data_t all_user_md[MAX_VEHICLES] = {0};
+                hud_marker_data_t all_sys_md[MAX_VEHICLES] = {0};
+                for (int i = 0; i < vehicle_count; i++) {
+                    all_user_md[i] = (hud_marker_data_t){
+                        .times = markers[i].times,
+                        .labels = markers[i].labels,
+                        .roll = markers[i].roll,
+                        .pitch = markers[i].pitch,
+                        .vert = markers[i].vert,
+                        .speed = markers[i].speed,
+                        .speed_max = markers[i].speed_max,
+                        .count = markers[i].count,
+                        .current = markers[i].current,
+                        .selected = true,
+                        .color = vehicles[i].color,
+                    };
+                    all_sys_md[i] = (hud_marker_data_t){
+                        .times = sys_markers[i].times,
+                        .labels = sys_markers[i].labels,
+                        .roll = sys_markers[i].roll,
+                        .pitch = sys_markers[i].pitch,
+                        .vert = sys_markers[i].vert,
+                        .speed = sys_markers[i].speed,
+                        .speed_max = markers[i].speed_max,
+                        .count = sys_markers[i].count,
+                        .current = sys_markers[i].current,
+                        .selected = sys_markers[i].selected,
+                        .color = vehicles[i].color,
+                    };
+                }
+                if (hud.mode == HUD_CONSOLE) {
+                    hud_draw(&hud, vehicles, sources, vehicle_count,
+                             selected, GetScreenWidth(), GetScreenHeight(),
+                             scene.theme, trail_mode,
+                             all_user_md, all_sys_md, vehicle_count,
+                             ghost_mode, has_tier3, has_awaiting_gps);
+                } else if (hud.mode == HUD_TACTICAL) {
+                    tactical_hud_draw(&hud, vehicles, sources, vehicle_count,
+                                      selected, GetScreenWidth(), GetScreenHeight(),
+                                      scene.theme, ghost_mode,
+                                      has_tier3, has_awaiting_gps,
+                                      &ortho, trail_mode, corr_mode,
+                                      all_user_md, all_sys_md, vehicle_count);
+                }
             }
 
             // Debug panel
@@ -1260,12 +1351,14 @@ int main(int argc, char *argv[]) {
                                  vehicle_tier[selected]);
             }
 
-            // Ortho panel overlay
-            int bar_h = show_hud ? hud_bar_height(&hud, GetScreenHeight()) : 0;
-            ortho_panel_draw(&ortho, GetScreenHeight(), bar_h, scene.theme, hud.font_label,
-                             vehicles, vehicle_count, selected, trail_mode,
-                             corr_mode, hud.pinned, hud.pinned_count,
-                             show_axes);
+            // Ortho panel overlay (sidebar in Console mode; tactical draws its own insets)
+            if (hud.mode != HUD_TACTICAL) {
+                int bar_h = show_hud ? hud_bar_height(&hud, GetScreenHeight()) : 0;
+                ortho_panel_draw(&ortho, GetScreenHeight(), bar_h, scene.theme, hud.font_label,
+                                 vehicles, vehicle_count, selected, trail_mode,
+                                 corr_mode, hud.pinned, hud.pinned_count,
+                                 show_axes);
+            }
 
             // Fullscreen ortho view label
             ortho_panel_draw_fullscreen_label(GetScreenWidth(), GetScreenHeight(),
@@ -1289,7 +1382,8 @@ int main(int argc, char *argv[]) {
         if (sources[i].ops) data_source_close(&sources[i]);
     }
     scene_cleanup(&scene);
-    precomp_trail_cleanup(&precomp);
+    for (int i = 0; i < vehicle_count; i++)
+        precomp_trail_cleanup(&precomp[i]);
     CloseWindow();
 
     return 0;

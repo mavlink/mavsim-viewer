@@ -2,6 +2,7 @@
 #include "replay_trail.h"
 #include "raylib.h"
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 
 int marker_drop(user_markers_t *um, float time, Vector3 pos,
@@ -143,6 +144,11 @@ void marker_cycle(user_markers_t *um, sys_markers_t *sm,
             scene->camera.position = seek_pos;
             scene->camera.target = vehicle->position;
         } else {
+            // Return to chase camera if free mode was active
+            if (scene->cam_mode == CAM_MODE_FREE) {
+                scene->cam_mode = CAM_MODE_CHASE;
+                scene->free_track = false;
+            }
             // Seek and sync state
             data_source_seek(source, seek_time);
             vehicle->current_time = source->playback.position_s;
@@ -182,4 +188,151 @@ void marker_cycle(user_markers_t *um, sys_markers_t *sm,
             *last_pos = vehicle->position;
         }
     }
+}
+
+marker_cycle_result_t marker_cycle_global(
+    user_markers_t *all_markers, sys_markers_t *all_sys,
+    int vehicle_count, int current_drone, int direction,
+    data_source_t *sources, vehicle_t *vehicles,
+    const precomp_trail_t *precomps,
+    scene_t *scene, Vector3 *last_pos)
+{
+    marker_cycle_result_t result = {current_drone, false};
+
+    // Build merged list of all drones' markers
+    typedef struct { float time; int idx; int drone; bool is_sys; } gm_t;
+    int max_entries = vehicle_count * (REPLAY_MAX_MARKERS + REPLAY_MAX_SYS_MARKERS);
+    gm_t *merged = (gm_t *)malloc(max_entries * sizeof(gm_t));
+    if (!merged) return result;
+
+    int total = 0;
+    for (int d = 0; d < vehicle_count; d++) {
+        for (int m = 0; m < all_markers[d].count; m++)
+            merged[total++] = (gm_t){all_markers[d].times[m], m, d, false};
+        for (int m = 0; m < all_sys[d].count; m++)
+            merged[total++] = (gm_t){all_sys[d].times[m], m, d, true};
+    }
+
+    if (total == 0) { free(merged); return result; }
+
+    // Insertion sort by time
+    for (int a = 1; a < total; a++) {
+        gm_t key = merged[a];
+        int b = a - 1;
+        while (b >= 0 && merged[b].time > key.time) {
+            merged[b + 1] = merged[b];
+            b--;
+        }
+        merged[b + 1] = key;
+    }
+
+    // Find current position: check if any drone has a selected marker
+    int cur = -1;
+    for (int d = 0; d < vehicle_count; d++) {
+        if (all_sys[d].selected && all_sys[d].current >= 0) {
+            for (int m = 0; m < total; m++) {
+                if (merged[m].is_sys && merged[m].drone == d
+                    && merged[m].idx == all_sys[d].current) {
+                    cur = m; break;
+                }
+            }
+            if (cur >= 0) break;
+        } else if (!all_sys[d].selected && all_markers[d].current >= 0) {
+            for (int m = 0; m < total; m++) {
+                if (!merged[m].is_sys && merged[m].drone == d
+                    && merged[m].idx == all_markers[d].current) {
+                    cur = m; break;
+                }
+            }
+            if (cur >= 0) break;
+        }
+    }
+
+    // Step to target
+    int target = -1;
+    if (direction < 0) {
+        if (cur > 0) target = cur - 1;
+        else if (cur == 0) target = total - 1;
+        else {
+            float t = sources[current_drone].playback.position_s;
+            for (int m = total - 1; m >= 0; m--) {
+                if (merged[m].time <= t) { target = m; break; }
+            }
+            if (target < 0) target = total - 1;
+        }
+    } else {
+        if (cur >= 0 && cur < total - 1) target = cur + 1;
+        else if (cur < 0) {
+            float t = sources[current_drone].playback.position_s;
+            for (int m = 0; m < total; m++) {
+                if (merged[m].time >= t) { target = m; break; }
+            }
+            if (target < 0) target = 0;
+        } else {
+            target = 0;
+        }
+    }
+
+    if (target >= 0 && target < total) {
+        gm_t tgt = merged[target];
+        int d = tgt.drone;
+        float seek_time = tgt.time;
+
+        // Clear all drones' marker selection
+        for (int i = 0; i < vehicle_count; i++) {
+            all_sys[i].selected = false;
+            all_sys[i].current = -1;
+            all_markers[i].current = -1;
+        }
+
+        // Set target drone's marker as current
+        all_sys[d].selected = tgt.is_sys;
+        if (tgt.is_sys) {
+            all_sys[d].current = tgt.idx;
+        } else {
+            all_markers[d].current = tgt.idx;
+        }
+
+        // Seek only the target drone's source and restore its trail
+        data_source_seek(&sources[d], seek_time);
+        vehicles[d].current_time = sources[d].playback.position_s;
+
+        if (precomps[d].ready && precomps[d].count > 0) {
+            int lo = 0, hi = precomps[d].count - 1, cut = 0;
+            while (lo <= hi) {
+                int mid = (lo + hi) / 2;
+                if (precomps[d].time[mid] <= seek_time) {
+                    cut = mid + 1; lo = mid + 1;
+                } else {
+                    hi = mid - 1;
+                }
+            }
+            int n = cut;
+            if (n > vehicles[d].trail_capacity) n = vehicles[d].trail_capacity;
+            int src_start = cut - n;
+            vehicles[d].trail_count = n;
+            vehicles[d].trail_head = n % vehicles[d].trail_capacity;
+            vehicles[d].trail_speed_max = 0.0f;
+            for (int ti = 0; ti < n; ti++) {
+                int si = src_start + ti;
+                vehicles[d].trail[ti] = precomps[d].trail[si];
+                vehicles[d].trail_roll[ti] = precomps[d].roll[si];
+                vehicles[d].trail_pitch[ti] = precomps[d].pitch[si];
+                vehicles[d].trail_vert[ti] = precomps[d].vert[si];
+                vehicles[d].trail_speed[ti] = precomps[d].speed[si];
+                vehicles[d].trail_time[ti] = precomps[d].time[si];
+                if (precomps[d].speed[si] > vehicles[d].trail_speed_max)
+                    vehicles[d].trail_speed_max = precomps[d].speed[si];
+            }
+        }
+
+        vehicle_update(&vehicles[d], &sources[d].state, &sources[d].home);
+        last_pos[d] = vehicles[d].position;
+
+        result.drone_idx = d;
+        result.jumped = true;
+    }
+
+    free(merged);
+    return result;
 }

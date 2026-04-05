@@ -11,8 +11,9 @@
 void hud_draw_transport(const hud_t *h,
                         const playback_state_t *pb, bool connected,
                         const vehicle_t *selected_vehicle,
-                        const hud_marker_data_t *markers,
-                        const hud_marker_data_t *sys_markers,
+                        const hud_marker_data_t *markers_all,
+                        const hud_marker_data_t *sys_markers_all,
+                        int marker_vehicle_count, int selected_idx,
                         int screen_w, float bar_y, float transport_h,
                         float scale, int trail_mode, const theme_t *theme) {
     float s = scale;
@@ -104,7 +105,8 @@ void hud_draw_transport(const hud_t *h,
                                             pv->vertical_speed,
                                             sqrtf(pv->ground_speed * pv->ground_speed +
                                                   pv->vertical_speed * pv->vertical_speed),
-                                            pv->trail_speed_max, theme, trail_mode);
+                                            pv->trail_speed_max, theme, trail_mode,
+                                            pv->color);
         float r_outer = 6.5f * s;
         float r_inner = 5.5f * s;
         DrawRing((Vector2){dot_x, dot_y}, r_inner, r_outer, 0, 360, 24, ph_col);
@@ -141,119 +143,135 @@ void hud_draw_transport(const hud_t *h,
         }
     }
 
-    // Frame markers on timeline (colored diamonds with labels)
-    if (markers && markers->times && markers->count > 0 && pb->duration_s > 0.0f) {
+    // Frame markers on timeline (colored diamonds with labels) — all drones
+    {
         float fs_mlabel = 9 * s;
         float last_mlabel_x = -100.0f;
-        for (int i = 0; i < markers->count; i++) {
-            float t = markers->times[i] / pb->duration_s;
-            if (t < 0.0f || t > 1.0f) continue;
-            float mx = prog_x + prog_w * t;
-            float my = prog_y + prog_h / 2.0f;
+        for (int vi = 0; vi < marker_vehicle_count; vi++) {
+            const hud_marker_data_t *markers = &markers_all[vi];
+            if (!markers->times || markers->count == 0 || pb->duration_s <= 0.0f) continue;
+            bool is_selected_drone = (vi == selected_idx);
+            for (int i = 0; i < markers->count; i++) {
+                float t = markers->times[i] / pb->duration_s;
+                if (t < 0.0f || t > 1.0f) continue;
+                float mx = prog_x + prog_w * t;
+                float my = prog_y + prog_h / 2.0f;
 
-            bool is_cur = (i == markers->current);
-            Color mc = vehicle_marker_color(markers->roll[i], markers->pitch[i],
-                                            markers->vert[i], markers->speed[i],
-                                            markers->speed_max, theme, trail_mode);
-            if (is_cur) {
-                if (theme->thick_trails) {
-                    mc.r = (unsigned char)(mc.r * 0.55f);
-                    mc.g = (unsigned char)(mc.g * 0.55f);
-                    mc.b = (unsigned char)(mc.b * 0.55f);
-                } else {
-                    mc.r = (unsigned char)(mc.r + (230 - mc.r) * 0.7f);
-                    mc.g = (unsigned char)(mc.g + (230 - mc.g) * 0.7f);
-                    mc.b = (unsigned char)(mc.b + (230 - mc.b) * 0.7f);
-                }
-            }
-            mc.a = is_cur ? 255 : 220;
-
-            float d = is_cur ? 5.0f * s : 3.5f * s;
-            Vector2 diamond[4] = {
-                {mx, my - d}, {mx + d, my}, {mx, my + d}, {mx - d, my},
-            };
-            DrawTriangle(diamond[0], diamond[3], diamond[1], mc);
-            DrawTriangle(diamond[1], diamond[3], diamond[2], mc);
-
-            {
-                char mlbl[56];
-                if (markers->labels && markers->labels[i][0] != '\0')
-                    snprintf(mlbl, sizeof(mlbl), "%d:%s", i + 1, markers->labels[i]);
-                else
-                    snprintf(mlbl, sizeof(mlbl), "%d", i + 1);
-                Vector2 mlw = MeasureTextEx(h->font_label, mlbl, fs_mlabel, 0.5f);
-                float min_gap = is_cur ? 0 : (mlw.x + 6 * s);
-                if (is_cur || mx - last_mlabel_x > min_gap) {
-                    float lx = mx - mlw.x / 2.0f;
-                    if (lx < prog_x) lx = prog_x;
-                    if (lx + mlw.x > prog_x + prog_w) lx = prog_x + prog_w - mlw.x;
-                    float ly = prog_y + prog_h + 3 * s;
-                    if (is_cur) {
-                        float px = 4 * s, py = 2 * s;
-                        DrawRectangleRounded(
-                            (Rectangle){lx - px, ly - py, mlw.x + px * 2, mlw.y + py * 2},
-                            0.4f, 4, bg);
+                bool is_cur = is_selected_drone && (i == markers->current);
+                Color mc = vehicle_marker_color(markers->roll[i], markers->pitch[i],
+                                                markers->vert[i], markers->speed[i],
+                                                markers->speed_max, theme, trail_mode,
+                                                markers->color);
+                if (is_cur) {
+                    if (theme->thick_trails) {
+                        mc.r = (unsigned char)(mc.r * 0.55f);
+                        mc.g = (unsigned char)(mc.g * 0.55f);
+                        mc.b = (unsigned char)(mc.b * 0.55f);
+                    } else {
+                        mc.r = (unsigned char)(mc.r + (230 - mc.r) * 0.7f);
+                        mc.g = (unsigned char)(mc.g + (230 - mc.g) * 0.7f);
+                        mc.b = (unsigned char)(mc.b + (230 - mc.b) * 0.7f);
                     }
-                    DrawTextEx(h->font_label, mlbl,
-                               (Vector2){lx, ly}, fs_mlabel, 0.5f, mc);
-                    last_mlabel_x = mx;
+                }
+                mc.a = is_cur ? 255 : (is_selected_drone ? 220 : 100);
+
+                float d = is_cur ? 5.0f * s : 3.5f * s;
+                if (!is_selected_drone) d *= 0.7f;
+                Vector2 diamond[4] = {
+                    {mx, my - d}, {mx + d, my}, {mx, my + d}, {mx - d, my},
+                };
+                DrawTriangle(diamond[0], diamond[3], diamond[1], mc);
+                DrawTriangle(diamond[1], diamond[3], diamond[2], mc);
+
+                // Labels only for selected drone to avoid clutter
+                if (is_selected_drone) {
+                    char mlbl[56];
+                    if (markers->labels && markers->labels[i][0] != '\0')
+                        snprintf(mlbl, sizeof(mlbl), "%d:%s", i + 1, markers->labels[i]);
+                    else
+                        snprintf(mlbl, sizeof(mlbl), "%d", i + 1);
+                    Vector2 mlw = MeasureTextEx(h->font_label, mlbl, fs_mlabel, 0.5f);
+                    float min_gap = is_cur ? 0 : (mlw.x + 6 * s);
+                    if (is_cur || mx - last_mlabel_x > min_gap) {
+                        float lx = mx - mlw.x / 2.0f;
+                        if (lx < prog_x) lx = prog_x;
+                        if (lx + mlw.x > prog_x + prog_w) lx = prog_x + prog_w - mlw.x;
+                        float ly = prog_y + prog_h + 3 * s;
+                        if (is_cur) {
+                            float px = 4 * s, py = 2 * s;
+                            DrawRectangleRounded(
+                                (Rectangle){lx - px, ly - py, mlw.x + px * 2, mlw.y + py * 2},
+                                0.4f, 4, bg);
+                        }
+                        DrawTextEx(h->font_label, mlbl,
+                                   (Vector2){lx, ly}, fs_mlabel, 0.5f, mc);
+                        last_mlabel_x = mx;
+                    }
                 }
             }
         }
     }
 
-    // System markers on timeline (squares)
-    if (sys_markers && sys_markers->times && sys_markers->count > 0 && pb->duration_s > 0.0f) {
+    // System markers on timeline (squares) — all drones
+    {
         float fs_mlabel = 9 * s;
         float last_slabel_x = -100.0f;
-        for (int i = 0; i < sys_markers->count; i++) {
-            float t = sys_markers->times[i] / pb->duration_s;
-            if (t < 0.0f || t > 1.0f) continue;
-            float mx = prog_x + prog_w * t;
-            float my = prog_y + prog_h / 2.0f;
+        for (int vi = 0; vi < marker_vehicle_count; vi++) {
+            const hud_marker_data_t *sysm = &sys_markers_all[vi];
+            if (!sysm->times || sysm->count == 0 || pb->duration_s <= 0.0f) continue;
+            bool is_selected_drone = (vi == selected_idx);
+            for (int i = 0; i < sysm->count; i++) {
+                float t = sysm->times[i] / pb->duration_s;
+                if (t < 0.0f || t > 1.0f) continue;
+                float mx = prog_x + prog_w * t;
+                float my = prog_y + prog_h / 2.0f;
 
-            bool is_cur = sys_markers->selected && (i == sys_markers->current);
-            Color mc = vehicle_marker_color(sys_markers->roll[i], sys_markers->pitch[i],
-                                            sys_markers->vert[i], sys_markers->speed[i],
-                                            sys_markers->speed_max, theme, trail_mode);
-            if (is_cur) {
-                if (theme->thick_trails) {
-                    mc.r = (unsigned char)(mc.r * 0.55f);
-                    mc.g = (unsigned char)(mc.g * 0.55f);
-                    mc.b = (unsigned char)(mc.b * 0.55f);
-                } else {
-                    mc.r = (unsigned char)(mc.r + (230 - mc.r) * 0.7f);
-                    mc.g = (unsigned char)(mc.g + (230 - mc.g) * 0.7f);
-                    mc.b = (unsigned char)(mc.b + (230 - mc.b) * 0.7f);
-                }
-            }
-            mc.a = is_cur ? 255 : 200;
-
-            float d = is_cur ? 5.0f * s : 3.5f * s;
-            DrawRectangle((int)(mx - d), (int)(my - d), (int)(d * 2), (int)(d * 2), mc);
-
-            {
-                char mlbl[56];
-                if (sys_markers->labels && sys_markers->labels[i][0] != '\0')
-                    snprintf(mlbl, sizeof(mlbl), "S:%s", sys_markers->labels[i]);
-                else
-                    snprintf(mlbl, sizeof(mlbl), "S%d", i + 1);
-                Vector2 mlw = MeasureTextEx(h->font_label, mlbl, fs_mlabel, 0.5f);
-                float min_gap = is_cur ? 0 : (mlw.x + 6 * s);
-                if (is_cur || mx - last_slabel_x > min_gap) {
-                    float lx = mx - mlw.x / 2.0f;
-                    if (lx < prog_x) lx = prog_x;
-                    if (lx + mlw.x > prog_x + prog_w) lx = prog_x + prog_w - mlw.x;
-                    float ly = prog_y - mlw.y - 3 * s;
-                    if (is_cur) {
-                        float px = 4 * s, py = 2 * s;
-                        DrawRectangleRounded(
-                            (Rectangle){lx - px, ly - py, mlw.x + px * 2, mlw.y + py * 2},
-                            0.4f, 4, bg);
+                bool is_cur = is_selected_drone && sysm->selected && (i == sysm->current);
+                Color mc = vehicle_marker_color(sysm->roll[i], sysm->pitch[i],
+                                                sysm->vert[i], sysm->speed[i],
+                                                sysm->speed_max, theme, trail_mode,
+                                                sysm->color);
+                if (is_cur) {
+                    if (theme->thick_trails) {
+                        mc.r = (unsigned char)(mc.r * 0.55f);
+                        mc.g = (unsigned char)(mc.g * 0.55f);
+                        mc.b = (unsigned char)(mc.b * 0.55f);
+                    } else {
+                        mc.r = (unsigned char)(mc.r + (230 - mc.r) * 0.7f);
+                        mc.g = (unsigned char)(mc.g + (230 - mc.g) * 0.7f);
+                        mc.b = (unsigned char)(mc.b + (230 - mc.b) * 0.7f);
                     }
-                    DrawTextEx(h->font_label, mlbl,
-                               (Vector2){lx, ly}, fs_mlabel, 0.5f, mc);
-                    last_slabel_x = mx;
+                }
+                mc.a = is_cur ? 255 : (is_selected_drone ? 200 : 80);
+
+                float d = is_cur ? 5.0f * s : 3.5f * s;
+                if (!is_selected_drone) d *= 0.7f;
+                DrawRectangle((int)(mx - d), (int)(my - d), (int)(d * 2), (int)(d * 2), mc);
+
+                // Labels only for selected drone
+                if (is_selected_drone) {
+                    char mlbl[56];
+                    if (sysm->labels && sysm->labels[i][0] != '\0')
+                        snprintf(mlbl, sizeof(mlbl), "S:%s", sysm->labels[i]);
+                    else
+                        snprintf(mlbl, sizeof(mlbl), "S%d", i + 1);
+                    Vector2 mlw = MeasureTextEx(h->font_label, mlbl, fs_mlabel, 0.5f);
+                    float min_gap = is_cur ? 0 : (mlw.x + 6 * s);
+                    if (is_cur || mx - last_slabel_x > min_gap) {
+                        float lx = mx - mlw.x / 2.0f;
+                        if (lx < prog_x) lx = prog_x;
+                        if (lx + mlw.x > prog_x + prog_w) lx = prog_x + prog_w - mlw.x;
+                        float ly = prog_y - mlw.y - 3 * s;
+                        if (is_cur) {
+                            float px = 4 * s, py = 2 * s;
+                            DrawRectangleRounded(
+                                (Rectangle){lx - px, ly - py, mlw.x + px * 2, mlw.y + py * 2},
+                                0.4f, 4, bg);
+                        }
+                        DrawTextEx(h->font_label, mlbl,
+                                   (Vector2){lx, ly}, fs_mlabel, 0.5f, mc);
+                        last_slabel_x = mx;
+                    }
                 }
             }
         }

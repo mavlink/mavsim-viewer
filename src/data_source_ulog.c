@@ -28,6 +28,7 @@ static void ulog_poll(data_source_t *ds, float dt) {
     ds->playback.time_offset_s = (float)ctx->time_offset_s;
     ds->playback.mode_changes = (const playback_mode_change_t *)ctx->mode_changes;
     ds->playback.mode_change_count = ctx->mode_change_count;
+    ds->playback.statustext = &ctx->statustext;
 
     // Update playback progress
     uint64_t range = ctx->parser.end_timestamp - ctx->parser.start_timestamp;

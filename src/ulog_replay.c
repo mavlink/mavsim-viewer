@@ -4,6 +4,21 @@
 #include <string.h>
 #include <stdio.h>
 
+// STATUSTEXT logging callback — pushes into ring buffer
+static void logging_cb(const ulog_logging_msg_t *msg, void *userdata) {
+    ulog_replay_ctx_t *ctx = (ulog_replay_ctx_t *)userdata;
+    statustext_ring_t *ring = &ctx->statustext;
+    statustext_entry_t *e = &ring->entries[ring->head];
+    e->severity = msg->log_level;
+    float time_s = (float)((double)(msg->timestamp - ctx->parser.start_timestamp) / 1e6);
+    e->time_s = time_s;
+    int len = msg->text_len < STATUSTEXT_MSG_MAX - 1 ? msg->text_len : STATUSTEXT_MSG_MAX - 1;
+    memcpy(e->text, msg->text, len);
+    e->text[len] = '\0';
+    ring->head = (ring->head + 1) % STATUSTEXT_RING_SIZE;
+    if (ring->count < STATUSTEXT_RING_SIZE) ring->count++;
+}
+
 // PX4 nav_state display names
 const char *ulog_nav_state_name(uint8_t nav_state) {
     switch (nav_state) {
@@ -257,6 +272,9 @@ int ulog_replay_init(ulog_replay_ctx_t *ctx, const char *filepath) {
 
     int ret = ulog_parser_open(&ctx->parser, filepath);
     if (ret != 0) return ret;
+
+    // Enable STATUSTEXT logging message capture
+    ulog_parser_set_logging_callback(&ctx->parser, logging_cb, ctx);
 
     // Find subscriptions
     ctx->sub_attitude = ulog_parser_find_subscription(&ctx->parser, "vehicle_attitude");

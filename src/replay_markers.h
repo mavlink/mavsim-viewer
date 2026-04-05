@@ -37,4 +37,16 @@ void marker_cycle(user_markers_t *um, sys_markers_t *sm,
                   const precomp_trail_t *precomp,
                   scene_t *scene, Vector3 *last_pos);
 
+typedef struct {
+    int drone_idx;
+    bool jumped;
+} marker_cycle_result_t;
+
+marker_cycle_result_t marker_cycle_global(
+    user_markers_t *all_markers, sys_markers_t *all_sys,
+    int vehicle_count, int current_drone, int direction,
+    data_source_t *sources, vehicle_t *vehicles,
+    const precomp_trail_t *precomps,
+    scene_t *scene, Vector3 *last_pos);
+
 #endif

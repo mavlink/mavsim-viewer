@@ -34,6 +34,7 @@ typedef struct {
     Color warn;
     Color climb_color;
     Color connected_color;
+    int selected;  // selected drone index (for peak scale annunciator)
 } hud_telemetry_layout_t;
 
 void hud_draw_telemetry(const hud_t *h, const vehicle_t *v,

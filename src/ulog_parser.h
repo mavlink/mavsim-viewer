@@ -65,6 +65,16 @@ typedef struct {
     int data_len;
 } ulog_data_msg_t;
 
+typedef struct {
+    uint8_t log_level;    // 0=EMERG .. 7=DEBUG
+    uint64_t timestamp;
+    const char *text;     // valid until next read
+    int text_len;
+} ulog_logging_msg_t;
+
+// Callback for logging messages encountered during parsing.
+typedef void (*ulog_logging_callback_t)(const ulog_logging_msg_t *msg, void *userdata);
+
 // Timestamp index entry for seeking
 typedef struct {
     uint64_t timestamp;
@@ -91,6 +101,10 @@ typedef struct {
 
     uint64_t start_timestamp;
     uint64_t end_timestamp;
+
+    // Optional logging message callback
+    ulog_logging_callback_t logging_cb;
+    void *logging_userdata;
 
     bool eof;
 } ulog_parser_t;
@@ -122,6 +136,10 @@ double   ulog_parser_get_double(const ulog_data_msg_t *msg, int offset);
 int32_t  ulog_parser_get_int32(const ulog_data_msg_t *msg, int offset);
 uint8_t  ulog_parser_get_uint8(const ulog_data_msg_t *msg, int offset);
 uint64_t ulog_parser_get_uint64(const ulog_data_msg_t *msg, int offset);
+
+// Set logging callback before calling ulog_parser_next() to receive 'L' messages.
+void ulog_parser_set_logging_callback(ulog_parser_t *p,
+                                       ulog_logging_callback_t cb, void *userdata);
 
 // Close file and free resources.
 void ulog_parser_close(ulog_parser_t *p);

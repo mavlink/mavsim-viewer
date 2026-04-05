@@ -343,6 +343,14 @@ bool ulog_parser_next(ulog_parser_t *p, ulog_data_msg_t *out) {
             out->data_len = msg_size - 2;
             return true;
         }
+        if ((char)msg_type == ULOG_MSG_LOGGING && p->logging_cb && msg_size >= 9) {
+            ulog_logging_msg_t lmsg;
+            lmsg.log_level = p->read_buf[0];
+            memcpy(&lmsg.timestamp, p->read_buf + 1, 8);
+            lmsg.text = (const char *)(p->read_buf + 9);
+            lmsg.text_len = msg_size - 9;
+            p->logging_cb(&lmsg, p->logging_userdata);
+        }
         // Skip non-DATA messages (DROPOUT, LOGGING, etc.)
     }
 }
@@ -449,6 +457,12 @@ uint64_t ulog_parser_get_uint64(const ulog_data_msg_t *msg, int offset) {
     uint64_t v;
     memcpy(&v, msg->data + offset, sizeof(v));
     return v;
+}
+
+void ulog_parser_set_logging_callback(ulog_parser_t *p,
+                                       ulog_logging_callback_t cb, void *userdata) {
+    p->logging_cb = cb;
+    p->logging_userdata = userdata;
 }
 
 void ulog_parser_close(ulog_parser_t *p) {

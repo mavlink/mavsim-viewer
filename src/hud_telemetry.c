@@ -27,11 +27,14 @@ void hud_draw_telemetry(const hud_t *h, const vehicle_t *v,
     Color warn = lay->warn;
     Color climb_color = lay->climb_color;
 
+    int sel = lay->selected;
+
     // NAV group: HDG, ROLL, PITCH (evenly spaced)
     // HDG / YAW (Y key toggles)
     {
         char b[8];
         float x = nav_start + nav_step * 0;
+        float hdg_fs = fs_value; // no peak scale on heading (circular)
         if (h->show_yaw) {
             DrawTextEx(h->font_label, "YAW", (Vector2){x, (float)label_y}, fs_label, 0.5f, label_color);
             float yaw = v->heading_deg;
@@ -41,7 +44,7 @@ void hud_draw_telemetry(const hud_t *h, const vehicle_t *v,
             DrawTextEx(h->font_label, "HDG", (Vector2){x, (float)label_y}, fs_label, 0.5f, label_color);
             snprintf(b, sizeof(b), "%03d", ((int)v->heading_deg % 360 + 360) % 360);
         }
-        DrawTextEx(h->font_value, b, (Vector2){x, (float)value_y}, fs_value, 0.5f, value_color);
+        DrawTextEx(h->font_value, b, (Vector2){x, (float)value_y}, hdg_fs, 0.5f, value_color);
         Vector2 vw = MeasureTextEx(h->font_value, b, fs_value, 0.5f);
         Vector2 uw = MeasureTextEx(h->font_label, "deg", fs_unit, 0.5f);
         float boundary = item_x0 + 1 * item_step;
@@ -72,9 +75,10 @@ void hud_draw_telemetry(const hud_t *h, const vehicle_t *v,
     {
         char b[16];
         float x = energy_start + energy_step * 0;
+        float alt_fs = fs_value;
         DrawTextEx(h->font_label, "ALT", (Vector2){x, (float)label_y}, fs_label, 0.5f, label_color);
         snprintf(b, sizeof(b), "%.1f", v->altitude_rel);
-        DrawTextEx(h->font_value, b, (Vector2){x, (float)value_y}, fs_value, 0.5f, value_color);
+        DrawTextEx(h->font_value, b, (Vector2){x, (float)value_y}, alt_fs, 0.5f, value_color);
         Vector2 vw = MeasureTextEx(h->font_value, b, fs_value, 0.5f);
         Vector2 uw = MeasureTextEx(h->font_label, "m", fs_unit, 0.5f);
         float boundary = item_x0 + 4 * item_step;
@@ -86,9 +90,10 @@ void hud_draw_telemetry(const hud_t *h, const vehicle_t *v,
     {
         char b[16];
         float x = energy_start + energy_step * 1;
+        float gs_fs = fs_value;
         DrawTextEx(h->font_label, "GS", (Vector2){x, (float)label_y}, fs_label, 0.5f, label_color);
         snprintf(b, sizeof(b), "%.1f", v->ground_speed);
-        DrawTextEx(h->font_value, b, (Vector2){x, (float)value_y}, fs_value, 0.5f, value_color);
+        DrawTextEx(h->font_value, b, (Vector2){x, (float)value_y}, gs_fs, 0.5f, value_color);
         Vector2 vw = MeasureTextEx(h->font_value, b, fs_value, 0.5f);
         Vector2 uw = MeasureTextEx(h->font_label, "m/s", fs_unit, 0.5f);
         float boundary = item_x0 + 5 * item_step;

@@ -125,6 +125,13 @@ static void tac_draw_timer_status(const hud_t *h, const data_source_t *src,
 }
 
 // ── Ticker (top-center) ───────────────────────────────────────────────────
+static Color tac_severity_color(uint8_t sev, const theme_t *theme) {
+    if (sev <= 2) return theme->drone_palette[2];
+    if (sev == 3) return theme->drone_palette[4];
+    if (sev == 4) return theme->hud_warn;
+    return theme->hud_dim;
+}
+
 static void tac_draw_ticker(const hud_t *h, const playback_state_t *pb,
                              const hud_marker_data_t *user_md,
                              const hud_marker_data_t *sys_md,
@@ -519,6 +526,18 @@ static void tac_draw_radar(const hud_t *h, const vehicle_t *vehicles,
                 float by = ccy + dz * dot_scale;
                 float dot_r = (vi == selected) ? ws(5, sw, sh) : ws(4, sw, sh);
                 DrawCircle((int)bx, (int)by, dot_r, vehicles[vi].color);
+
+                // Radar droplet wave annunciator
+                float wave_p = annunc_radar_wave_progress(&h->annunciators, vi);
+                if (wave_p > 0.0f) {
+                    float wave_alpha = 1.0f - wave_p;
+                    Color wc = vehicles[vi].color;
+                    wc.a = (unsigned char)(wave_alpha * 180);
+                    float r1 = dot_r + wave_p * ps * 0.12f;
+                    float r2 = dot_r + (wave_p - 0.3f) * ps * 0.12f;
+                    if (r2 > dot_r) DrawCircleLines((int)bx, (int)by, r2, wc);
+                    DrawCircleLines((int)bx, (int)by, r1, wc);
+                }
             }
 
             // Correlation overlays
@@ -541,9 +560,7 @@ static void tac_draw_radar(const hud_t *h, const vehicle_t *vehicles,
                                 int ib1 = (sb + (int)((float)i/n * vb->trail_count)) % vb->trail_capacity;
                                 float t = (float)i / (float)n;
                                 unsigned char al = (unsigned char)(t * 120);
-                                Color mc = {(unsigned char)((va->color.r + vb->color.r)/2),
-                                            (unsigned char)((va->color.g + vb->color.g)/2),
-                                            (unsigned char)((va->color.b + vb->color.b)/2), al};
+                                Color mc = {vb->color.r, vb->color.g, vb->color.b, al};
                                 Vector2 a0 = {ccx + (va->trail[ia0].x - self_pos.x) * dot_scale,
                                               ccy + (va->trail[ia0].z - self_pos.z) * dot_scale};
                                 Vector2 a1 = {ccx + (va->trail[ia1].x - self_pos.x) * dot_scale,
@@ -564,10 +581,8 @@ static void tac_draw_radar(const hud_t *h, const vehicle_t *vehicles,
                     float dz_p = vb->position.z - self_pos.z;
                     float bx_c = ccx + dx_p * dot_scale;
                     float by_c = ccy + dz_p * dot_scale;
-                    Color mid = {(unsigned char)((va->color.r + vb->color.r)/2),
-                                 (unsigned char)((va->color.g + vb->color.g)/2),
-                                 (unsigned char)((va->color.b + vb->color.b)/2), 200};
-                    DrawLineEx((Vector2){ccx, ccy}, (Vector2){bx_c, by_c}, 2.0f, mid);
+                    Color lc = {vb->color.r, vb->color.g, vb->color.b, 200};
+                    DrawLineEx((Vector2){ccx, ccy}, (Vector2){bx_c, by_c}, 2.0f, lc);
                 }
             }
         }
@@ -654,8 +669,10 @@ static void tac_draw_gimbal_rings(const hud_t *h, const vehicle_t *vehicles,
         if (pidx < 0 || pidx >= vehicle_count) continue;
 
         Color dc = vehicles[pidx].color;
-        float cx = start_x + p * spacing;
-        float cy = ring_y;
+        float cx = start_x + p * spacing
+                   + annunc_ring_shake_offset(&h->annunciators, pidx);
+        float cy = ring_y
+                   + annunc_ring_bounce_offset(&h->annunciators, pidx);
 
         Quaternion rot = vehicles[pidx].rotation;
 
@@ -819,5 +836,29 @@ void tactical_hud_draw(const hud_t *h, const vehicle_t *vehicles,
                            s, trail_mode, theme);
         rlPopMatrix();
         EndScissorMode();
+    }
+
+    // Persistent notification panel (bottom-right, N toggle)
+    if (h->show_notifications && h->ticker_count > 0) {
+        float nfs = wy(11, screen_h);
+        float margin = wx(20, screen_w);
+        float ny = (float)screen_h - wy(60, screen_h);
+        for (int i = 0; i < h->ticker_count; i++) {
+            Color sc = tac_severity_color(h->ticker[i].severity, theme);
+            char tag[8];
+            snprintf(tag, sizeof(tag), "D%d", h->ticker[i].drone_idx + 1);
+            Vector2 tag_w = MeasureTextEx(h->font_label, tag, nfs * 0.8f, 0.5f);
+            Vector2 msg_w = MeasureTextEx(h->font_label, h->ticker[i].text, nfs, 0.5f);
+            float total_w = tag_w.x + wy(6, screen_h) + msg_w.x;
+            float tx = (float)screen_w - margin - total_w;
+            float ty = ny - (msg_w.y + wy(3, screen_h));
+
+            Color tag_c = (Color){sc.r, sc.g, sc.b, 120};
+            DrawTextEx(h->font_label, tag, (Vector2){tx, ty + 1}, nfs * 0.8f, 0.5f, tag_c);
+            sc.a = 200;
+            DrawTextEx(h->font_label, h->ticker[i].text,
+                       (Vector2){tx + tag_w.x + wy(6, screen_h), ty}, nfs, 0.5f, sc);
+            ny = ty;
+        }
     }
 }

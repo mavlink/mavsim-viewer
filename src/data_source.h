@@ -5,6 +5,9 @@
 #include <stdint.h>
 #include "mavlink_receiver.h"  // hil_state_t, home_position_t
 
+// Forward declaration for STATUSTEXT ring buffer (defined in ulog_replay.h)
+struct statustext_ring;
+
 // Flight mode change event for timeline markers
 typedef struct {
     float time_s;          // seconds from log start
@@ -30,6 +33,7 @@ typedef struct {
     float correlation;          // Pearson r vs reference drone (NAN = N/A)
     float rmse;                 // RMS position error vs reference (m) (NAN = N/A)
     float time_offset_s;        // alignment offset for display
+    const struct statustext_ring *statustext;  // STATUSTEXT ring (NULL for MAVLink)
 } playback_state_t;
 
 typedef struct data_source data_source_t;

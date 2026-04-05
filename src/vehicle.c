@@ -786,8 +786,8 @@ void vehicle_truncate_trail(vehicle_t *v, float time_s) {
 
 Color vehicle_marker_color(float roll, float pitch, float vert, float speed,
                            float speed_max, const theme_t *theme, int trail_mode,
-                           Color drone_color, bool multi_drone) {
-    if (trail_mode == 3 || multi_drone) {
+                           Color drone_color) {
+    if (trail_mode == 3) {
         return drone_color;
     }
     if (trail_mode == 2) {
@@ -853,7 +853,7 @@ void vehicle_draw_markers(Vector3 *positions, char labels[][48], int count,
                           int current_marker, Vector3 cam_pos, Camera3D camera,
                           float *m_roll, float *m_pitch, float *m_vert, float *m_speed,
                           float speed_max, const theme_t *theme, int trail_mode,
-                          marker_type_t type, Color drone_color, bool multi_drone) {
+                          marker_type_t type, Color drone_color) {
     (void)labels;
     bool is_system = (type == MARKER_SYSTEM);
 
@@ -868,7 +868,7 @@ void vehicle_draw_markers(Vector3 *positions, char labels[][48], int count,
         bool is_current = (i == current_marker);
 
         Color col = vehicle_marker_color(m_roll[i], m_pitch[i], m_vert[i], m_speed[i],
-                                         speed_max, theme, trail_mode, drone_color, multi_drone);
+                                         speed_max, theme, trail_mode, drone_color);
 
         if (is_current) {
             if (theme->thick_trails) {
@@ -924,7 +924,7 @@ void vehicle_draw_marker_labels(Vector3 *positions, char labels[][48], int count
                                 Font font_label, Font font_value,
                                 float *m_roll, float *m_pitch, float *m_vert, float *m_speed,
                                 float speed_max, const theme_t *theme, int trail_mode,
-                                marker_type_t type, Color drone_color, bool multi_drone) {
+                                marker_type_t type, Color drone_color) {
     bool is_system = (type == MARKER_SYSTEM);
     Vector3 cam_fwd = Vector3Normalize(Vector3Subtract(camera.target, camera.position));
 
@@ -974,7 +974,7 @@ void vehicle_draw_marker_labels(Vector3 *positions, char labels[][48], int count
         float rh = tw.y + pad_y * 2;
 
         Color text_col = vehicle_marker_color(m_roll[i], m_pitch[i], m_vert[i], m_speed[i],
-                                              speed_max, theme, trail_mode, drone_color, multi_drone);
+                                              speed_max, theme, trail_mode, drone_color);
         if (is_current) {
             if (theme->thick_trails) {
                 text_col.r = (unsigned char)(text_col.r * 0.55f);

@@ -43,6 +43,8 @@ void hud_init(hud_t *h) {
         printf("Warning: could not load fonts/JetBrainsMono-Medium.ttf, using default font\n");
     if (h->font_label.glyphCount == 0)
         printf("Warning: could not load fonts/Inter-Medium.ttf, using default font\n");
+
+    annunc_init(&h->annunciators);
 }
 
 void hud_update(hud_t *h, uint64_t time_usec, bool connected, float dt) {
@@ -54,6 +56,13 @@ void hud_update(hud_t *h, uint64_t time_usec, bool connected, float dt) {
     // Tick toast timer
     if (h->toast_timer > 0.0f)
         h->toast_timer -= dt;
+    // Tick annunciator timers
+    annunc_update(&h->annunciators, dt);
+    // Tick STATUSTEXT ticker flash timers (entries persist, only flash fades)
+    for (int i = 0; i < h->ticker_count; i++) {
+        if (h->ticker[i].timer > 0.0f)
+            h->ticker[i].timer -= dt;
+    }
 }
 
 void hud_toast(hud_t *h, const char *text, float duration_s) {
@@ -70,15 +79,71 @@ void hud_toast_color(hud_t *h, const char *text, float duration_s, Color color) 
     h->toast_color = color;
 }
 
+static Color severity_color(uint8_t sev, const theme_t *theme) {
+    // Source severity colors from the drone palette warm tones
+    if (sev <= 2) return theme->drone_palette[2];   // critical — palette red/pink
+    if (sev == 3) return theme->drone_palette[4];   // error — palette orange/warm
+    if (sev == 4) return theme->hud_warn;            // warning — theme warn color
+    return theme->hud_dim;                           // info+
+}
+
+void hud_feed_statustext(hud_t *h, const struct statustext_ring *ring, int drone_idx) {
+    if (!ring || drone_idx < 0 || drone_idx >= 16) return;
+    int last = h->ticker_consumed[drone_idx];
+    if (ring->head == last) return;  // no new entries
+
+    // Walk from last consumed to current head
+    int count = ring->count;
+    int head = ring->head;
+    int start = last;
+    // How many new entries?
+    int new_count = head - start;
+    if (new_count < 0) new_count += STATUSTEXT_RING_SIZE;
+    if (new_count > count) new_count = count;
+
+    for (int n = 0; n < new_count; n++) {
+        int idx = (start + n) % STATUSTEXT_RING_SIZE;
+        const statustext_entry_t *e = &ring->entries[idx];
+        // Severity may be raw (0-7) or ASCII ('0'-'7')
+        uint8_t sev = e->severity;
+        if (sev >= '0') sev -= '0';
+        if (sev > 4) continue;  // only WARNING or worse
+
+        // Shift existing ticker entries down
+        if (h->ticker_count < HUD_TICKER_MAX) h->ticker_count++;
+        for (int j = h->ticker_count - 1; j > 0; j--)
+            h->ticker[j] = h->ticker[j - 1];
+
+        // Insert at top
+        snprintf(h->ticker[0].text, sizeof(h->ticker[0].text), "%s", e->text);
+        h->ticker[0].severity = sev;
+        h->ticker[0].timer = 8.0f;
+        h->ticker[0].total = 8.0f;
+        h->ticker[0].drone_idx = drone_idx;
+
+        // Trigger annunciators
+        annunc_trigger_ticker_flash(&h->annunciators, 0);
+        annunc_trigger_ring_shake(&h->annunciators, drone_idx);
+    }
+    h->ticker_consumed[drone_idx] = head;
+}
 
 static void draw_numpad(const hud_t *h, const vehicle_t *vehicles,
                         const data_source_t *sources, int vehicle_count,
                         int selected, float numpad_x, float numpad_y,
-                        Font font_label, float btn_size, float gap, float scale) {
+                        Font font_label, float btn_size, float gap, float scale,
+                        int *out_cols, int *out_rows) {
+    // Dynamic grid: up to 3 cols, rows sized to fit vehicle_count
+    int cols = (vehicle_count <= 9) ? 3 : (vehicle_count <= 12) ? 3 : 4;
+    int rows = (vehicle_count <= 9) ? 3 : (vehicle_count <= 12) ? 4 : 4;
+    int total_slots = cols * rows;
+    if (out_cols) *out_cols = cols;
+    if (out_rows) *out_rows = rows;
+
     float fs = 12 * scale;
-    for (int i = 0; i < 9; i++) {
-        int row = i / 3;
-        int col = i % 3;
+    for (int i = 0; i < total_slots; i++) {
+        int row = i / cols;
+        int col = i % cols;
         float bx = numpad_x + col * (btn_size + gap);
         float by = numpad_y + row * (btn_size + gap);
         int veh_idx = i;
@@ -116,11 +181,13 @@ static void draw_numpad(const hud_t *h, const vehicle_t *vehicles,
                         vehicles[veh_idx].color.b, 80});
         }
 
-        char nb[2] = { '1' + i, '\0' };
-        Vector2 nw = MeasureTextEx(font_label, nb, fs, 0.5f);
+        char nb[4];
+        snprintf(nb, sizeof(nb), "%d", i + 1);
+        float lfs = (i >= 9) ? fs * 0.8f : fs;
+        Vector2 nw = MeasureTextEx(font_label, nb, lfs, 0.5f);
         DrawTextEx(font_label, nb,
-                   (Vector2){bx + btn_size/2 - nw.x/2, by + btn_size/2 - fs/2},
-                   fs, 0.5f, btn_text);
+                   (Vector2){bx + btn_size/2 - nw.x/2, by + btn_size/2 - lfs/2},
+                   lfs, 0.5f, btn_text);
     }
 }
 
@@ -141,8 +208,13 @@ static void draw_secondary_row(const hud_t *h, const vehicle_t *pv, int pidx,
                (Vector2){(float)screen_w, (float)row_y},
                1.0f, (Color){255, 255, 255, 20});
 
-    // Color bar
-    DrawRectangle(0, row_y, (int)(3 * scale), secondary_h, pv->color);
+    // Color bar (fades on marker crossing for this drone)
+    {
+        float tab_a = annunc_tab_fade_alpha(&h->annunciators, pidx);
+        Color tc = pv->color;
+        tc.a = (unsigned char)(tc.a * tab_a);
+        DrawRectangle(0, row_y, (int)(3 * scale), secondary_h, tc);
+    }
 
     // Vehicle number
     char vnum[4];
@@ -247,7 +319,7 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
     Color bg = theme->hud_bg;
     Color border = theme->hud_border;
     Color warn = theme->hud_warn;
-    Color label_color = accent_dim;
+    Color label_color = (Color){accent_dim.r, accent_dim.g, accent_dim.b, (unsigned char)(accent_dim.a * 0.7f)};
     Color value_color = theme->hud_value;
     Color dim_color = theme->hud_dim;
     Color climb_color = theme->hud_climb;
@@ -258,12 +330,12 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
     if (s < 1.0f) s = 1.0f;
 
     // Scaled font sizes
-    float fs_label = 16 * s;
-    float fs_value = 23 * s;
-    float fs_unit  = 15 * s;
-    float fs_dim   = 15 * s;
-    float fs_sec_label = 14 * s;
-    float fs_sec_value = 18 * s;
+    float fs_label = fmaxf(16 * s, 10.0f);
+    float fs_value = fmaxf(23 * s, 14.0f);
+    float fs_unit  = fmaxf(15 * s, 9.0f);
+    float fs_dim   = fmaxf(15 * s, 9.0f);
+    float fs_sec_label = fmaxf(14 * s, 9.0f);
+    float fs_sec_value = fmaxf(18 * s, 12.0f);
 
     // Dynamic bar height
     int primary_h = (int)(120 * s);
@@ -279,12 +351,70 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
     DrawRectangle(0, bar_y, screen_w, total_bar_h, bg);
     DrawLineEx((Vector2){0, (float)bar_y}, (Vector2){(float)screen_w, (float)bar_y}, 1.0f, border);
 
-    // Toast notification (fades in/out, always above other notices)
+    // Ticker zone: STATUSTEXT warnings take priority, toast shows when no warnings
     float toast_h_used = 0.0f;
-    if (h->toast_timer > 0.0f) {
-        float toast_fs = 14 * s;
-        Vector2 tw = MeasureTextEx(h->font_label, h->toast_text, toast_fs, 0.5f);
-        // Fade: full opacity for most of duration, fade out in last 0.5s
+    float ticker_fs = fmaxf(14 * s, 10.0f);
+    float ticker_y = (float)bar_y - 8 * s;
+
+    if (h->ticker_count > 0 && h->show_notifications) {
+        // STATUSTEXT warnings — take over the ticker zone
+        for (int i = 0; i < h->ticker_count; i++) {
+            float fade = 1.0f;
+            if (h->ticker[i].timer < 1.0f)
+                fade = h->ticker[i].timer;
+            Color sc = severity_color(h->ticker[i].severity, theme);
+
+            char tag[8];
+            snprintf(tag, sizeof(tag), "D%d", h->ticker[i].drone_idx + 1);
+            Vector2 tag_w = MeasureTextEx(h->font_label, tag, ticker_fs * 0.8f, 0.5f);
+            Vector2 msg_w = MeasureTextEx(h->font_label, h->ticker[i].text, ticker_fs, 0.5f);
+            float total_w = tag_w.x + 8 * s + msg_w.x;
+            float tx = (float)(screen_w / 2) - total_w / 2.0f;
+            float ty = ticker_y - msg_w.y;
+
+            // Gradient background with faded edges
+            float bg_pad = 40 * s;
+            float flash_a = annunc_ticker_flash_alpha(&h->annunciators, i);
+            float bg_alpha = fade * (25 + flash_a * 120);
+            Color bg_c = (Color){sc.r, sc.g, sc.b, (unsigned char)bg_alpha};
+            // Center solid, edges fade to transparent
+            float bg_x = tx - bg_pad;
+            float bg_w = total_w + bg_pad * 2;
+            float bg_h = msg_w.y + 4 * s;
+            float edge = bg_pad;
+            // Left fade
+            for (int px = 0; px < (int)edge; px++) {
+                float a = (float)px / edge;
+                Color fc = {bg_c.r, bg_c.g, bg_c.b, (unsigned char)(bg_c.a * a)};
+                DrawRectangle((int)(bg_x + px), (int)ty, 1, (int)bg_h, fc);
+            }
+            // Center solid
+            DrawRectangle((int)(bg_x + edge), (int)ty, (int)(bg_w - edge * 2), (int)bg_h, bg_c);
+            // Right fade
+            for (int px = 0; px < (int)edge; px++) {
+                float a = 1.0f - (float)px / edge;
+                Color fc = {bg_c.r, bg_c.g, bg_c.b, (unsigned char)(bg_c.a * a)};
+                DrawRectangle((int)(bg_x + bg_w - edge + px), (int)ty, 1, (int)bg_h, fc);
+            }
+
+            // Drone tag
+            Color tag_c = (Color){sc.r, sc.g, sc.b, (unsigned char)(fade * 140)};
+            DrawTextEx(h->font_label, tag, (Vector2){tx, ty + 1}, ticker_fs * 0.8f, 0.5f, tag_c);
+
+            // Message text — invert to black during flash
+            sc.a = (unsigned char)(fade * 255);
+            Color text_c = (flash_a > 0.3f)
+                ? (Color){0, 0, 0, (unsigned char)(fade * 255)}
+                : sc;
+            DrawTextEx(h->font_label, h->ticker[i].text,
+                       (Vector2){tx + tag_w.x + 8 * s, ty}, ticker_fs, 0.5f, text_c);
+
+            ticker_y = ty - 2 * s;
+        }
+        toast_h_used = (float)bar_y - 8 * s - ticker_y;
+    } else if (h->toast_timer > 0.0f) {
+        // Regular toast when no STATUSTEXT warnings active
+        Vector2 tw = MeasureTextEx(h->font_label, h->toast_text, ticker_fs, 0.5f);
         float fade = 1.0f;
         if (h->toast_timer < 0.5f)
             fade = h->toast_timer / 0.5f;
@@ -294,7 +424,7 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
         float toast_y = (float)bar_y - tw.y - 8 * s;
         float toast_x = (float)(screen_w / 2) - tw.x / 2.0f;
         DrawTextEx(h->font_label, h->toast_text, (Vector2){toast_x, toast_y},
-                   toast_fs, 0.5f, toast_c);
+                   ticker_fs, 0.5f, toast_c);
         toast_h_used = tw.y + 8 * s;
     }
 
@@ -333,8 +463,13 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
     // Offset the main HUD content below the transport row
     bar_y += transport_h;
 
-    // Primary color bar on left edge
-    DrawRectangle(0, bar_y, (int)(3 * s), primary_h, v->color);
+    // Primary color bar on left edge (fades on marker crossing)
+    {
+        float tab_a = annunc_tab_fade_alpha(&h->annunciators, selected);
+        Color tab_c = v->color;
+        tab_c.a = (unsigned char)(tab_c.a * tab_a);
+        DrawRectangle(0, bar_y, (int)(3 * s), primary_h, tab_c);
+    }
 
     // Instruments -- centered vertically in primary area
     float inst_radius = INSTRUMENT_RADIUS * s;
@@ -356,7 +491,8 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
     float np_btn = NUMPAD_BTN_SIZE * s;
     float np_gap = NUMPAD_GAP * s;
     float status_x = (float)(screen_w - 16 * s - 110 * s);
-    float numpad_total_w = 3 * (np_btn + np_gap) - np_gap;
+    int np_cols = (vehicle_count <= 9) ? 3 : (vehicle_count <= 12) ? 3 : 4;
+    float numpad_total_w = np_cols * (np_btn + np_gap) - np_gap;
     float numpad_x = status_x - 20 * s - numpad_total_w;
     float timer_x = numpad_x - 24 * s - 60 * s;
 
@@ -401,15 +537,20 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
         .label_color = label_color, .value_color = value_color,
         .dim_color = dim_color, .warn = warn,
         .climb_color = climb_color, .connected_color = connected_color,
+        .selected = selected,
     };
 
     hud_draw_telemetry(h, v, &tlay);
 
     // Numpad (only when vehicle_count > 1)
     if (vehicle_count > 1) {
-        float np_y = bar_y + (primary_h / 2.0f) - (3 * (np_btn + np_gap)) / 2.0f;
+        int np_r = (vehicle_count <= 9) ? 3 : 4;
+        float np_grid_h = np_r * (np_btn + np_gap) - np_gap;
+        float np_y = bar_y + (primary_h / 2.0f) - np_grid_h / 2.0f;
+        int np_c_out, np_r_out;
         draw_numpad(h, vehicles, sources, vehicle_count, selected,
-                    numpad_x, np_y, h->font_label, np_btn, np_gap, s);
+                    numpad_x, np_y, h->font_label, np_btn, np_gap, s,
+                    &np_c_out, &np_r_out);
     }
 
     hud_draw_status(h, v, &sources[selected], &tlay, ghost_mode);

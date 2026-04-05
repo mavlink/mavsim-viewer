@@ -8,6 +8,21 @@
 // Flight mode change event (from nav_state transitions)
 #define ULOG_MAX_MODE_CHANGES 256
 
+#define STATUSTEXT_MSG_MAX 128
+#define STATUSTEXT_RING_SIZE 16
+
+typedef struct {
+    uint8_t severity;
+    float time_s;
+    char text[STATUSTEXT_MSG_MAX];
+} statustext_entry_t;
+
+typedef struct statustext_ring {
+    statustext_entry_t entries[STATUSTEXT_RING_SIZE];
+    int head;
+    int count;
+} statustext_ring_t;
+
 typedef struct {
     float time_s;          // seconds from log start
     uint8_t nav_state;     // PX4 nav_state value
@@ -110,6 +125,9 @@ typedef struct {
 
     // Time alignment (set by caller after all logs pre-scanned)
     double time_offset_s;       // seconds to add when computing log target timestamp
+
+    // STATUSTEXT messages (populated during playback)
+    statustext_ring_t statustext;
 } ulog_replay_ctx_t;
 
 // Initialize replay context, parse file, build index. Returns 0 on success.

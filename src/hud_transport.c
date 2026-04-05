@@ -97,7 +97,6 @@ void hud_draw_transport(const hud_t *h,
             0.5f, 4, accent);
     }
     // Playhead ring — colored to match the drone's current trail color
-    bool multi = (marker_vehicle_count > 1);
     float dot_x = prog_x + prog_w * pb->progress;
     float dot_y = prog_y + prog_h / 2.0f;
     {
@@ -107,7 +106,7 @@ void hud_draw_transport(const hud_t *h,
                                             sqrtf(pv->ground_speed * pv->ground_speed +
                                                   pv->vertical_speed * pv->vertical_speed),
                                             pv->trail_speed_max, theme, trail_mode,
-                                            pv->color, multi);
+                                            pv->color);
         float r_outer = 6.5f * s;
         float r_inner = 5.5f * s;
         DrawRing((Vector2){dot_x, dot_y}, r_inner, r_outer, 0, 360, 24, ph_col);
@@ -162,7 +161,7 @@ void hud_draw_transport(const hud_t *h,
                 Color mc = vehicle_marker_color(markers->roll[i], markers->pitch[i],
                                                 markers->vert[i], markers->speed[i],
                                                 markers->speed_max, theme, trail_mode,
-                                                markers->color, multi);
+                                                markers->color);
                 if (is_cur) {
                     if (theme->thick_trails) {
                         mc.r = (unsigned char)(mc.r * 0.55f);
@@ -231,7 +230,7 @@ void hud_draw_transport(const hud_t *h,
                 Color mc = vehicle_marker_color(sysm->roll[i], sysm->pitch[i],
                                                 sysm->vert[i], sysm->speed[i],
                                                 sysm->speed_max, theme, trail_mode,
-                                                sysm->color, multi);
+                                                sysm->color);
                 if (is_cur) {
                     if (theme->thick_trails) {
                         mc.r = (unsigned char)(mc.r * 0.55f);

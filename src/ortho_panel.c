@@ -515,18 +515,10 @@ void ortho_panel_draw(const ortho_panel_t *op, int screen_h, int hud_bar_h,
                     Vector2 sa = world_to_panel(pa, center, op->ortho_span, x, y, (float)ps, i);
                     Vector2 sb = world_to_panel(pb, center, op->ortho_span, x, y, (float)ps, i);
 
-                    // Gradient line: interpolate vehicle colors
-                    Color ca = vehicles[selected].color;
-                    Color cb = vehicles[pidx].color;
-                    ca.a = 200; cb.a = 200;
-                    // Draw as single line with blended midpoint color
-                    Color mid = {
-                        (unsigned char)((ca.r + cb.r) / 2),
-                        (unsigned char)((ca.g + cb.g) / 2),
-                        (unsigned char)((ca.b + cb.b) / 2),
-                        200
-                    };
-                    DrawLineEx(sa, sb, 2.0f, mid);
+                    // Use pinned drone's color for correlation line
+                    Color lc = vehicles[pidx].color;
+                    lc.a = 200;
+                    DrawLineEx(sa, sb, 2.0f, lc);
                 }
             }
         }
@@ -743,15 +735,9 @@ void ortho_draw_fullscreen_2d(const scene_t *s, const vehicle_t *vehicles,
                 Vector2 sa = world_to_screen_ortho(pa, center, span, screen_w, screen_h, ortho_mode);
                 Vector2 sb = world_to_screen_ortho(pb, center, span, screen_w, screen_h, ortho_mode);
 
-                Color ca = vehicles[selected].color;
-                Color cb = vehicles[pidx].color;
-                Color mid = {
-                    (unsigned char)((ca.r + cb.r) / 2),
-                    (unsigned char)((ca.g + cb.g) / 2),
-                    (unsigned char)((ca.b + cb.b) / 2),
-                    200
-                };
-                DrawLineEx(sa, sb, 2.0f, mid);
+                Color lc = vehicles[pidx].color;
+                lc.a = 200;
+                DrawLineEx(sa, sb, 2.0f, lc);
             }
         }
     }

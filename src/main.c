@@ -432,7 +432,7 @@ int main(int argc, char *argv[]) {
     int chord_first = -1;       // first digit pressed (-1 = no chord in progress)
     double chord_time = 0.0;    // when first digit was pressed
     bool chord_shift = false;   // whether shift was held on first digit
-    int trail_mode = 1;              // 0=off, 1=directional trail, 2=speed ribbon
+    int trail_mode = (num_replay_files > 1) ? 3 : 1;  // multi-drone defaults to ID trails
     bool show_ground_track = false;  // ground projection off by default
     bool classic_colors = false;     // K key: toggle classic (red/blue) vs modern (yellow/purple)
     bool show_edge_indicators = true; // Ctrl+L: screen edge drone indicators
@@ -441,6 +441,8 @@ int main(int argc, char *argv[]) {
     bool show_axes = false;          // Z: axis orientation gizmo
     bool insufficient_data[MAX_VEHICLES];  // drones with no position data
     memset(insufficient_data, 0, sizeof(insufficient_data));
+    float prev_playback_pos[MAX_VEHICLES];
+    memset(prev_playback_pos, 0, sizeof(prev_playback_pos));
     int insufficient_check_frames = 0;
     bool insufficient_toasted = false;
 
@@ -471,6 +473,49 @@ int main(int argc, char *argv[]) {
         // Poll all data sources and update vehicles
         for (int i = 0; i < vehicle_count; i++) {
             data_source_poll(&sources[i], GetFrameTime());
+
+            // Feed STATUSTEXT messages into HUD ticker
+            if (sources[i].playback.statustext)
+                hud_feed_statustext(&hud, sources[i].playback.statustext, i);
+
+            // Check if playback crossed any marker times (annunciator triggers)
+            if (is_replay && !sources[i].playback.paused) {
+                float cur_pos = sources[i].playback.position_s;
+                float prev_pos = prev_playback_pos[i];
+                // User markers
+                for (int m = 0; m < markers[i].count; m++) {
+                    if (markers[i].times[m] > prev_pos && markers[i].times[m] <= cur_pos) {
+                        annunc_trigger_tab_fade(&hud.annunciators, i);
+                        annunc_trigger_radar_wave(&hud.annunciators, i);
+                        if (i != selected) {
+                            for (int p = 0; p < hud.pinned_count; p++)
+                                if (hud.pinned[p] == i)
+                                    annunc_trigger_ring_bounce(&hud.annunciators, i);
+                        }
+                        break;
+                    }
+                }
+                // System markers
+                for (int m = 0; m < sys_markers[i].count; m++) {
+                    if (sys_markers[i].times[m] > prev_pos && sys_markers[i].times[m] <= cur_pos) {
+                        annunc_trigger_tab_fade(&hud.annunciators, i);
+                        annunc_trigger_radar_wave(&hud.annunciators, i);
+                        if (i != selected) {
+                            for (int p = 0; p < hud.pinned_count; p++)
+                                if (hud.pinned[p] == i)
+                                    annunc_trigger_ring_bounce(&hud.annunciators, i);
+                        }
+                        break;
+                    }
+                }
+                prev_playback_pos[i] = cur_pos;
+            }
+
+            // Update peak value tracking for annunciators
+            if (vehicles[i].active) {
+                annunc_peak_update(&hud.annunciators, i, PEAK_GS, vehicles[i].ground_speed);
+                annunc_peak_update(&hud.annunciators, i, PEAK_ALT, vehicles[i].altitude_rel);
+            }
 
             // Reset trail and origin on reconnect
             if (sources[i].connected && !was_connected[i]) {
@@ -962,6 +1007,10 @@ int main(int argc, char *argv[]) {
             if (IsKeyPressed(KEY_Y)) {
                 hud.show_yaw = !hud.show_yaw;
             }
+            if (IsKeyPressed(KEY_N)) {
+                hud.show_notifications = !hud.show_notifications;
+                hud_toast(&hud, hud.show_notifications ? "Notifications On" : "Notifications Off", 2.0f);
+            }
             if (IsKeyPressed(KEY_L) && !IsKeyDown(KEY_LEFT_CONTROL) && !IsKeyDown(KEY_RIGHT_CONTROL) && !shift && (markers[selected].last_drop_idx < 0 || GetTime() - markers[selected].last_drop_time >= 0.5)) {
                 show_marker_labels = !show_marker_labels;
             }
@@ -969,7 +1018,7 @@ int main(int argc, char *argv[]) {
                 bool interp = !sources[selected].playback.interpolation;
                 for (int i = 0; i < nrf; i++)
                     sources[i].playback.interpolation = interp;
-                printf("Interpolation: %s\n", interp ? "ON" : "OFF");
+                hud_toast(&hud, interp ? "Interpolation On" : "Interpolation Off", 2.0f);
             }
             if (IsKeyPressed(KEY_EQUAL)) {
                 float spd = sources[selected].playback.speed;
@@ -1104,6 +1153,17 @@ int main(int argc, char *argv[]) {
                                  &sources[selected], &vehicles[selected],
                                  &precomp[selected], &scene, &last_pos[selected]);
                 }
+                // Trigger annunciators on marker cycle
+                if (!shift) {
+                    annunc_trigger_tab_fade(&hud.annunciators, selected);
+                    annunc_trigger_radar_wave(&hud.annunciators, selected);
+                    // Bounce any pinned drones
+                    for (int p = 0; p < hud.pinned_count; p++) {
+                        int pidx = hud.pinned[p];
+                        if (pidx >= 0 && pidx < vehicle_count)
+                            annunc_trigger_ring_bounce(&hud.annunciators, pidx);
+                    }
+                }
                 // Sync all drones to the same playback time after marker seek
                 if (!shift && vehicle_count > 1) {
                     float sync_time = sources[selected].playback.position_s;
@@ -1167,7 +1227,7 @@ int main(int argc, char *argv[]) {
                                              markers[i].vert, markers[i].speed,
                                              vehicles[i].trail_speed_max, scene.theme,
                                              trail_mode, MARKER_USER,
-                                             vehicles[i].color, vehicle_count > 1);
+                                             vehicles[i].color);
                     }
                     if (is_replay && sys_markers[i].count > 0) {
                         int cur = (i == selected && sys_markers[i].selected)
@@ -1179,7 +1239,7 @@ int main(int argc, char *argv[]) {
                                              sys_markers[i].vert, sys_markers[i].speed,
                                              vehicles[i].trail_speed_max, scene.theme,
                                              trail_mode, MARKER_SYSTEM,
-                                             vehicles[i].color, vehicle_count > 1);
+                                             vehicles[i].color);
                     }
                 }
 
@@ -1260,7 +1320,7 @@ int main(int argc, char *argv[]) {
                                                    markers[i].vert, markers[i].speed,
                                                    vehicles[i].trail_speed_max, scene.theme,
                                                    trail_mode, MARKER_USER,
-                                                   vehicles[i].color, vehicle_count > 1);
+                                                   vehicles[i].color);
                     }
                     if (sys_markers[i].count > 0) {
                         int cur = (i == selected && sys_markers[i].selected)
@@ -1273,7 +1333,7 @@ int main(int argc, char *argv[]) {
                                                    sys_markers[i].vert, sys_markers[i].speed,
                                                    vehicles[i].trail_speed_max, scene.theme,
                                                    trail_mode, MARKER_SYSTEM,
-                                                   vehicles[i].color, vehicle_count > 1);
+                                                   vehicles[i].color);
                     }
                 }
             }

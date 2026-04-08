@@ -38,65 +38,309 @@ static int trail_lod_skip(Vector3 a, Vector3 b, Vector3 cam)
 // ── Model registry ──────────────────────────────────────────────────────────
 // To add a new model: append an entry here and increment nothing else.
 const vehicle_model_info_t vehicle_models[] = {
-    //  path                                name            scale  pitch    yaw       group
-    { "models/px4_quadrotor.obj",         "Quadrotor",    1.0f,    0.0f, 180.0f,   GROUP_QUAD },
-    { "models/px4_fixed_wing.obj",        "Fixed-wing",   1.15f,   0.0f, 180.0f,   GROUP_FIXED_WING },
-    { "models/px4_tailsitter.obj",        "Tailsitter",   1.0f,    0.0f, 180.0f,   GROUP_TAILSITTER },
-    { "models/fpv_quadrotor.obj",         "FPV Quad",     0.75f,   0.0f,   0.0f,   GROUP_QUAD },
-    { "models/px4_hexarotor.obj",          "Hexarotor",    0.9f,    0.0f,   0.0f,   GROUP_HEX },
-    { "models/fpv_hexarotor.obj",         "FPV Hex",      0.85f,   0.0f,   0.0f,   GROUP_HEX },
-    { "models/vtol_wing.obj",             "VTOL",         1.5f,    0.0f, 180.0f,   GROUP_VTOL },
-    { "models/rover_4.obj",              "Rover",        1.0f,    0.0f,   0.0f,   GROUP_ROVER },
-    { "models/rov.obj",                  "ROV",          1.0f,    0.0f, 180.0f,   GROUP_ROV },
+    //  path                         name          scale  roll  pitch  yaw    group              mirror  width
+    { "models/quad_quarter.obj",   "Quadrotor",   1.0f, -90.0f, 0.0f, 0.0f, GROUP_QUAD,        2,     0.6f },
+    { "models/px4_fixed_wing.obj", "Fixed-wing",  1.15f, 0.0f, 0.0f, 180.0f, GROUP_FIXED_WING,  0,     2.0f },
+    { "models/tailsitter3.obj",    "Tailsitter",  1.0f, -90.0f, 0.0f, 0.0f, GROUP_TAILSITTER,  1,     1.2f },
+    { "models/quadfpv9.obj",       "FPV Quad",    0.75f, -90.0f, 0.0f, 0.0f, GROUP_QUAD,        1,     0.3f },
+    { "models/hex10.obj",          "Hexarotor",   0.9f, -90.0f, 0.0f,  0.0f, GROUP_HEX,         1,     1.0f },
+    { "models/hexfpv2.obj",        "FPV Hex",     0.85f, -90.0f, 0.0f, 0.0f, GROUP_HEX,         1,     0.3f },
+    { "models/vtol4.obj",          "VTOL",        1.5f, -90.0f, 0.0f, 0.0f, GROUP_VTOL,        1,     2.0f },
+    { "models/rover7.obj",         "Rover",       1.0f, -90.0f, 0.0f,  0.0f, GROUP_ROVER,       2,     0.5f },
+    { "models/rov5.obj",           "ROV",         1.0f, -90.0f, 0.0f, 0.0f, GROUP_ROV,         1,     0.75f },
 };
 const int vehicle_model_count = sizeof(vehicle_models) / sizeof(vehicle_models[0]);
 
+// ── Material name classification ────────────────────────────────────────────
+static mat_role_t classify_material_name(const char *name) {
+    if (!name) return MAT_ROLE_NONE;
+    if (strncmp(name, "Port", 4) == 0 || strncmp(name, "Red_", 4) == 0)
+        return MAT_ROLE_PORT;
+    if (strncmp(name, "Starboard", 9) == 0 || strncmp(name, "Green_", 6) == 0)
+        return MAT_ROLE_STARBOARD;
+    if (strncmp(name, "Fore", 4) == 0 || strncmp(name, "Yellow_", 7) == 0)
+        return MAT_ROLE_FORE;
+    if (strncmp(name, "Aft", 3) == 0 || strncmp(name, "Purple_", 7) == 0
+        || strncmp(name, "Back_", 5) == 0)
+        return MAT_ROLE_AFT;
+    if (strncmp(name, "Body_Mid", 8) == 0)
+        return MAT_ROLE_BODY_MID;
+    if (strncmp(name, "Wing", 4) == 0 || strncmp(name, "Body", 4) == 0
+        || strncmp(name, "Fuse", 4) == 0)
+        return MAT_ROLE_BODY;
+    if (strncmp(name, "Prop", 4) == 0)
+        return MAT_ROLE_PROP;
+    if (strncmp(name, "Motor", 5) == 0 || strncmp(name, "Motror", 6) == 0)
+        return MAT_ROLE_MOTOR;
+    return MAT_ROLE_NONE;
+}
+
+// ── MTL pre-parser ─────────────────────────────────────────────────────────
+#define MTL_MAX_ENTRIES 32
+
+typedef struct {
+    char name[64];
+    Color kd;
+    mat_role_t role;
+} mtl_entry_t;
+
+static int parse_mtl_names(const char *obj_path, mtl_entry_t *entries, int max_entries) {
+    // Derive MTL path from OBJ path (replace .obj with .mtl)
+    char mtl_path[512];
+    snprintf(mtl_path, sizeof(mtl_path), "%s", obj_path);
+    int len = (int)strlen(mtl_path);
+    if (len > 4 && strcmp(mtl_path + len - 4, ".obj") == 0) {
+        mtl_path[len - 3] = 'm';
+        mtl_path[len - 2] = 't';
+        mtl_path[len - 1] = 'l';
+    } else {
+        return 0;
+    }
+
+    FILE *fp = fopen(mtl_path, "r");
+    if (!fp) return 0;
+
+    int count = 0;
+    char current_name[64] = {0};
+    char line[256];
+
+    while (fgets(line, sizeof(line), fp) && count < max_entries) {
+        // Strip newline
+        int ll = (int)strlen(line);
+        while (ll > 0 && (line[ll-1] == '\n' || line[ll-1] == '\r'))
+            line[--ll] = '\0';
+
+        if (strncmp(line, "newmtl ", 7) == 0) {
+            snprintf(current_name, sizeof(current_name), "%s", line + 7);
+        } else if (strncmp(line, "Kd ", 3) == 0 && current_name[0]) {
+            float r = 0, g = 0, b = 0;
+            if (sscanf(line + 3, "%f %f %f", &r, &g, &b) == 3) {
+                mtl_entry_t *e = &entries[count];
+                snprintf(e->name, sizeof(e->name), "%s", current_name);
+                e->kd = (Color){
+                    (unsigned char)(r * 255.0f),
+                    (unsigned char)(g * 255.0f),
+                    (unsigned char)(b * 255.0f),
+                    255
+                };
+                e->role = classify_material_name(current_name);
+                count++;
+            }
+            current_name[0] = '\0';
+        }
+    }
+
+    fclose(fp);
+    return count;
+}
+
 // ── Material remapping ──────────────────────────────────────────────────────
-// Heuristic color detection works across OBJ models with standard MTL colors.
+// Two-pass: name-based matching first, color heuristic fallback for legacy models.
 static void remap_materials(vehicle_t *v) {
     v->red_material_idx = -1;
     v->green_material_idx = -1;
-    v->front_material_idx = -1;
-    v->back_material_idx = -1;
-    for (int i = 0; i < v->model.materialCount; i++) {
-        Color *c = &v->model.materials[i].maps[MATERIAL_MAP_DIFFUSE].color;
-        // Yellow_Metal (front arms) → #FFC832 — matches Grid trail forward
-        if (c->r > 200 && c->g > 100 && c->b < 100) {
-            *c = (Color){ 255, 200, 50, 255 };
-            v->front_material_idx = i;
+    v->fore_material_idx = -1;
+    v->aft_material_idx = -1;
+
+    // Build MTL path from model path
+    char model_path[512];
+    asset_path(vehicle_models[v->model_idx].path, model_path, sizeof(model_path));
+
+    // Pass 1: name-based matching via MTL pre-parse
+    mtl_entry_t mtl_entries[MTL_MAX_ENTRIES];
+    int mtl_count = parse_mtl_names(model_path, mtl_entries, MTL_MAX_ENTRIES);
+    bool name_matched = false;
+
+    if (mtl_count > 0) {
+        printf("  MTL parse: %d entries\n", mtl_count);
+        for (int m = 0; m < mtl_count; m++)
+            printf("    MTL[%d] '%s' kd=(%d,%d,%d) role=%d\n",
+                   m, mtl_entries[m].name, mtl_entries[m].kd.r,
+                   mtl_entries[m].kd.g, mtl_entries[m].kd.b, mtl_entries[m].role);
+        for (int i = 0; i < v->model.materialCount; i++) {
+            Color mc = v->model.materials[i].maps[MATERIAL_MAP_DIFFUSE].color;
+            printf("  Raylib mat[%d] color=(%d,%d,%d)", i, mc.r, mc.g, mc.b);
+            bool found = false;
+            // Find MTL entry matching this material's diffuse color
+            for (int m = 0; m < mtl_count; m++) {
+                if (mc.r == mtl_entries[m].kd.r &&
+                    mc.g == mtl_entries[m].kd.g &&
+                    mc.b == mtl_entries[m].kd.b) {
+                    mat_role_t role = mtl_entries[m].role;
+                    if (v->material_roles) v->material_roles[i] = role;
+                    switch (role) {
+                        case MAT_ROLE_PORT:      v->red_material_idx = i; break;
+                        case MAT_ROLE_STARBOARD: v->green_material_idx = i; break;
+                        case MAT_ROLE_FORE:      v->fore_material_idx = i; break;
+                        case MAT_ROLE_AFT:       v->aft_material_idx = i; break;
+                        default: break;
+                    }
+                    name_matched = true;
+                    found = true;
+                    printf(" -> '%s' role=%d", mtl_entries[m].name, role);
+                    break;
+                }
+            }
+            if (!found) printf(" -> NO MATCH");
+            printf("\n");
         }
-        // Purple_Metal (back arms) → #A03CFF — matches Grid trail backward
-        else if (c->b > 200 && c->r > 100 && c->g < 100) {
-            *c = (Color){ 160, 60, 255, 255 };
-            v->back_material_idx = i;
-        }
-        // Green_Metal (starboard/side arms) → #29FF4F
-        else if (c->g > 200 && c->r < 100 && c->b < 100) {
-            *c = (Color){ 41, 255, 79, 255 };
-            v->green_material_idx = i;
-        }
-        // Red_Metal (port/side arms) → #CC2121
-        else if (c->r > 100 && c->g < 50 && c->b < 50) {
-            *c = (Color){ 204, 33, 33, 255 };
-            v->red_material_idx = i;
-        }
-        // Blue_Metal (legacy) → #272fc5
-        else if (c->b > 100 && c->r < 50)
-            *c = (Color){ 39, 47, 197, 255 };
-        // Gray_Plastic (props) → #5075a2
-        else if (c->r > 60 && c->r < 140 && c->g > 60 && c->g < 140)
-            *c = (Color){ 80, 117, 162, 255 };
-        // Textolite (body, near-black) → #0e1f2f
-        else if (c->r < 20 && c->g < 20 && c->b < 20)
-            *c = (Color){ 14, 31, 47, 255 };
     }
 
-    // Assign lighting shader to all materials (shader stored in vehicle_init)
+    // Pass 2: color heuristic fallback for legacy models
+    if (!name_matched) {
+        for (int i = 0; i < v->model.materialCount; i++) {
+            Color *c = &v->model.materials[i].maps[MATERIAL_MAP_DIFFUSE].color;
+            if (c->r > 200 && c->g > 100 && c->b < 100) {
+                *c = (Color){ 255, 200, 50, 255 };
+                v->fore_material_idx = i;
+                if (v->material_roles) v->material_roles[i] = MAT_ROLE_FORE;
+            } else if (c->b > 200 && c->r > 100 && c->g < 100) {
+                *c = (Color){ 160, 60, 255, 255 };
+                v->aft_material_idx = i;
+                if (v->material_roles) v->material_roles[i] = MAT_ROLE_AFT;
+            } else if (c->g > 200 && c->r < 100 && c->b < 100) {
+                *c = (Color){ 41, 255, 79, 255 };
+                v->green_material_idx = i;
+                if (v->material_roles) v->material_roles[i] = MAT_ROLE_STARBOARD;
+            } else if (c->r > 100 && c->g < 50 && c->b < 50) {
+                *c = (Color){ 204, 33, 33, 255 };
+                v->red_material_idx = i;
+                if (v->material_roles) v->material_roles[i] = MAT_ROLE_PORT;
+            } else if (c->b > 100 && c->r < 50) {
+                *c = (Color){ 39, 47, 197, 255 };
+                if (v->material_roles) v->material_roles[i] = MAT_ROLE_BODY;
+            } else if (c->r > 60 && c->r < 140 && c->g > 60 && c->g < 140) {
+                *c = (Color){ 80, 117, 162, 255 };
+                if (v->material_roles) v->material_roles[i] = MAT_ROLE_PROP;
+            } else if (c->r < 20 && c->g < 20 && c->b < 20) {
+                *c = (Color){ 14, 31, 47, 255 };
+                if (v->material_roles) v->material_roles[i] = MAT_ROLE_BODY;
+            }
+        }
+    }
+
+    // Assign lighting shader to all materials
     if (v->lighting_shader.id > 0) {
         for (int i = 0; i < v->model.materialCount; i++) {
             v->model.materials[i].shader = v->lighting_shader;
         }
     }
+}
+
+// ── Runtime mesh mirroring ──────────────────────────────────────────────────
+
+// Duplicate a mesh with one axis negated, normals flipped, winding reversed.
+static Mesh duplicate_mesh_mirrored(Mesh src, int axis) {
+    // axis: 0=X, 2=Z
+    Mesh dst = {0};
+    dst.vertexCount = src.vertexCount;
+    dst.triangleCount = src.triangleCount;
+
+    // Vertices — negate the specified axis
+    if (src.vertices) {
+        dst.vertices = (float *)RL_MALLOC(src.vertexCount * 3 * sizeof(float));
+        memcpy(dst.vertices, src.vertices, src.vertexCount * 3 * sizeof(float));
+        for (int i = 0; i < src.vertexCount; i++)
+            dst.vertices[i * 3 + axis] = -dst.vertices[i * 3 + axis];
+    }
+
+    // Normals — negate the same axis
+    if (src.normals) {
+        dst.normals = (float *)RL_MALLOC(src.vertexCount * 3 * sizeof(float));
+        memcpy(dst.normals, src.normals, src.vertexCount * 3 * sizeof(float));
+        for (int i = 0; i < src.vertexCount; i++)
+            dst.normals[i * 3 + axis] = -dst.normals[i * 3 + axis];
+    }
+
+    // Texcoords — unchanged
+    if (src.texcoords) {
+        dst.texcoords = (float *)RL_MALLOC(src.vertexCount * 2 * sizeof(float));
+        memcpy(dst.texcoords, src.texcoords, src.vertexCount * 2 * sizeof(float));
+    }
+
+    // Colors — unchanged
+    if (src.colors) {
+        dst.colors = (unsigned char *)RL_MALLOC(src.vertexCount * 4);
+        memcpy(dst.colors, src.colors, src.vertexCount * 4);
+    }
+
+    // Indices — reverse winding
+    if (src.indices) {
+        dst.indices = (unsigned short *)RL_MALLOC(src.triangleCount * 3 * sizeof(unsigned short));
+        for (int t = 0; t < src.triangleCount; t++) {
+            dst.indices[t * 3 + 0] = src.indices[t * 3 + 0];
+            dst.indices[t * 3 + 1] = src.indices[t * 3 + 2];
+            dst.indices[t * 3 + 2] = src.indices[t * 3 + 1];
+        }
+    } else {
+        // Non-indexed: swap vertices within each triangle triple
+        for (int t = 0; t < src.triangleCount; t++) {
+            int b = t * 3;
+            for (int c = 0; c < 3; c++) {
+                float tmp = dst.vertices[(b + 1) * 3 + c];
+                dst.vertices[(b + 1) * 3 + c] = dst.vertices[(b + 2) * 3 + c];
+                dst.vertices[(b + 2) * 3 + c] = tmp;
+            }
+            if (dst.normals) {
+                for (int c = 0; c < 3; c++) {
+                    float tmp = dst.normals[(b + 1) * 3 + c];
+                    dst.normals[(b + 1) * 3 + c] = dst.normals[(b + 2) * 3 + c];
+                    dst.normals[(b + 2) * 3 + c] = tmp;
+                }
+            }
+            if (dst.texcoords) {
+                for (int c = 0; c < 2; c++) {
+                    float tmp = dst.texcoords[(b + 1) * 2 + c];
+                    dst.texcoords[(b + 1) * 2 + c] = dst.texcoords[(b + 2) * 2 + c];
+                    dst.texcoords[(b + 2) * 2 + c] = tmp;
+                }
+            }
+        }
+    }
+
+    UploadMesh(&dst, false);
+    return dst;
+}
+
+// Get the counterpart role for mirroring
+static mat_role_t mirror_role_x(mat_role_t role) {
+    if (role == MAT_ROLE_PORT) return MAT_ROLE_STARBOARD;
+    if (role == MAT_ROLE_STARBOARD) return MAT_ROLE_PORT;
+    return role;
+}
+
+static mat_role_t mirror_role_z(mat_role_t role) {
+    if (role == MAT_ROLE_FORE) return MAT_ROLE_AFT;
+    if (role == MAT_ROLE_AFT) return MAT_ROLE_FORE;
+    return role;
+}
+
+// Mirror model along an axis. No new materials created — uses per-mesh role overrides.
+static void mirror_model_axis(vehicle_t *v, int axis,
+                               mat_role_t (*role_swap)(mat_role_t)) {
+    Model *model = &v->model;
+    int orig_count = model->meshCount;
+    int new_count = orig_count * 2;
+
+    // Expand mesh arrays
+    model->meshes = (Mesh *)RL_REALLOC(model->meshes, new_count * sizeof(Mesh));
+    model->meshMaterial = (int *)RL_REALLOC(model->meshMaterial, new_count * sizeof(int));
+
+    // Expand mesh_roles
+    v->mesh_roles = (mat_role_t *)realloc(v->mesh_roles, new_count * sizeof(mat_role_t));
+
+    for (int i = 0; i < orig_count; i++) {
+        model->meshes[orig_count + i] = duplicate_mesh_mirrored(model->meshes[i], axis);
+        model->meshMaterial[orig_count + i] = model->meshMaterial[i]; // same material
+
+        // Mirrored mesh gets swapped role
+        int orig_mat = model->meshMaterial[i];
+        mat_role_t orig_role = v->mesh_roles[i];
+        v->mesh_roles[orig_count + i] = role_swap(orig_role);
+    }
+
+    model->meshCount = new_count;
+    v->mesh_roles_count = new_count;
 }
 
 // ── Model loading ───────────────────────────────────────────────────────────
@@ -115,9 +359,16 @@ void vehicle_load_model(vehicle_t *v, int model_idx) {
         UnloadModel(v->model);
     }
 
+    // Free previous material_roles if reloading
+    if (v->material_roles) {
+        free(v->material_roles);
+        v->material_roles = NULL;
+    }
+
     const vehicle_model_info_t *info = &vehicle_models[model_idx];
     v->model_idx = model_idx;
     v->model_scale = info->scale;
+    v->roll_offset_deg = info->roll_offset_deg;
     v->pitch_offset_deg = info->pitch_offset_deg;
     v->yaw_offset_deg = info->yaw_offset_deg;
 
@@ -127,7 +378,27 @@ void vehicle_load_model(vehicle_t *v, int model_idx) {
     if (v->model.meshCount == 0)
         printf("Warning: failed to load model %s\n", info->path);
 
+    // Allocate material roles array
+    v->material_roles = (mat_role_t *)calloc(v->model.materialCount, sizeof(mat_role_t));
+
     remap_materials(v);
+
+    // Initialize per-mesh roles from material roles
+    free(v->mesh_roles);
+    v->mesh_roles = (mat_role_t *)calloc(v->model.meshCount, sizeof(mat_role_t));
+    v->mesh_roles_count = v->model.meshCount;
+    for (int i = 0; i < v->model.meshCount; i++) {
+        int mat = v->model.meshMaterial[i];
+        v->mesh_roles[i] = v->material_roles[mat];
+    }
+
+    // Runtime mirroring — no new materials, uses per-mesh role overrides
+    if (info->mirror_axes >= 1)
+        mirror_model_axis(v, 0, mirror_role_x);
+    if (info->mirror_axes >= 2)
+        mirror_model_axis(v, 2, mirror_role_z);
+
+    // Debug prints removed
     printf("Model: %s\n", info->name);
 }
 
@@ -205,8 +476,8 @@ static void vehicle_init_common(vehicle_t *v, int model_idx, Shader lighting_sha
     v->model_group = vehicle_models[model_idx].group;
     v->red_material_idx = -1;
     v->green_material_idx = -1;
-    v->front_material_idx = -1;
-    v->back_material_idx = -1;
+    v->fore_material_idx = -1;
+    v->aft_material_idx = -1;
     v->color = WHITE;
     v->trail = (Vector3 *)calloc(capacity, sizeof(Vector3));
     v->trail_roll = (float *)calloc(capacity, sizeof(float));
@@ -377,63 +648,31 @@ void vehicle_draw(vehicle_t *v, const theme_t *theme, bool selected,
                   int trail_mode, bool show_ground_track, Vector3 cam_pos,
                   bool classic_colors) {
     // Per-mode arm recoloring: front/back arms match trail forward/backward colors
-    Color saved_front = {0}, saved_back = {0}, saved_red = {0}, saved_green = {0};
-    bool recolor_arms = true;
-    if (recolor_arms) {
-        Color front_col, back_col, side_col, red_col = {0}, green_col = {0};
-        if (classic_colors) {
-            front_col = theme->arm_classic_front;
-            back_col  = theme->arm_classic_back;
-            side_col  = theme->arm_classic_side;
-        } else {
-            front_col = theme->arm_front;
-            back_col  = theme->arm_back;
-            red_col   = theme->arm_port;
-            green_col = theme->arm_starboard;
-            side_col = (Color){ 0, 0, 0, 0 };  // unused in modern
-        }
-        if (v->front_material_idx >= 0) {
-            Color *c = &v->model.materials[v->front_material_idx].maps[MATERIAL_MAP_DIFFUSE].color;
-            saved_front = *c;
-            *c = front_col;
-        }
-        if (v->back_material_idx >= 0) {
-            Color *c = &v->model.materials[v->back_material_idx].maps[MATERIAL_MAP_DIFFUSE].color;
-            saved_back = *c;
-            *c = back_col;
-        }
-        if (classic_colors) {
-            // In classic mode, sides become body-dark (or light grey for VTOL)
-            if (v->red_material_idx >= 0) {
-                Color *c = &v->model.materials[v->red_material_idx].maps[MATERIAL_MAP_DIFFUSE].color;
-                saved_red = *c;
-                *c = side_col;
-            }
-            if (v->green_material_idx >= 0) {
-                Color *c = &v->model.materials[v->green_material_idx].maps[MATERIAL_MAP_DIFFUSE].color;
-                saved_green = *c;
-                *c = side_col;
-            }
-        } else {
-            // Modern: per-view-mode red/green
-            if (v->red_material_idx >= 0) {
-                Color *c = &v->model.materials[v->red_material_idx].maps[MATERIAL_MAP_DIFFUSE].color;
-                saved_red = *c;
-                *c = red_col;
-            }
-            if (v->green_material_idx >= 0) {
-                Color *c = &v->model.materials[v->green_material_idx].maps[MATERIAL_MAP_DIFFUSE].color;
-                saved_green = *c;
-                *c = green_col;
-            }
-        }
+    // Compute role colors
+    Color role_colors[MAT_ROLE_COUNT] = {0};
+    if (classic_colors) {
+        role_colors[MAT_ROLE_FORE] = theme->arm_classic_front;
+        role_colors[MAT_ROLE_AFT]  = theme->arm_classic_back;
+        role_colors[MAT_ROLE_PORT] = theme->arm_classic_side;
+        role_colors[MAT_ROLE_STARBOARD] = theme->arm_classic_side;
+    } else {
+        role_colors[MAT_ROLE_FORE] = theme->arm_front;
+        role_colors[MAT_ROLE_AFT]  = theme->arm_back;
+        role_colors[MAT_ROLE_PORT] = theme->arm_port;
+        role_colors[MAT_ROLE_STARBOARD] = theme->arm_starboard;
     }
+    role_colors[MAT_ROLE_BODY]     = (Color){ 4, 4, 60, 255 };
+    role_colors[MAT_ROLE_BODY_MID] = (Color){ 22, 22, 74, 255 };
+    role_colors[MAT_ROLE_PROP]     = (Color){ 80, 117, 162, 255 };
+    role_colors[MAT_ROLE_MOTOR]    = (Color){ 14, 20, 30, 255 };
     // OBJ model: flat in XY, thin in Z (Z is model's up).
     // Raylib: Y is up. Rotate +90° around X so model Z → Raylib Y,
-    // then apply per-model yaw correction to align nose with -Z (forward).
+    // then apply per-model roll/pitch/yaw corrections.
     Matrix base_rot = MatrixMultiply(
         MatrixMultiply(
-            MatrixRotateX(90.0f * DEG2RAD),
+            MatrixMultiply(
+                MatrixRotateX(90.0f * DEG2RAD),
+                MatrixRotateX(v->roll_offset_deg * DEG2RAD)),
             MatrixRotateZ(v->pitch_offset_deg * DEG2RAD)),
         MatrixRotateY(v->yaw_offset_deg * DEG2RAD));
     Matrix rot = QuaternionToMatrix(v->rotation);
@@ -463,7 +702,36 @@ void vehicle_draw(vehicle_t *v, const theme_t *theme, bool selected,
         model_tint.g = (unsigned char)(255 * (1.0f - t) + v->color.g * t);
         model_tint.b = (unsigned char)(255 * (1.0f - t) + v->color.b * t);
     }
-    DrawModel(v->model, (Vector3){0}, 1.0f, model_tint);
+    // Draw meshes individually with per-mesh role coloring
+    for (int mi = 0; mi < v->model.meshCount; mi++) {
+        int mat_idx = v->model.meshMaterial[mi];
+        Material mat = v->model.materials[mat_idx];
+
+        // Apply tint
+        Color orig = mat.maps[MATERIAL_MAP_DIFFUSE].color;
+        mat.maps[MATERIAL_MAP_DIFFUSE].color = (Color){
+            (unsigned char)(((int)orig.r * (int)model_tint.r) / 255),
+            (unsigned char)(((int)orig.g * (int)model_tint.g) / 255),
+            (unsigned char)(((int)orig.b * (int)model_tint.b) / 255),
+            (unsigned char)(((int)orig.a * (int)model_tint.a) / 255),
+        };
+
+        // Override with role color if this mesh has a role
+        if (v->mesh_roles && mi < v->mesh_roles_count) {
+            mat_role_t role = v->mesh_roles[mi];
+            if (role > 0 && role < MAT_ROLE_COUNT) {
+                Color ac = role_colors[role];
+                mat.maps[MATERIAL_MAP_DIFFUSE].color = (Color){
+                    (unsigned char)(((int)ac.r * (int)model_tint.r) / 255),
+                    (unsigned char)(((int)ac.g * (int)model_tint.g) / 255),
+                    (unsigned char)(((int)ac.b * (int)model_tint.b) / 255),
+                    (unsigned char)(((int)ac.a * (int)model_tint.a) / 255),
+                };
+            }
+        }
+
+        DrawMesh(v->model.meshes[mi], mat, v->model.transform);
+    }
     if (v->ghost_alpha < 1.0f) rlEnableDepthMask();
 
     // Draw path trail (mode 1), speed ribbon (mode 2), or drone color (mode 3)
@@ -734,17 +1002,7 @@ void vehicle_draw(vehicle_t *v, const theme_t *theme, bool selected,
         }
     }
 
-    // Restore original colors
-    if (recolor_arms) {
-        if (v->front_material_idx >= 0)
-            v->model.materials[v->front_material_idx].maps[MATERIAL_MAP_DIFFUSE].color = saved_front;
-        if (v->back_material_idx >= 0)
-            v->model.materials[v->back_material_idx].maps[MATERIAL_MAP_DIFFUSE].color = saved_back;
-        if (v->red_material_idx >= 0)
-            v->model.materials[v->red_material_idx].maps[MATERIAL_MAP_DIFFUSE].color = saved_red;
-        if (v->green_material_idx >= 0)
-            v->model.materials[v->green_material_idx].maps[MATERIAL_MAP_DIFFUSE].color = saved_green;
-    }
+    // No restore needed — we drew with local Material copies, not modifying model.materials
 }
 
 void vehicle_reset_trail(vehicle_t *v) {
@@ -1174,7 +1432,11 @@ void vehicle_cleanup(vehicle_t *v) {
     free(v->trail_vert);
     free(v->trail_speed);
     free(v->trail_time);
+    free(v->material_roles);
+    free(v->mesh_roles);
     v->trail = NULL;
+    v->material_roles = NULL;
+    v->mesh_roles = NULL;
     v->trail_roll = NULL;
     v->trail_pitch = NULL;
     v->trail_vert = NULL;

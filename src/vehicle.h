@@ -24,14 +24,31 @@ typedef enum {
     GROUP_COUNT,
 } model_group_t;
 
+// Material role — semantic identity of a model material
+typedef enum {
+    MAT_ROLE_NONE = 0,
+    MAT_ROLE_PORT,       // Port_Metal, Red_Metal — port/left arms
+    MAT_ROLE_STARBOARD,  // Starboard_Metal, Green_Metal — starboard/right arms
+    MAT_ROLE_FORE,       // Fore_Metal, Yellow_Metal — front arms
+    MAT_ROLE_AFT,        // Aft_Metal, Purple_Metal, Back_Metal — rear arms
+    MAT_ROLE_BODY,       // Wing_Body, Fuse, Body_Dark, Leg — fuselage dark
+    MAT_ROLE_BODY_MID,   // Body_Mid — fuselage top/accent
+    MAT_ROLE_PROP,       // Prop_Grey — propellers
+    MAT_ROLE_MOTOR,      // Motor_Dark, Motror_Dark — motors
+    MAT_ROLE_COUNT
+} mat_role_t;
+
 // Model descriptor — add new entries to vehicle_models[] in vehicle.c
 typedef struct {
-    const char *path;           // OBJ file path
+    const char *path;           // OBJ/GLB file path
     const char *name;           // display name
     float scale;
-    float pitch_offset_deg;    // pitch correction (applied before yaw, after X-90 base)
-    float yaw_offset_deg;      // yaw correction after Z-up → Y-up rotation
+    float roll_offset_deg;     // roll correction (Z-axis, for Blender Z-up exports)
+    float pitch_offset_deg;    // pitch correction (X-axis)
+    float yaw_offset_deg;      // yaw correction (Y-axis)
     model_group_t group;       // which group this model belongs to
+    int mirror_axes;           // 0=none, 1=mirror X, 2=mirror X+Z (quad cut)
+    float width_m;             // vehicle wingspan/width in meters (0=unknown)
 } vehicle_model_info_t;
 
 extern const vehicle_model_info_t vehicle_models[];
@@ -62,6 +79,7 @@ typedef struct {
     double lon0;             // radians
     double alt0;             // meters
     float model_scale;
+    float roll_offset_deg;   // per-model roll correction
     float pitch_offset_deg;  // per-model pitch correction
     float yaw_offset_deg;    // per-model yaw correction
     float heading_deg;       // yaw 0-360
@@ -71,10 +89,13 @@ typedef struct {
     float vertical_speed;    // m/s (positive = climbing)
     float airspeed;          // m/s
     float altitude_rel;      // meters above origin
-    int red_material_idx;    // material index for red/port arms (-1 if not found)
-    int green_material_idx;  // material index for green/starboard arms (-1 if not found)
-    int front_material_idx;  // material index for front arms (yellow, -1 if not found)
-    int back_material_idx;   // material index for back arms (purple, -1 if not found)
+    int red_material_idx;    // material index for port arms (-1 if not found)
+    int green_material_idx;  // material index for starboard arms (-1 if not found)
+    int fore_material_idx;   // material index for fore arms (-1 if not found)
+    int aft_material_idx;    // material index for aft arms (-1 if not found)
+    mat_role_t *material_roles; // role per material index (NULL until loaded)
+    mat_role_t *mesh_roles;     // role per mesh (for mirrored meshes with swapped roles)
+    int mesh_roles_count;
     uint8_t sysid;
     Color color;
     Vector3 *trail;

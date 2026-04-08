@@ -101,7 +101,7 @@ if(NOT BUILD_TESTING_ONLY)
 
     install(TARGETS hawkeye RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
     install(DIRECTORY models/ DESTINATION ${CMAKE_INSTALL_DATADIR}/hawkeye/models
-            FILES_MATCHING PATTERN "*.obj" PATTERN "*.mtl")
+            FILES_MATCHING PATTERN "*.obj" PATTERN "*.mtl" PATTERN "*.glb")
     install(DIRECTORY shaders/ DESTINATION ${CMAKE_INSTALL_DATADIR}/hawkeye/shaders
             FILES_MATCHING PATTERN "*.vs" PATTERN "*.fs")
     install(DIRECTORY fonts/ DESTINATION ${CMAKE_INSTALL_DATADIR}/hawkeye/fonts

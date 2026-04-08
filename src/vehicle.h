@@ -168,7 +168,7 @@ void vehicle_draw_marker_labels(Vector3 *positions, char labels[][48], int count
                                 marker_type_t type, Color drone_color);
 
 // Compute marker color from snapshotted telemetry.
-// drone_color used when trail_mode == 3 (ID trails) or multi-drone mode.
+// drone_color used when trail_mode == 3 (ID trails).
 Color vehicle_marker_color(float roll, float pitch, float vert, float speed,
                            float speed_max, const theme_t *theme, int trail_mode,
                            Color drone_color);

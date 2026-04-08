@@ -511,12 +511,6 @@ int main(int argc, char *argv[]) {
                 prev_playback_pos[i] = cur_pos;
             }
 
-            // Update peak value tracking for annunciators
-            if (vehicles[i].active) {
-                annunc_peak_update(&hud.annunciators, i, PEAK_GS, vehicles[i].ground_speed);
-                annunc_peak_update(&hud.annunciators, i, PEAK_ALT, vehicles[i].altitude_rel);
-            }
-
             // Reset trail and origin on reconnect
             if (sources[i].connected && !was_connected[i]) {
                 vehicle_reset_trail(&vehicles[i]);

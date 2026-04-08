@@ -273,9 +273,6 @@ int ulog_replay_init(ulog_replay_ctx_t *ctx, const char *filepath) {
     int ret = ulog_parser_open(&ctx->parser, filepath);
     if (ret != 0) return ret;
 
-    // Enable STATUSTEXT logging message capture
-    ulog_parser_set_logging_callback(&ctx->parser, logging_cb, ctx);
-
     // Find subscriptions
     ctx->sub_attitude = ulog_parser_find_subscription(&ctx->parser, "vehicle_attitude");
     ctx->sub_global_pos = ulog_parser_find_subscription(&ctx->parser, "vehicle_global_position");
@@ -509,6 +506,11 @@ int ulog_replay_init(ulog_replay_ctx_t *ctx, const char *filepath) {
             ctx->current_nav_state = ctx->mode_changes[0].nav_state;
         ulog_parser_rewind(&ctx->parser);
     }
+
+    // Enable STATUSTEXT logging message capture (after pre-scan so the ring
+    // only fills with messages encountered during actual playback, not during
+    // the full-file pre-scan pass above).
+    ulog_parser_set_logging_callback(&ctx->parser, logging_cb, ctx);
 
     float dur = (float)((double)(ctx->parser.end_timestamp - ctx->parser.start_timestamp) / 1e6);
     printf("ULog replay: %s (%.1fs, %d index entries)\n", filepath, dur, ctx->parser.index_count);

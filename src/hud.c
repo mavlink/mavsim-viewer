@@ -106,7 +106,7 @@ void hud_feed_statustext(hud_t *h, const struct statustext_ring *ring, int drone
         const statustext_entry_t *e = &ring->entries[idx];
         // Severity may be raw (0-7) or ASCII ('0'-'7')
         uint8_t sev = e->severity;
-        if (sev >= '0') sev -= '0';
+        if (sev >= '0' && sev <= '7') sev -= '0';
         if (sev > 4) continue;  // only WARNING or worse
 
         // Shift existing ticker entries down

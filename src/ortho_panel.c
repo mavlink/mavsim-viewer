@@ -650,13 +650,10 @@ void ortho_panel_draw_single(const ortho_panel_t *op, int view_index,
                                vehicles[pidx].position.z };
                 Vector2 sa = world_to_panel(pa, center, op->ortho_span, x, y, (float)ps, i);
                 Vector2 sb = world_to_panel(pb, center, op->ortho_span, x, y, (float)ps, i);
-                Color mid = {
-                    (unsigned char)((vehicles[selected].color.r + vehicles[pidx].color.r) / 2),
-                    (unsigned char)((vehicles[selected].color.g + vehicles[pidx].color.g) / 2),
-                    (unsigned char)((vehicles[selected].color.b + vehicles[pidx].color.b) / 2),
-                    200
-                };
-                DrawLineEx(sa, sb, 2.0f, mid);
+                // Use pinned drone's color for correlation line
+                Color lc = vehicles[pidx].color;
+                lc.a = 200;
+                DrawLineEx(sa, sb, 2.0f, lc);
             }
         }
     }

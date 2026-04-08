@@ -15,10 +15,6 @@ void annunc_init(hud_annunciators_t *a) {
     a->ring_shake.duration = 0.4f;
     a->ring_shake.cycles = 3;
     a->ring_shake.amplitude = 2.0f;
-    // Initialize peak tracking to -INFINITY so first value triggers
-    for (int d = 0; d < ANNUNC_MAX_VEHICLES; d++)
-        for (int c = 0; c < ANNUNC_PEAK_CHANNELS; c++)
-            a->peak_scale.max_val[d][c] = -1e30f;
 }
 
 void annunc_update(hud_annunciators_t *a, float dt) {
@@ -119,22 +115,6 @@ float annunc_ring_bounce_offset(const hud_annunciators_t *a, int drone_idx) {
 }
 
 // Peak scale: update max tracking and at_peak flag
-void annunc_peak_update(hud_annunciators_t *a, int drone_idx, int channel, float value) {
-    if (drone_idx < 0 || drone_idx >= ANNUNC_MAX_VEHICLES) return;
-    if (channel < 0 || channel >= ANNUNC_PEAK_CHANNELS) return;
-    if (value > a->peak_scale.max_val[drone_idx][channel])
-        a->peak_scale.max_val[drone_idx][channel] = value;
-    a->peak_scale.at_peak[drone_idx][channel] =
-        (value >= a->peak_scale.max_val[drone_idx][channel] - 0.01f);
-}
-
-// Peak scale: returns font scale factor (1.0 normal, 1.05 at peak)
-float annunc_peak_scale_factor(const hud_annunciators_t *a, int drone_idx, int channel) {
-    if (drone_idx < 0 || drone_idx >= ANNUNC_MAX_VEHICLES) return 1.0f;
-    if (channel < 0 || channel >= ANNUNC_PEAK_CHANNELS) return 1.0f;
-    return a->peak_scale.at_peak[drone_idx][channel] ? 1.10f : 1.0f;
-}
-
 // Radar wave: returns progress 0.0-1.0 (0 = idle)
 float annunc_radar_wave_progress(const hud_annunciators_t *a, int drone_idx) {
     if (drone_idx < 0 || drone_idx >= ANNUNC_MAX_VEHICLES) return 0.0f;

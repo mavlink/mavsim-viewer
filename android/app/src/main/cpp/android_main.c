@@ -3,7 +3,6 @@
 #include "vehicle.h"
 #include <android/asset_manager.h>
 #include <android_native_app_glue.h>
-#include <stdlib.h>
 #include <string.h>
 
 // Forward-declare Raylib's Android accessor (defined in rcore_android.c, not in raylib.h).
@@ -18,11 +17,11 @@ static char *patch_shader_source(const char *fileName) {
     if (!asset) return NULL;
 
     off_t size = AAsset_getLength(asset);
-    char *src = (char *)malloc((size_t)size + 1);
+    char *src = (char *)MemAlloc((unsigned int)size + 1);
     if (!src) { AAsset_close(asset); return NULL; }
     int bytes_read = AAsset_read(asset, src, (size_t)size);
     AAsset_close(asset);
-    if (bytes_read != (int)size) { free(src); return NULL; }
+    if (bytes_read != (int)size) { MemFree(src); return NULL; }
     src[size] = '\0';
 
     const char *old_ver = "#version 330";
@@ -40,15 +39,15 @@ static char *patch_shader_source(const char *fileName) {
     size_t src_len  = (size_t)size;
     size_t out_len  = src_len - old_len + new_len + prec_len + 1;
 
-    char  *out    = (char *)malloc(out_len);
-    if (!out) { free(src); return NULL; }
+    char  *out    = (char *)MemAlloc((unsigned int)out_len);
+    if (!out) { MemFree(src); return NULL; }
     size_t prefix = (size_t)(pos - src);
     memcpy(out, src, prefix);
     memcpy(out + prefix, new_ver, new_len);
     if (is_fs) memcpy(out + prefix + new_len, precision, prec_len);
     memcpy(out + prefix + new_len + prec_len, pos + old_len, src_len - prefix - old_len + 1);
 
-    free(src);
+    MemFree(src);
     return out;
 }
 

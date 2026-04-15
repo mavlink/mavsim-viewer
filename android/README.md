@@ -31,6 +31,37 @@ The original shaders use `#version 330` (desktop OpenGL). On Android they are pa
 
 No shader copies are kept in the Android project — the `shaders/` asset dir is a symlink to the originals.
 
+## Environment Setup
+
+If you haven't done Android development before, here's what you need:
+
+### 1. Install Android Studio
+
+Download and install [Android Studio](https://developer.android.com/studio) for your platform (macOS, Linux, or Windows). The installer includes the Android SDK and the SDK Manager.
+
+### 2. Install the NDK and CMake
+
+Open Android Studio, go to **Settings → Languages & Frameworks → Android SDK → SDK Tools**, check:
+
+- **NDK (Side by side)** — install version `30.0.14904198`
+- **CMake** — install version `3.22.1`
+
+Click **Apply**.
+
+Alternatively, from the command line (replace `$ANDROID_SDK_ROOT` with your SDK path — typically `~/Library/Android/sdk` on macOS or `~/Android/Sdk` on Linux):
+
+```bash
+$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager "ndk;30.0.14904198" "cmake;3.22.1"
+```
+
+### 3. Open the project
+
+Open the `android/` directory in Android Studio. Gradle will sync automatically and download any remaining dependencies.
+
+### Note on symlinks
+
+The `assets/` directory uses symlinks into the parent repo (fonts, models, shaders, themes). These work on macOS and Linux out of the box. On Windows, either enable [Developer Mode](https://learn.microsoft.com/en-us/windows/apps/get-started/enable-your-device-for-development) before cloning or use WSL.
+
 ## Requirements
 
 - Android SDK (API 29+)

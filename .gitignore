@@ -4,3 +4,13 @@ build-debug/
 build-release/
 .dmux/
 .dmux-hooks/
+
+# Android
+android/local.properties
+android/.gradle/
+android/app/build/
+android/app/.cxx/
+android/build/
+android/.idea/workspace.xml
+android/.claude/
+android/.idea/*

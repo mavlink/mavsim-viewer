@@ -142,6 +142,7 @@ static void handle_touch(Camera3D *cam, Vector3 *orbit_target,
 
         *prev_pinch_dist = dist;
         *prev_mid        = mid;
+        *prev_touch      = GetTouchPosition(0);
     }
 }
 

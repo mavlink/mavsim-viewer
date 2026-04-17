@@ -1,9 +1,16 @@
 #include "raylib.h"
+#include "raymath.h"
 #include "scene.h"
 #include "vehicle.h"
 #include <android/asset_manager.h>
 #include <android_native_app_glue.h>
+#include <math.h>
 #include <string.h>
+
+#define TOUCH_ORBIT_SENSITIVITY  0.005f
+#define TOUCH_ZOOM_SENSITIVITY   0.01f
+#define TOUCH_PAN_SENSITIVITY    0.002f
+#define TOUCH_MIN_ORBIT_DIST     2.0f
 
 // Forward-declare Raylib's Android accessor (defined in rcore_android.c, not in raylib.h).
 struct android_app *GetAndroidApp(void);
@@ -60,6 +67,8 @@ int main(int argc, char *argv[]) {
     SetLoadFileTextCallback(patch_shader_source);
     SetTargetFPS(60);
 
+    SetGesturesEnabled(GESTURE_DRAG | GESTURE_PINCH_IN | GESTURE_PINCH_OUT);
+
     scene_t scene = {0};
     scene_init(&scene);
 
@@ -68,6 +77,17 @@ int main(int argc, char *argv[]) {
 
     // Position vehicle slightly above origin so it's visible with the default camera
     vehicle.position = (Vector3){ 0.0f, 0.5f, 0.0f };
+
+    scene.cam_mode   = CAM_MODE_FREE;
+    scene.free_track = true;
+
+    Vector3 orbit_target    = vehicle.position;
+    Vector2 prev_touch      = {0};
+    float   prev_pinch_dist = 0.0f;
+    Vector2 prev_mid        = {0};
+    int     prev_count      = 0;
+
+    scene.camera.target = orbit_target;
 
     while (!WindowShouldClose()) {
         BeginDrawing();

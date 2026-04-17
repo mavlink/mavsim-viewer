@@ -97,18 +97,25 @@ static int parse_mtl_names(const char *obj_path, mtl_entry_t *entries, int max_e
         return 0;
     }
 
-    FILE *fp = fopen(mtl_path, "r");
-    if (!fp) return 0;
+    // LoadFileText routes through SetLoadFileTextCallback on Android (AAssetManager),
+    // so this works both on desktop (direct file read) and inside an APK.
+    char *text = LoadFileText(mtl_path);
+    if (!text) return 0;
 
     int count = 0;
     char current_name[64] = {0};
     char line[256];
+    const char *p = text;
 
-    while (fgets(line, sizeof(line), fp) && count < max_entries) {
-        // Strip newline
-        int ll = (int)strlen(line);
-        while (ll > 0 && (line[ll-1] == '\n' || line[ll-1] == '\r'))
-            line[--ll] = '\0';
+    while (*p && count < max_entries) {
+        // Collect one line
+        int ll = 0;
+        while (*p && *p != '\n' && ll < (int)sizeof(line) - 1)
+            line[ll++] = *p++;
+        if (*p == '\n') p++;
+        while (ll > 0 && (line[ll-1] == '\r' || line[ll-1] == ' '))
+            ll--;
+        line[ll] = '\0';
 
         if (strncmp(line, "newmtl ", 7) == 0) {
             snprintf(current_name, sizeof(current_name), "%s", line + 7);
@@ -130,7 +137,7 @@ static int parse_mtl_names(const char *obj_path, mtl_entry_t *entries, int max_e
         }
     }
 
-    fclose(fp);
+    UnloadFileText(text);
     return count;
 }
 

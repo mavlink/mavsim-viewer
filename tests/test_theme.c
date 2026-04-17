@@ -7,6 +7,7 @@
  */
 
 #include "theme.h"
+#include "asset_path.h"
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -257,6 +258,7 @@ static void test_trail_lod_midpoint_averaging(void)
 
 int main(void)
 {
+    asset_path_init();
     printf("test_theme:\n");
 
     /* Theme parser */

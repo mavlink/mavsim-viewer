@@ -51,7 +51,7 @@ add_test(NAME obj_models COMMAND test_obj_models)
 
 # Theme parser + trail LOD tests (need raylib headers for Color/Vector3)
 if(TARGET raylib)
-    add_executable(test_theme test_theme.c ${CMAKE_SOURCE_DIR}/src/theme.c)
+    add_executable(test_theme test_theme.c ${CMAKE_SOURCE_DIR}/src/theme.c ${CMAKE_SOURCE_DIR}/src/asset_path.c)
     target_include_directories(test_theme PRIVATE ${CMAKE_SOURCE_DIR}/src)
     target_link_libraries(test_theme PRIVATE raylib)
     target_compile_definitions(test_theme PRIVATE FIXTURES_DIR="${FIXTURES_DIR}")

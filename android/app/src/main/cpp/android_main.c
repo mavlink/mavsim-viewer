@@ -112,16 +112,18 @@ static void handle_touch(Camera3D *cam, Vector3 *orbit_target,
         cam->target   = *orbit_target;
         cam->up       = (Vector3){0, 1, 0};
     } else if (count == 2) {
+        cam->up = (Vector3){0, 1, 0};
+
         Vector2 t0  = GetTouchPosition(0);
         Vector2 t1  = GetTouchPosition(1);
         Vector2 mid = { (t0.x + t1.x) * 0.5f, (t0.y + t1.y) * 0.5f };
         float   dist = Vector2Distance(t0, t1);
 
-        // Zoom: scale orbit radius by pinch distance change
+        // Zoom: scale orbit radius proportionally so speed feels consistent at any distance
         float   dist_delta = dist - *prev_pinch_dist;
         Vector3 offset     = Vector3Subtract(cam->position, *orbit_target);
         float   r          = Vector3Length(offset);
-        r -= dist_delta * TOUCH_ZOOM_SENSITIVITY;
+        r *= (1.0f - dist_delta * TOUCH_ZOOM_SENSITIVITY);
         if (r < TOUCH_MIN_ORBIT_DIST) r = TOUCH_MIN_ORBIT_DIST;
         if (r > 0.001f)
             cam->position = Vector3Add(*orbit_target,

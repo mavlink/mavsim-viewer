@@ -58,6 +58,62 @@ static char *patch_shader_source(const char *fileName) {
     return out;
 }
 
+static void handle_touch(Camera3D *cam, Vector3 *orbit_target,
+                          int *prev_count, Vector2 *prev_touch,
+                          float *prev_pinch_dist, Vector2 *prev_mid) {
+    int count = GetTouchPointCount();
+
+    // On finger count change: reset prev values to current to avoid a jump.
+    if (count != *prev_count) {
+        if (count >= 1) *prev_touch = GetTouchPosition(0);
+        if (count >= 2) {
+            Vector2 t0 = GetTouchPosition(0);
+            Vector2 t1 = GetTouchPosition(1);
+            *prev_pinch_dist = Vector2Distance(t0, t1);
+            *prev_mid = (Vector2){ (t0.x + t1.x) * 0.5f, (t0.y + t1.y) * 0.5f };
+        }
+        *prev_count = count;
+        return;
+    }
+
+    if (count == 1) {
+        Vector2 touch = GetTouchPosition(0);
+        Vector2 delta = { touch.x - prev_touch->x, touch.y - prev_touch->y };
+        *prev_touch = touch;
+
+        Vector3 offset = Vector3Subtract(cam->position, *orbit_target);
+        float r = Vector3Length(offset);
+        if (r < 0.001f) return;
+
+        // Yaw: rotate offset around world Y
+        Matrix yaw = MatrixRotate((Vector3){0, 1, 0}, -delta.x * TOUCH_ORBIT_SENSITIVITY);
+        offset = Vector3Transform(offset, yaw);
+
+        // Pitch: rotate offset around camera right axis
+        Vector3 forward = Vector3Normalize(Vector3Negate(offset));
+        Vector3 right   = Vector3Normalize(Vector3CrossProduct(forward, (Vector3){0, 1, 0}));
+        Matrix  pitch_m = MatrixRotate(right, -delta.y * TOUCH_ORBIT_SENSITIVITY);
+        offset = Vector3Transform(offset, pitch_m);
+
+        // Clamp elevation to ±89° to prevent gimbal flip
+        float len = Vector3Length(offset);
+        if (len < 0.001f) return;
+        float elevation = asinf(Clamp(offset.y / len, -1.0f, 1.0f));
+        float max_elev  = 89.0f * DEG2RAD;
+        if (elevation > max_elev || elevation < -max_elev) {
+            float azimuth = atan2f(offset.x, offset.z);
+            elevation = Clamp(elevation, -max_elev, max_elev);
+            offset.x  = len * cosf(elevation) * sinf(azimuth);
+            offset.y  = len * sinf(elevation);
+            offset.z  = len * cosf(elevation) * cosf(azimuth);
+        }
+
+        cam->position = Vector3Add(*orbit_target, Vector3Scale(Vector3Normalize(offset), r));
+        cam->target   = *orbit_target;
+        cam->up       = (Vector3){0, 1, 0};
+    }
+}
+
 // Raylib's rcore_android.c owns android_main and calls user main() after platform setup.
 int main(int argc, char *argv[]) {
     (void)argc; (void)argv;
@@ -90,6 +146,9 @@ int main(int argc, char *argv[]) {
     scene.camera.target = orbit_target;
 
     while (!WindowShouldClose()) {
+        handle_touch(&scene.camera, &orbit_target,
+                     &prev_count, &prev_touch,
+                     &prev_pinch_dist, &prev_mid);
         BeginDrawing();
             scene_draw_sky(&scene);
             BeginMode3D(scene.camera);

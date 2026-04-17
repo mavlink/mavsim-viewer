@@ -3,6 +3,9 @@
 
 #include <stddef.h>
 
+// Maximum length for any asset path (including null terminator).
+#define ASSET_MAX_PATH 512
+
 // Initialize asset path resolution. Call once at startup.
 void asset_path_init(void);
 

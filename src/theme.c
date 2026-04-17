@@ -1,4 +1,5 @@
 #include "theme.h"
+#include "asset_path.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -470,10 +471,14 @@ void theme_registry_init(theme_registry_t *reg) {
     reg->cyclable = 1;
     reg->user_count = 0;
 
-    // Scan ./themes/ for .mvt files (includes shipped Rez, Snow, and user themes)
+    // Scan themes/ for .mvt files (includes shipped Rez, Snow, and user themes)
+    char themes_dir[ASSET_MAX_PATH];
+    asset_path("themes", themes_dir, sizeof(themes_dir));
 #ifdef _WIN32
+    char themes_pattern[ASSET_MAX_PATH];
+    snprintf(themes_pattern, sizeof(themes_pattern), "%s\\*.mvt", themes_dir);
     WIN32_FIND_DATAA fd;
-    HANDLE hFind = FindFirstFileA("./themes/*.mvt", &fd);
+    HANDLE hFind = FindFirstFileA(themes_pattern, &fd);
     if (hFind == INVALID_HANDLE_VALUE) {
         printf("Loaded %d themes (1 built-in + 0 from themes/)\n", reg->count);
         return;
@@ -482,7 +487,7 @@ void theme_registry_init(theme_registry_t *reg) {
         if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
         const char *name = fd.cFileName;
 #else
-    DIR *dir = opendir("./themes");
+    DIR *dir = opendir(themes_dir);
     if (!dir) {
         printf("Loaded %d themes (1 built-in + 0 from themes/)\n", reg->count);
         return;
@@ -494,8 +499,8 @@ void theme_registry_init(theme_registry_t *reg) {
         int nlen = (int)strlen(name);
         if (nlen < 5 || strcmp(name + nlen - 4, ".mvt") != 0) continue;
 
-        char filepath[512];
-        snprintf(filepath, sizeof(filepath), "./themes/%s", name);
+        char filepath[ASSET_MAX_PATH + 256]; /* themes_dir + '/' + filename (≤255) + NUL */
+        snprintf(filepath, sizeof(filepath), "%s/%s", themes_dir, name);
 
         int idx = reg->user_count;
         int priority = 0;

@@ -23,7 +23,6 @@ add_library(hawkeye SHARED
     android_main.c
     ${HAWKEYE_SRC}/scene.c
     ${HAWKEYE_SRC}/vehicle.c
-    ${HAWKEYE_SRC}/asset_path.c
     ${HAWKEYE_SRC}/theme.c
     ${HAWKEYE_SRC}/ortho_panel.c
 )
@@ -43,4 +42,6 @@ target_link_libraries(hawkeye
 
 # ANativeActivity_onCreate is called by the Android Java runtime via JNI, not by any
 # C code — so the linker would silently strip it from the shared library without this.
-target_link_options(hawkeye PRIVATE "-Wl,-u,ANativeActivity_onCreate")
+target_link_options(hawkeye PRIVATE
+    "-Wl,-u,ANativeActivity_onCreate"
+)

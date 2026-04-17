@@ -111,6 +111,37 @@ static void handle_touch(Camera3D *cam, Vector3 *orbit_target,
         cam->position = Vector3Add(*orbit_target, Vector3Scale(Vector3Normalize(offset), r));
         cam->target   = *orbit_target;
         cam->up       = (Vector3){0, 1, 0};
+    } else if (count == 2) {
+        Vector2 t0  = GetTouchPosition(0);
+        Vector2 t1  = GetTouchPosition(1);
+        Vector2 mid = { (t0.x + t1.x) * 0.5f, (t0.y + t1.y) * 0.5f };
+        float   dist = Vector2Distance(t0, t1);
+
+        // Zoom: scale orbit radius by pinch distance change
+        float   dist_delta = dist - *prev_pinch_dist;
+        Vector3 offset     = Vector3Subtract(cam->position, *orbit_target);
+        float   r          = Vector3Length(offset);
+        r -= dist_delta * TOUCH_ZOOM_SENSITIVITY;
+        if (r < TOUCH_MIN_ORBIT_DIST) r = TOUCH_MIN_ORBIT_DIST;
+        if (r > 0.001f)
+            cam->position = Vector3Add(*orbit_target,
+                                       Vector3Scale(Vector3Normalize(offset), r));
+
+        // Pan: translate orbit_target along camera right and up
+        Vector2 mid_delta = { mid.x - prev_mid->x, mid.y - prev_mid->y };
+        float   pan_sens  = r * TOUCH_PAN_SENSITIVITY;
+        Vector3 forward   = Vector3Normalize(Vector3Subtract(cam->target, cam->position));
+        Vector3 right     = Vector3Normalize(Vector3CrossProduct(forward, cam->up));
+        Vector3 pan       = Vector3Add(
+            Vector3Scale(right,    -mid_delta.x * pan_sens),
+            Vector3Scale(cam->up,   mid_delta.y * pan_sens)
+        );
+        *orbit_target = Vector3Add(*orbit_target, pan);
+        cam->position = Vector3Add(cam->position, pan);
+        cam->target   = *orbit_target;
+
+        *prev_pinch_dist = dist;
+        *prev_mid        = mid;
     }
 }
 

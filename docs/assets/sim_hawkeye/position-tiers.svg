@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 480" width="800" height="480">
+  <!-- Position Data Tiers Flowchart (09-dia-01)
+       Colors from Grid theme (src/theme.c)
+       dbg_tier1 = rgb(80, 255, 120)
+       dbg_tier2 = rgb(255, 220, 40)
+       dbg_tier3 = rgb(255, 100, 40)
+  -->
+  <defs>
+    <style>
+      .bg { fill: rgb(10, 14, 20); }
+      .title { fill: rgb(200, 208, 218); font-family: 'Inter', -apple-system, sans-serif; font-size: 18px; font-weight: 700; }
+      .subtitle { fill: rgba(200, 208, 218, 0.5); font-family: 'Inter', -apple-system, sans-serif; font-size: 12px; }
+      .box { rx: 6; stroke-width: 1.5; }
+      .box-label { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 14px; font-weight: 700; }
+      .box-desc { font-family: 'Inter', -apple-system, sans-serif; font-size: 11px; fill: rgba(200, 208, 218, 0.7); }
+      .decision { font-family: 'Inter', -apple-system, sans-serif; font-size: 12px; font-weight: 600; }
+      .arrow { stroke-width: 2; fill: none; marker-end: url(#arrowhead); }
+      .yes { fill: rgb(80, 255, 120); font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; }
+      .no { fill: rgb(255, 100, 40); font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; }
+      .dim { fill: rgba(200, 208, 218, 0.35); font-family: 'Inter', sans-serif; font-size: 10px; }
+    </style>
+    <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="rgba(200, 208, 218, 0.6)" />
+    </marker>
+  </defs>
+
+  <rect width="800" height="480" class="bg" />
+
+  <text x="400" y="34" class="title" text-anchor="middle">Position Data Tiers</text>
+  <text x="400" y="52" class="subtitle" text-anchor="middle">Fallback decision tree for ULog position reference</text>
+
+  <!-- ═══════════════════════════════════════
+       START: ULog loaded
+       ═══════════════════════════════════════ -->
+  <rect x="320" y="72" width="160" height="36" class="box" fill="rgba(0, 180, 204, 0.15)" stroke="rgb(0, 180, 204)" />
+  <text x="400" y="95" class="decision" fill="rgb(0, 180, 204)" text-anchor="middle">ULog loaded</text>
+
+  <!-- Arrow down to decision 1 -->
+  <line x1="400" y1="108" x2="400" y2="140" class="arrow" stroke="rgba(200, 208, 218, 0.5)" />
+
+  <!-- ═══════════════════════════════════════
+       DECISION 1: home_position topic valid?
+       ═══════════════════════════════════════ -->
+  <polygon points="400,140 520,180 400,220 280,180" fill="rgba(200, 208, 218, 0.06)" stroke="rgba(200, 208, 218, 0.3)" stroke-width="1.5" />
+  <text x="400" y="176" class="decision" fill="rgb(200, 208, 218)" text-anchor="middle">home_position</text>
+  <text x="400" y="192" class="decision" fill="rgb(200, 208, 218)" text-anchor="middle">topic valid?</text>
+
+  <!-- YES arrow right to T1 -->
+  <line x1="520" y1="180" x2="620" y2="180" class="arrow" stroke="rgb(80, 255, 120)" />
+  <text x="560" y="172" class="yes">YES</text>
+
+  <!-- T1 box -->
+  <rect x="620" y="156" width="150" height="48" class="box" fill="rgba(80, 255, 120, 0.1)" stroke="rgb(80, 255, 120)" />
+  <text x="695" y="176" class="box-label" fill="rgb(80, 255, 120)" text-anchor="middle">T1</text>
+  <text x="695" y="194" class="box-desc" text-anchor="middle">Authoritative home</text>
+
+  <!-- NO arrow down to decision 2 -->
+  <line x1="400" y1="220" x2="400" y2="260" class="arrow" stroke="rgb(255, 100, 40)" />
+  <text x="412" y="244" class="no">NO</text>
+
+  <!-- ═══════════════════════════════════════
+       DECISION 2: GPOS / LPOS ref available?
+       ═══════════════════════════════════════ -->
+  <polygon points="400,260 530,300 400,340 270,300" fill="rgba(200, 208, 218, 0.06)" stroke="rgba(200, 208, 218, 0.3)" stroke-width="1.5" />
+  <text x="400" y="296" class="decision" fill="rgb(200, 208, 218)" text-anchor="middle">GPOS / LPOS</text>
+  <text x="400" y="312" class="decision" fill="rgb(200, 208, 218)" text-anchor="middle">reference valid?</text>
+
+  <!-- YES arrow right to T2 -->
+  <line x1="530" y1="300" x2="620" y2="300" class="arrow" stroke="rgb(80, 255, 120)" />
+  <text x="566" y="292" class="yes">YES</text>
+
+  <!-- T2 box -->
+  <rect x="620" y="276" width="150" height="48" class="box" fill="rgba(255, 220, 40, 0.1)" stroke="rgb(255, 220, 40)" />
+  <text x="695" y="296" class="box-label" fill="rgb(255, 220, 40)" text-anchor="middle">T2</text>
+  <text x="695" y="314" class="box-desc" text-anchor="middle">GPS-derived reference</text>
+
+  <!-- NO arrow down to T3 -->
+  <line x1="400" y1="340" x2="400" y2="380" class="arrow" stroke="rgb(255, 100, 40)" />
+  <text x="412" y="364" class="no">NO</text>
+
+  <!-- ═══════════════════════════════════════
+       T3: Estimated origin
+       ═══════════════════════════════════════ -->
+  <rect x="325" y="380" width="150" height="48" class="box" fill="rgba(255, 100, 40, 0.1)" stroke="rgb(255, 100, 40)" />
+  <text x="400" y="400" class="box-label" fill="rgb(255, 100, 40)" text-anchor="middle">T3</text>
+  <text x="400" y="418" class="box-desc" text-anchor="middle">Estimated origin</text>
+
+  <!-- Side notes -->
+  <text x="30" y="180" class="dim">Checked first.</text>
+  <text x="30" y="194" class="dim">Rejected if lat/lon are zero</text>
+  <text x="30" y="208" class="dim">or don't match observed GPS.</text>
+
+  <text x="30" y="300" class="dim">Checked second.</text>
+  <text x="30" y="314" class="dim">vehicle_global_position or</text>
+  <text x="30" y="328" class="dim">vehicle_local_position ref.</text>
+
+  <text x="30" y="400" class="dim">Last resort.</text>
+  <text x="30" y="414" class="dim">First valid position sample</text>
+  <text x="30" y="428" class="dim">used as origin. BAD REF warning.</text>
+
+  <!-- Trust indicator bar at bottom -->
+  <text x="620" y="368" class="dim" text-anchor="start">High trust</text>
+  <rect x="694" y="358" width="1" height="84" stroke="rgba(200,208,218,0.15)" stroke-width="1" stroke-dasharray="2 3" />
+  <text x="700" y="440" class="dim">Low trust</text>
+
+</svg>

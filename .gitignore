@@ -14,3 +14,8 @@ android/build/
 android/.idea/workspace.xml
 android/.claude/
 android/.idea/*
+
+# Docs site
+node_modules/
+docs/.vitepress/cache/
+docs/.vitepress/dist/

@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" width="800" height="400">
+  <!-- Marker Types Diagram
+       Colors from Grid theme (src/theme.c lines 25-114)
+       Fonts: JetBrains Mono for values, Inter/system for labels
+       Matches the app's actual rendering palette -->
+  <defs>
+    <style>
+      /* Grid theme HUD colors */
+      .bg { fill: rgb(10, 14, 20); } /* hud_bg */
+      .card { fill: rgb(10, 14, 20); stroke: rgba(0, 180, 204, 0.39); stroke-width: 1; rx: 6; } /* hud_border */
+      .accent { fill: rgb(0, 180, 204); } /* hud_accent */
+      .accent-dim { fill: rgba(0, 180, 204, 0.55); } /* hud_accent_dim */
+      .value { fill: rgb(200, 208, 218); font-family: 'JetBrains Mono', ui-monospace, monospace; } /* hud_value */
+      .label { fill: rgba(0, 180, 204, 0.55); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; } /* accent_dim as label */
+      .desc { fill: rgba(200, 208, 218, 0.65); font-size: 12px; font-weight: 400; font-family: 'Inter', -apple-system, sans-serif; }
+      .dim { fill: rgba(200, 208, 218, 0.4); font-size: 10px; font-weight: 600; letter-spacing: 0.08em; font-family: 'Inter', -apple-system, sans-serif; }
+      .section-label { fill: rgb(0, 180, 204); font-size: 13px; font-weight: 700; letter-spacing: 0.06em; font-family: 'Inter', -apple-system, sans-serif; }
+      .title { fill: rgb(200, 208, 218); font-size: 18px; font-weight: 700; font-family: 'Inter', -apple-system, sans-serif; }
+      .subtitle { fill: rgba(200, 208, 218, 0.5); font-size: 12px; font-weight: 400; font-family: 'Inter', -apple-system, sans-serif; }
+      .timeline-bar { fill: rgb(20, 24, 34); }
+    </style>
+
+    <!-- User marker: trail_forward color = rgb(255, 200, 50) -->
+    <radialGradient id="sphere-grad" cx="38%" cy="32%">
+      <stop offset="0%" stop-color="rgb(255, 230, 120)" />
+      <stop offset="50%" stop-color="rgb(255, 200, 50)" />
+      <stop offset="100%" stop-color="rgb(160, 120, 20)" />
+    </radialGradient>
+
+    <!-- System marker: hud_connected = rgb(100, 200, 100) / mode accent green -->
+    <linearGradient id="cube-top" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="rgb(140, 230, 140)" />
+      <stop offset="100%" stop-color="rgb(100, 200, 100)" />
+    </linearGradient>
+    <linearGradient id="cube-front" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="rgb(100, 200, 100)" />
+      <stop offset="100%" stop-color="rgb(60, 150, 60)" />
+    </linearGradient>
+    <linearGradient id="cube-side" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="rgb(80, 170, 80)" />
+      <stop offset="100%" stop-color="rgb(40, 120, 40)" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background: matches hud_bg -->
+  <rect width="800" height="400" class="bg" />
+
+  <!-- Title -->
+  <text x="400" y="34" class="title" text-anchor="middle">Marker Types</text>
+  <text x="400" y="52" class="subtitle" text-anchor="middle">3D viewport shapes and timeline representations</text>
+
+  <!-- ════════════════════════════════════════════════════ -->
+  <!-- USER MARKER (left half) -->
+  <!-- ════════════════════════════════════════════════════ -->
+  <rect x="30" y="72" width="360" height="296" class="card" />
+
+  <text x="210" y="96" class="section-label" text-anchor="middle">USER MARKER</text>
+  <text x="210" y="114" class="desc" text-anchor="middle">Dropped manually with B key</text>
+
+  <!-- 3D sphere: trail_forward color (255, 200, 50) -->
+  <text x="120" y="142" class="dim" text-anchor="middle">3D VIEWPORT</text>
+  <circle cx="120" cy="196" r="30" fill="url(#sphere-grad)" />
+  <ellipse cx="120" cy="228" rx="18" ry="3.5" fill="rgba(255, 200, 50, 0.12)" />
+
+  <!-- Timeline diamond: same trail color -->
+  <text x="300" y="142" class="dim" text-anchor="middle">TIMELINE</text>
+  <g transform="translate(300, 196)">
+    <rect x="-76" y="-3.5" width="152" height="7" rx="2" class="timeline-bar" />
+    <!-- Transport bar accent line -->
+    <rect x="-76" y="-3.5" width="50" height="7" rx="2" fill="rgb(0, 180, 204)" opacity="0.5" />
+    <!-- Playhead -->
+    <circle cx="-26" cy="0" r="4" fill="rgb(200, 208, 218)" stroke="rgb(0, 180, 204)" stroke-width="1.5" />
+    <!-- Diamond marker tick (equidistant, 10px from center on all sides) -->
+    <polygon points="30,-10 40,0 30,10 20,0" fill="rgb(255, 200, 50)" />
+    <polygon points="30,-10 40,0 30,10 20,0" fill="none" stroke="rgb(255, 200, 50)" stroke-width="1" opacity="0.7" />
+  </g>
+
+  <!-- Labels -->
+  <text x="120" y="254" class="value" font-size="14" font-weight="700" text-anchor="middle">Sphere</text>
+  <text x="120" y="272" class="desc" text-anchor="middle">At the drone's 3D position</text>
+  <text x="120" y="288" class="desc" text-anchor="middle">when B was pressed</text>
+
+  <text x="300" y="254" class="value" font-size="14" font-weight="700" text-anchor="middle">Diamond</text>
+  <text x="300" y="272" class="desc" text-anchor="middle">Tick on the transport bar</text>
+  <text x="300" y="288" class="desc" text-anchor="middle">at the marker timestamp</text>
+
+  <!-- Color note -->
+  <rect x="46" y="320" width="8" height="8" rx="2" fill="rgb(255, 200, 50)" />
+  <text x="62" y="328" class="desc">Color matches the trail at this point (changes with trail mode and theme)</text>
+
+  <!-- ════════════════════════════════════════════════════ -->
+  <!-- SYSTEM MARKER (right half) -->
+  <!-- ════════════════════════════════════════════════════ -->
+  <rect x="410" y="72" width="360" height="296" class="card" />
+
+  <text x="590" y="96" class="section-label" text-anchor="middle">SYSTEM MARKER</text>
+  <text x="590" y="114" class="desc" text-anchor="middle">Auto-generated from flight mode changes</text>
+
+  <!-- 3D cube: hud_connected / mode accent green -->
+  <text x="500" y="142" class="dim" text-anchor="middle">3D VIEWPORT</text>
+  <g transform="translate(500, 196)">
+    <!-- Top face -->
+    <polygon points="0,-26 24,-13 0,0 -24,-13" fill="url(#cube-top)" />
+    <!-- Front face -->
+    <polygon points="-24,-13 0,0 0,26 -24,13" fill="url(#cube-front)" />
+    <!-- Side face -->
+    <polygon points="0,0 24,-13 24,13 0,26" fill="url(#cube-side)" />
+    <!-- Edges -->
+    <polygon points="0,-26 24,-13 24,13 0,26 -24,13 -24,-13" fill="none" stroke="rgb(140, 230, 140)" stroke-width="0.8" opacity="0.5" />
+  </g>
+  <ellipse cx="500" cy="228" rx="18" ry="3.5" fill="rgba(100, 200, 100, 0.1)" />
+
+  <!-- Timeline square: same green -->
+  <text x="680" y="142" class="dim" text-anchor="middle">TIMELINE</text>
+  <g transform="translate(680, 196)">
+    <rect x="-76" y="-3.5" width="152" height="7" rx="2" class="timeline-bar" />
+    <!-- Transport bar accent line -->
+    <rect x="-76" y="-3.5" width="90" height="7" rx="2" fill="rgb(0, 180, 204)" opacity="0.5" />
+    <!-- Playhead -->
+    <circle cx="14" cy="0" r="4" fill="rgb(200, 208, 218)" stroke="rgb(0, 180, 204)" stroke-width="1.5" />
+    <!-- Square marker tick -->
+    <rect x="-43" y="-8" width="16" height="16" fill="rgb(100, 200, 100)" />
+    <rect x="-43" y="-8" width="16" height="16" fill="none" stroke="rgb(100, 200, 100)" stroke-width="1" opacity="0.7" />
+    <!-- Mode label under square -->
+    <text x="-35" y="22" font-size="9" fill="rgba(100, 200, 100, 0.7)" text-anchor="middle" font-family="'JetBrains Mono', monospace" font-weight="600">S:RTL</text>
+  </g>
+
+  <!-- Labels -->
+  <text x="500" y="254" class="value" font-size="14" font-weight="700" text-anchor="middle">Cube</text>
+  <text x="500" y="272" class="desc" text-anchor="middle">At the drone's position</text>
+  <text x="500" y="288" class="desc" text-anchor="middle">at the mode transition</text>
+
+  <text x="680" y="254" class="value" font-size="14" font-weight="700" text-anchor="middle">Square</text>
+  <text x="680" y="272" class="desc" text-anchor="middle">Tick on the transport bar</text>
+  <text x="680" y="288" class="desc" text-anchor="middle">labeled with the mode name</text>
+
+  <!-- Color note -->
+  <rect x="426" y="320" width="8" height="8" rx="2" fill="rgb(100, 200, 100)" />
+  <text x="442" y="328" class="desc">Color from flight mode accent (Takeoff, Mission, RTL, Land)</text>
+
+</svg>

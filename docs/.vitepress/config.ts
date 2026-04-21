@@ -12,7 +12,7 @@ export default defineConfig({
   ],
 
   themeConfig: {
-    logo: '/assets/screenshot.png',
+    logo: '/screenshot.png',
 
     nav: [
       { text: 'Install', link: '/installation' },

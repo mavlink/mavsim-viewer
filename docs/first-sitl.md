@@ -38,6 +38,7 @@ make px4_sitl sihsim_quadx
 ```
 
 See [Prebuilt PX4 SITL packages](https://docs.px4.io/main/en/simulation/px4_sitl_prebuilt_packages) for the full install reference, other vehicle models, and multi-instance setup.
+If you want to build Hawkeye itself from source, see [Building from source](./developer/build.md).
 
 **Terminal 2, launch Hawkeye:**
 

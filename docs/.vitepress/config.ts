@@ -69,6 +69,13 @@ export default defineConfig({
           { text: 'Troubleshooting', link: '/troubleshooting' },
         ],
       },
+      {
+        text: 'Developer',
+        items: [
+          { text: 'Building from source', link: '/developer/build' },
+          { text: 'Testing', link: '/developer/testing' },
+        ],
+      },
     ],
 
     socialLinks: [

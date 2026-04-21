@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080">
+  <!-- Console HUD Annotated Diagram
+       All positions computed from src/hud.c at 1920x1080 (s = 1.333)
+       Colors from Grid theme (src/theme.c)
+
+       Layout computation:
+         s = powf(1080/720, 0.7) = 1.333
+         primary_h = 160, transport_h = 37
+         bar_y(transport) = 883, bar_y(primary) = 920
+         inst_radius = 64, compass_cx = 91, adi_cx = 245, inst_y = 993
+         sep1_x = 331, sep2_x = 831, sep3_x = 1499
+         item_step = 167, item_x0 = 352
+         NAV: 352, 519, 686  ENERGY: 853, 1020, 1186, 1353
+         label_y = 941, value_y = 970
+         timer_x = 1520, numpad_x = 1632, status_x = 1752
+  -->
+  <defs>
+    <style>
+      .hud-bg { fill: rgba(10, 14, 20, 0.86); }
+      .sep { stroke: rgba(0, 180, 204, 0.20); stroke-width: 1; }
+      .accent { fill: rgb(0, 180, 204); }
+      .accent-dim { fill: rgba(0, 180, 204, 0.55); }
+      .value { fill: rgb(200, 208, 218); font-family: 'JetBrains Mono', ui-monospace, monospace; }
+      .label { fill: rgba(0, 180, 204, 0.55); font-family: 'Inter', -apple-system, sans-serif; font-weight: 600; letter-spacing: 0.05em; }
+      .dim { fill: rgba(200, 208, 218, 0.39); font-family: 'Inter', -apple-system, sans-serif; }
+      .adi-sky { fill: rgba(80, 140, 200, 0.78); }
+      .adi-ground { fill: rgba(120, 85, 50, 0.78); }
+      .adi-wing { fill: rgb(255, 255, 0); }
+      .annot-line { stroke: rgb(255, 255, 255); stroke-width: 1; stroke-dasharray: 4 3; opacity: 0.5; }
+      .annot-bg { fill: rgba(255, 255, 255, 0.9); }
+      .annot-text { fill: rgb(10, 14, 20); font-family: 'Inter', -apple-system, sans-serif; font-size: 12px; font-weight: 600; }
+      .annot-num { fill: rgb(10, 14, 20); font-family: 'Inter', -apple-system, sans-serif; font-size: 11px; font-weight: 800; }
+    </style>
+  </defs>
+
+  <!-- 3D viewport background -->
+  <rect width="1920" height="1080" fill="rgb(30, 34, 40)" />
+
+  <!-- ═══════════════════════════════════════════════
+       TRANSPORT BAR: y=883, h=37, full width
+       ═══════════════════════════════════════════════ -->
+  <rect x="0" y="883" width="1920" height="37" class="hud-bg" />
+  <line x1="0" y1="883" x2="1920" y2="883" stroke="rgba(0,180,204,0.39)" stroke-width="1" />
+  <rect x="100" y="898" width="1720" height="7" rx="2" fill="rgb(20, 24, 34)" />
+  <rect x="100" y="898" width="550" height="7" rx="2" fill="rgb(0, 180, 204)" opacity="0.6" />
+  <circle cx="650" cy="901" r="5" fill="rgb(200, 208, 218)" stroke="rgb(0, 180, 204)" stroke-width="1.5" />
+  <text x="24" y="907" class="value" font-size="13" font-weight="700">1.0x</text>
+  <text x="56" y="907" class="value" font-size="13">2:14</text>
+  <text x="650" y="895" class="dim" font-size="11" text-anchor="middle">Offboard</text>
+  <polygon points="300,895 305,901 300,907 295,901" fill="rgb(255, 200, 50)" />
+  <rect x="800" y="895" width="8" height="8" fill="rgb(100, 200, 100)" />
+  <text x="1860" y="907" class="dim" font-size="13" text-anchor="end">8:34</text>
+
+  <!-- ═══════════════════════════════════════════════
+       PRIMARY HUD BAR: y=920, h=160, full width
+       ═══════════════════════════════════════════════ -->
+  <rect x="0" y="920" width="1920" height="160" class="hud-bg" />
+
+  <!-- Left edge color bar: x=0, y=920, w=4, h=160 -->
+  <rect x="0" y="920" width="4" height="160" fill="rgb(230, 230, 230)" />
+
+  <!-- Compass: center (91, 993), r=64 -->
+  <circle cx="91" cy="993" r="64" fill="none" stroke="rgb(0, 180, 204)" stroke-width="1.5" />
+  <circle cx="91" cy="993" r="56" fill="none" stroke="rgba(0, 180, 204, 0.3)" stroke-width="1" />
+  <line x1="91" y1="929" x2="91" y2="940" stroke="rgb(0, 180, 204)" stroke-width="2" />
+  <text x="91" y="955" class="dim" font-size="11" text-anchor="middle">N</text>
+  <text x="135" y="997" class="dim" font-size="11" text-anchor="middle">E</text>
+  <text x="91" y="1040" class="dim" font-size="11" text-anchor="middle">S</text>
+  <text x="47" y="997" class="dim" font-size="11" text-anchor="middle">W</text>
+  <text x="91" y="1000" class="value" font-size="20" font-weight="700" text-anchor="middle">047</text>
+
+  <!-- ADI: center (245, 993), r=64 -->
+  <circle cx="245" cy="993" r="64" fill="none" stroke="rgb(0, 180, 204)" stroke-width="1.5" />
+  <clipPath id="adi-clip"><circle cx="245" cy="993" r="62" /></clipPath>
+  <g clip-path="url(#adi-clip)">
+    <rect x="181" y="929" width="128" height="64" class="adi-sky" />
+    <rect x="181" y="993" width="128" height="64" class="adi-ground" />
+    <line x1="181" y1="993" x2="309" y2="993" stroke="rgb(255, 255, 255)" stroke-width="1.5" />
+  </g>
+  <line x1="215" y1="993" x2="233" y2="993" class="adi-wing" stroke-width="3" />
+  <line x1="257" y1="993" x2="275" y2="993" class="adi-wing" stroke-width="3" />
+  <circle cx="245" cy="993" r="3" class="adi-wing" />
+
+  <!-- Pos text -->
+  <text x="170" y="1066" class="dim" font-size="13">Pos: -0.0, 0.0, 0.0</text>
+
+  <!-- Separators: sep_top=952, sep_bot=1048 -->
+  <line x1="331" y1="952" x2="331" y2="1048" class="sep" />
+  <line x1="831" y1="952" x2="831" y2="1048" class="sep" />
+  <line x1="1499" y1="952" x2="1499" y2="1048" class="sep" />
+
+  <!-- Telemetry: label_y=941, value_y=970 -->
+  <!-- NAV group: starts x=352, step=167 -->
+  <text x="352" y="941" class="label" font-size="21">HDG</text>
+  <text x="352" y="975" class="value" font-size="31" font-weight="700">047</text>
+  <text x="440" y="975" class="dim" font-size="20">deg</text>
+
+  <text x="519" y="941" class="label" font-size="21">ROLL</text>
+  <text x="519" y="975" class="value" font-size="31" font-weight="700">+1</text>
+
+  <text x="686" y="941" class="label" font-size="21">PITCH</text>
+  <text x="686" y="975" class="value" font-size="31" font-weight="700">-3</text>
+
+  <!-- ENERGY group: starts x=853, step=167 -->
+  <text x="853" y="941" class="label" font-size="21">ALT</text>
+  <text x="853" y="975" class="value" font-size="31" font-weight="700">-0.0</text>
+  <text x="925" y="975" class="dim" font-size="20">m</text>
+
+  <text x="1020" y="941" class="label" font-size="21">GS</text>
+  <text x="1020" y="975" class="value" font-size="31" font-weight="700">0.0</text>
+  <text x="1075" y="975" class="dim" font-size="20">m/s</text>
+
+  <text x="1186" y="941" class="label" font-size="21">AS</text>
+  <text x="1186" y="975" class="value" font-size="31" font-weight="700">--</text>
+
+  <text x="1353" y="941" class="label" font-size="21">VS</text>
+  <text x="1353" y="975" class="value" font-size="31" font-weight="700">0.0</text>
+  <text x="1408" y="975" class="dim" font-size="20">m/s</text>
+
+  <!-- Timer: x=1520 -->
+  <text x="1520" y="975" class="value" font-size="36" font-weight="700">16:36</text>
+  <text x="1520" y="998" class="dim" font-size="13">SIM</text>
+
+  <!-- Numpad: x=1632, y=952, btn=29, gap=3 -->
+  <g transform="translate(1632, 952)" font-family="'JetBrains Mono', monospace" font-size="14" font-weight="700">
+    <rect x="0" y="0" width="29" height="29" rx="3" fill="rgba(200,208,218,0.9)" />
+    <text x="14" y="20" fill="rgb(10,14,20)" text-anchor="middle">1</text>
+    <rect x="32" y="0" width="29" height="29" rx="3" fill="none" stroke="rgba(0,180,204,0.4)" />
+    <text x="46" y="20" fill="rgba(200,208,218,0.5)" text-anchor="middle">2</text>
+    <rect x="64" y="0" width="29" height="29" rx="3" fill="none" stroke="rgba(0,180,204,0.4)" />
+    <text x="78" y="20" fill="rgba(200,208,218,0.5)" text-anchor="middle">3</text>
+    <rect x="0" y="32" width="29" height="29" rx="3" fill="none" stroke="rgba(0,180,204,0.4)" />
+    <text x="14" y="52" fill="rgba(200,208,218,0.5)" text-anchor="middle">4</text>
+    <rect x="32" y="32" width="29" height="29" rx="3" fill="none" stroke="rgba(0,180,204,0.4)" />
+    <text x="46" y="52" fill="rgba(200,208,218,0.5)" text-anchor="middle">5</text>
+    <rect x="64" y="32" width="29" height="29" rx="3" fill="none" stroke="rgba(0,180,204,0.4)" />
+    <text x="78" y="52" fill="rgba(200,208,218,0.5)" text-anchor="middle">6</text>
+    <rect x="0" y="64" width="29" height="29" rx="3" fill="none" stroke="rgba(0,180,204,0.4)" />
+    <text x="14" y="84" fill="rgba(200,208,218,0.5)" text-anchor="middle">7</text>
+    <rect x="32" y="64" width="29" height="29" rx="3" fill="none" stroke="rgba(0,180,204,0.4)" />
+    <text x="46" y="84" fill="rgba(200,208,218,0.5)" text-anchor="middle">8</text>
+    <rect x="64" y="64" width="29" height="29" rx="3" fill="none" stroke="rgba(0,180,204,0.4)" />
+    <text x="78" y="84" fill="rgba(200,208,218,0.5)" text-anchor="middle">9</text>
+  </g>
+
+  <!-- Status: x=1752 -->
+  <circle cx="1762" cy="940" r="4" fill="rgb(100, 200, 100)" />
+  <text x="1772" y="944" font-family="'Inter', sans-serif" font-size="13" fill="rgb(100, 200, 100)" font-weight="500">Replaying log...</text>
+  <text x="1772" y="962" class="dim" font-size="12">FPS: 60</text>
+
+  <!-- ═══════════════════════════════════════════════
+       ANNOTATIONS
+       ═══════════════════════════════════════════════ -->
+
+  <!-- 1: Transport bar -->
+  <line x1="960" y1="883" x2="960" y2="200" class="annot-line" />
+  <rect x="878" y="182" width="195" height="22" rx="11" class="annot-bg" />
+  <text x="890" y="197" class="annot-num">1</text>
+  <text x="906" y="197" class="annot-text">Transport bar (replay only)</text>
+
+  <!-- 2: Color bar -->
+  <line x1="4" y1="1000" x2="90" y2="840" class="annot-line" />
+  <rect x="30" y="822" width="168" height="22" rx="11" class="annot-bg" />
+  <text x="42" y="837" class="annot-num">2</text>
+  <text x="58" y="837" class="annot-text">Primary drone color bar</text>
+
+  <!-- 3: Compass -->
+  <line x1="91" y1="929" x2="91" y2="780" class="annot-line" />
+  <rect x="36" y="762" width="130" height="22" rx="11" class="annot-bg" />
+  <text x="48" y="777" class="annot-num">3</text>
+  <text x="64" y="777" class="annot-text">Compass dial</text>
+
+  <!-- 4: ADI -->
+  <line x1="245" y1="929" x2="245" y2="720" class="annot-line" />
+  <rect x="165" y="702" width="196" height="22" rx="11" class="annot-bg" />
+  <text x="177" y="717" class="annot-num">4</text>
+  <text x="193" y="717" class="annot-text">Attitude indicator (ADI)</text>
+
+  <!-- 5: NAV group -->
+  <line x1="519" y1="941" x2="519" y2="660" class="annot-line" />
+  <rect x="410" y="642" width="248" height="22" rx="11" class="annot-bg" />
+  <text x="422" y="657" class="annot-num">5</text>
+  <text x="438" y="657" class="annot-text">NAV group: HDG, ROLL, PITCH</text>
+
+  <!-- 6: ENERGY group -->
+  <line x1="1100" y1="941" x2="1100" y2="600" class="annot-line" />
+  <rect x="985" y="582" width="260" height="22" rx="11" class="annot-bg" />
+  <text x="997" y="597" class="annot-num">6</text>
+  <text x="1013" y="597" class="annot-text">ENERGY group: ALT, GS, AS, VS</text>
+
+  <!-- 7: Timer -->
+  <line x1="1540" y1="960" x2="1540" y2="540" class="annot-line" />
+  <rect x="1478" y="522" width="152" height="22" rx="11" class="annot-bg" />
+  <text x="1490" y="537" class="annot-num">7</text>
+  <text x="1506" y="537" class="annot-text">Sim time / clock</text>
+
+  <!-- 8: Numpad -->
+  <line x1="1680" y1="952" x2="1680" y2="480" class="annot-line" />
+  <rect x="1608" y="462" width="180" height="22" rx="11" class="annot-bg" />
+  <text x="1620" y="477" class="annot-num">8</text>
+  <text x="1636" y="477" class="annot-text">Adaptive numpad</text>
+
+  <!-- 9: Status -->
+  <line x1="1810" y1="940" x2="1810" y2="420" class="annot-line" />
+  <rect x="1740" y="402" width="148" height="22" rx="11" class="annot-bg" />
+  <text x="1752" y="417" class="annot-num">9</text>
+  <text x="1768" y="417" class="annot-text">Status + FPS</text>
+
+  <!-- 10: Separators -->
+  <line x1="331" y1="1000" x2="410" y2="840" class="annot-line" />
+  <rect x="346" y="822" width="222" height="22" rx="11" class="annot-bg" />
+  <text x="358" y="837" class="annot-num">10</text>
+  <text x="378" y="837" class="annot-text">Group separators (3 total)</text>
+
+</svg>

@@ -1,7 +1,7 @@
 # Installation
 
-Hawkeye ships as a Homebrew formula on macOS and a `.deb` package on Debian/Ubuntu.
-For Windows, or if you want the latest development build, see [Building from source](./developer/build.md).
+Hawkeye ships as a Homebrew formula on macOS, a `.deb` package on Debian/Ubuntu, and a portable ZIP on Windows.
+If you want the latest development build, see [Building from source](./developer/build.md).
 
 ## macOS (Homebrew)
 
@@ -29,7 +29,15 @@ ARM64 builds (Raspberry Pi, Jetson, cloud ARM instances) are published in the sa
 
 ## Windows
 
-No prebuilt Windows package yet. Follow [Building from source](./developer/build.md) for the full procedure (Visual Studio 2022 + CMake + Git).
+Download `hawkeye-<version>-windows-x64.zip` from the [Hawkeye releases page](https://github.com/PX4/Hawkeye/releases/latest), extract it anywhere (e.g. `C:\Tools\hawkeye`), and double-click `hawkeye.exe`.
+
+The ZIP is self-contained — no Visual Studio or runtime installer required. User data (screenshots, markers) is written to `%APPDATA%\hawkeye`.
+
+::: info First-launch warning
+Windows SmartScreen may warn that `hawkeye.exe` is from an unknown publisher. Click "More info" → "Run anyway". The binary is unsigned; signing and winget distribution are on the roadmap.
+:::
+
+To launch from any terminal, add the extracted folder to your `PATH`.
 
 ## Verifying the install
 

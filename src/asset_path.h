@@ -8,16 +8,19 @@ void asset_path_init(void);
 
 // Resolve an asset subpath (e.g. "models/px4_quadrotor.obj") to a full path.
 // Writes into caller-provided buffer. Search order:
-//   macOS:  ~/Library/Application Support/hawkeye/<subpath>
-//   Linux:  $XDG_DATA_HOME/hawkeye/<subpath>
-//   Then:   HAWKEYE_INSTALL_DATADIR/<subpath>  (compile-time install prefix)
-//   Then:   ./<subpath>                        (dev/build fallback)
+//   macOS:   ~/Library/Application Support/hawkeye/<subpath>
+//   Linux:   $XDG_DATA_HOME/hawkeye/<subpath>
+//   Windows: %APPDATA%\hawkeye\<subpath>
+//   Then:    HAWKEYE_INSTALL_DATADIR/<subpath>  (Unix install prefix)
+//            or <exe_dir>/<subpath>             (Windows portable layout)
+//   Then:    ./<subpath>                        (dev/build fallback)
 void asset_path(const char *subpath, char *out, size_t out_size);
 
 // Get a writable path for an asset (for generated files like terrain texture).
 // Always returns the user data directory path, creating directories as needed.
-//   macOS:  ~/Library/Application Support/hawkeye/<subpath>
-//   Linux:  $XDG_DATA_HOME/hawkeye/<subpath>
+//   macOS:   ~/Library/Application Support/hawkeye/<subpath>
+//   Linux:   $XDG_DATA_HOME/hawkeye/<subpath>
+//   Windows: %APPDATA%\hawkeye\<subpath>
 void asset_write_path(const char *subpath, char *out, size_t out_size);
 
 #endif

@@ -248,6 +248,55 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # ── Job 2d: Windows x64 portable zip ──────────────────────────────────────
+  windows-x64:
+    name: Windows (x64)
+    needs: source-tarball
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DHAWKEYE_VERSION=${{ needs.source-tarball.outputs.version }}
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Stage release
+        shell: pwsh
+        run: |
+          $version = "${{ needs.source-tarball.outputs.version }}"
+          $stage = "hawkeye-$version-windows-x64"
+          New-Item -ItemType Directory -Path $stage | Out-Null
+          Copy-Item "build\Release\hawkeye.exe" $stage
+          Copy-Item -Recurse "build\Release\models"   $stage
+          Copy-Item -Recurse "build\Release\shaders"  $stage
+          Copy-Item -Recurse "build\Release\fonts"    $stage
+          Copy-Item -Recurse "build\Release\textures" $stage
+          Copy-Item -Recurse "build\Release\themes"   $stage
+          Copy-Item "LICENSE"   $stage
+          Copy-Item "README.md" $stage
+          Compress-Archive -Path $stage -DestinationPath "$stage.zip"
+
+      - name: Smoke test
+        shell: pwsh
+        run: |
+          $exe = "build\Release\hawkeye.exe"
+          if (-not (Test-Path $exe)) { throw "hawkeye.exe not produced" }
+          & $exe --help
+          if ($LASTEXITCODE -ne 0) { throw "hawkeye --help exited $LASTEXITCODE" }
+
+      - name: Upload zip to release
+        shell: pwsh
+        run: |
+          $version = "${{ needs.source-tarball.outputs.version }}"
+          gh release upload ${{ github.ref_name }} "hawkeye-$version-windows-x64.zip"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   # ── Job 3: Update Homebrew tap ─────────────────────────────────────────────
   update-tap:
     name: Update Homebrew tap

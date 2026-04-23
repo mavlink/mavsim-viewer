@@ -1,7 +1,7 @@
 # Building from source
 
-You only need to build from source if you want to modify Hawkeye, run pre-release code, or target a platform without a package (currently Windows).
-For everyday use, the Homebrew formula or `.deb` package described in [Installation](../installation.md) is the faster path.
+You only need to build from source if you want to modify Hawkeye or run pre-release code.
+For everyday use, the Homebrew formula, `.deb` package, or Windows ZIP described in [Installation](../installation.md) is the faster path.
 
 ::: info
 Clone with `--recursive`.

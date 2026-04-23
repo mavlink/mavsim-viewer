@@ -7,6 +7,7 @@
 
 #ifdef _WIN32
 #include <direct.h>
+#include <windows.h>
 #define mkdir_p(path) _mkdir(path)
 #else
 #include <unistd.h>
@@ -65,7 +66,13 @@ void asset_path_init(void) {
         snprintf(s_user_data, sizeof(s_user_data),
                  "%s/Library/Application Support/hawkeye", home);
     }
-#elif !defined(_WIN32)
+#elif defined(_WIN32)
+    const char *appdata = getenv("APPDATA");
+    if (appdata && appdata[0]) {
+        snprintf(s_user_data, sizeof(s_user_data),
+                 "%s\\hawkeye", appdata);
+    }
+#else
     // Linux: XDG_DATA_HOME or ~/.local/share
     const char *xdg = getenv("XDG_DATA_HOME");
     if (xdg && xdg[0]) {
@@ -80,8 +87,20 @@ void asset_path_init(void) {
     }
 #endif
 
-    // Compile-time install prefix (set by CMake)
-#ifdef HAWKEYE_INSTALL_DATADIR
+#ifdef _WIN32
+    // On Windows we ship a portable ZIP: assets live next to hawkeye.exe,
+    // so resolve the install dir from the running executable rather than a
+    // compile-time CMake path (which encodes a Unix-style /usr layout).
+    char exe_path[MAX_PATH];
+    DWORD len = GetModuleFileNameA(NULL, exe_path, sizeof(exe_path));
+    if (len > 0 && len < sizeof(exe_path)) {
+        char *last_sep = strrchr(exe_path, '\\');
+        if (last_sep) {
+            *last_sep = '\0';
+            snprintf(s_install_data, sizeof(s_install_data), "%s", exe_path);
+        }
+    }
+#elif defined(HAWKEYE_INSTALL_DATADIR)
     snprintf(s_install_data, sizeof(s_install_data),
              "%s", HAWKEYE_INSTALL_DATADIR);
 #endif

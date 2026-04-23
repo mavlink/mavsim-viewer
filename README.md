@@ -27,7 +27,13 @@ Download the `.deb` from the [latest release](https://github.com/PX4/Hawkeye/rel
 sudo dpkg -i hawkeye-*.deb
 ```
 
-### Windows and source builds
+### Windows
+
+Download `hawkeye-<version>-windows-x64.zip` from the [latest release](https://github.com/PX4/Hawkeye/releases/latest), extract it anywhere, and run `hawkeye.exe`.
+
+On first launch, Windows SmartScreen may warn that the binary is from an unknown publisher — click "More info" → "Run anyway". The ZIP is unsigned; we're working on winget distribution to remove this warning.
+
+### Source builds
 
 See [Building from source](https://px4.github.io/Hawkeye/developer/build) in the developer docs.
 

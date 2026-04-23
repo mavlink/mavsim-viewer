@@ -6,7 +6,7 @@ Real-time 3D flight visualizer for PX4 — watch live SITL simulations, replay U
 
 Built with [Raylib](https://www.raylib.com/) and [MAVLink](https://mavlink.io/). Zero dependencies to install — just build and fly.
 
-![Hawkeye](docs/public/screenshot.png)
+![Hawkeye](https://artifacts.px4.io/hawkeye/cover.png)
 
 **Full documentation: [px4.github.io/Hawkeye](https://px4.github.io/Hawkeye/)**
 

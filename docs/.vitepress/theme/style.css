@@ -1,0 +1,65 @@
+:root {
+  --vp-home-hero-name-font-size: 32px;
+  --vp-home-hero-text-font-size: 22px;
+  --vp-home-hero-tagline-font-size: 14px;
+}
+
+@media (min-width: 960px) {
+  :root {
+    --vp-home-hero-name-font-size: 44px;
+    --vp-home-hero-text-font-size: 28px;
+    --vp-home-hero-tagline-font-size: 15px;
+  }
+}
+
+/* Free the hero image from the default 320px square constraint */
+.VPHero .image {
+  margin: 0 auto 32px;
+  max-width: 100%;
+}
+
+@media (min-width: 960px) {
+  .VPHero .image {
+    margin: 0;
+    flex: 1;
+  }
+}
+
+.VPHero .image-container {
+  width: 100%;
+  height: auto;
+  max-width: 560px;
+  aspect-ratio: 16 / 9;
+  transform: none;
+  margin: 0 auto;
+}
+
+@media (min-width: 960px) {
+  .VPHero .image-container {
+    transform: none;
+  }
+}
+
+.VPHero .image-src {
+  position: static;
+  max-width: 100%;
+  max-height: none;
+  width: 100%;
+  height: auto;
+  transform: none;
+  border-radius: 12px;
+}
+
+@media (min-width: 640px) {
+  .VPHero .image-src {
+    max-width: 100%;
+    max-height: none;
+  }
+}
+
+@media (min-width: 960px) {
+  .VPHero .image-src {
+    max-width: 100%;
+    max-height: none;
+  }
+}

@@ -6,8 +6,8 @@ hero:
   text: Real-time 3D flight visualizer for PX4
   tagline: Watch live SITL simulations, replay ULog flights, and analyze multi-drone swarms — up to 16 vehicles with ghost overlays, correlation tracking, and takeoff alignment.
   image:
-    src: /screenshot.png
-    alt: Hawkeye screenshot
+    src: https://artifacts.px4.io/hawkeye/cover.png
+    alt: Hawkeye
   actions:
     - theme: brand
       text: Get Started

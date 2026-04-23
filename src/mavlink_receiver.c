@@ -22,6 +22,8 @@
 // MAVLink config: use common message set
 // MAVLINK_COMM_NUM_BUFFERS=16 set via CMake for multi-vehicle support
 #include <mavlink.h>
+#include <stdbool.h>
+volatile bool g_resonance_anomaly = false;
 
 #define DISCONNECT_TIMEOUT_S 2.0
 
@@ -137,6 +139,16 @@ void mavlink_receiver_poll(mavlink_receiver_t *recv) {
                 }
 
                 switch (msg.msgid) {
+        case MAVLINK_MSG_ID_NAMED_VALUE_FLOAT: {
+            mavlink_named_value_float_t val;
+            mavlink_msg_named_value_float_decode(&msg, &val);
+            if (strncmp(val.name, "resonance", 9) == 0) {
+                printf("\n[!!!] ANOMALY METRIC: %f [!!!]\n", val.value);
+                fflush(stdout);
+                g_resonance_anomaly = (val.value > 0.5f);
+            }
+            break;
+        }
                     case MAVLINK_MSG_ID_HEARTBEAT: {
                         mavlink_heartbeat_t hb;
                         mavlink_msg_heartbeat_decode(&msg, &hb);

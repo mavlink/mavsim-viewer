@@ -730,6 +730,8 @@ void vehicle_draw(vehicle_t *v, const theme_t *theme, bool selected,
             }
         }
 
+        extern volatile bool g_resonance_anomaly;
+        if (g_resonance_anomaly) mat.maps[MATERIAL_MAP_DIFFUSE].color = RED;
         DrawMesh(v->model.meshes[mi], mat, v->model.transform);
     }
     if (v->ghost_alpha < 1.0f) rlEnableDepthMask();

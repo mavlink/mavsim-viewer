@@ -1,4 +1,5 @@
 #include "ulog_replay.h"
+#include "ulog_replay_apply.h"
 
 #include <math.h>
 #include <string.h>
@@ -19,47 +20,97 @@ static void logging_cb(const ulog_logging_msg_t *msg, void *userdata) {
     if (ring->count < STATUSTEXT_RING_SIZE) ring->count++;
 }
 
-// PX4 nav_state display names
-const char *ulog_nav_state_name(uint8_t nav_state) {
-    switch (nav_state) {
-        case 0:  return "Manual";
-        case 1:  return "Altitude";
-        case 2:  return "Position";
-        case 3:  return "Mission";
-        case 4:  return "Loiter";
-        case 5:  return "RTL";
-        case 10: return "Acro";
-        case 12: return "Descend";
-        case 13: return "Terminate";
-        case 14: return "Offboard";
-        case 15: return "Stabilized";
-        case 17: return "Takeoff";
-        case 18: return "Land";
-        case 19: return "Follow";
-        case 20: return "Precland";
-        case 21: return "Orbit";
-        case 22: return "VTOL Takeoff";
-        default: return "Unknown";
-    }
+// ---------------------------------------------------------------------------
+// Per-message field decode helpers. The event structs (ulog_*_event_t) are
+// the interchange format between decode and apply; the same apply helpers
+// feed both native (live parser) and WASM (pre-extracted arrays).
+// ---------------------------------------------------------------------------
+
+static void decode_attitude(const ulog_data_msg_t *dmsg,
+                             const ulog_field_cache_t *cache,
+                             ulog_att_event_t *ev) {
+    ev->timestamp_us = dmsg->timestamp;
+    int off = cache->att_q_offset;
+    ev->q[0] = ulog_parser_get_float(dmsg, off + 0);
+    ev->q[1] = ulog_parser_get_float(dmsg, off + 4);
+    ev->q[2] = ulog_parser_get_float(dmsg, off + 8);
+    ev->q[3] = ulog_parser_get_float(dmsg, off + 12);
 }
 
-// Approximate meters-per-degree at a given latitude
-#define DEG_TO_RAD (3.14159265358979323846 / 180.0)
-static void local_to_global(double ref_lat, double ref_lon, float ref_alt,
-                            float x, float y, float z,
-                            int32_t *lat_e7, int32_t *lon_e7, int32_t *alt_mm) {
-    // x = North, y = East, z = Down (NED)
-    double meters_per_deg_lat = 111132.92;
-    double meters_per_deg_lon = 111132.92 * cos(ref_lat * DEG_TO_RAD);
-    if (meters_per_deg_lon < 1.0) meters_per_deg_lon = 1.0;
+static void decode_gpos(const ulog_data_msg_t *dmsg,
+                         const ulog_field_cache_t *cache,
+                         ulog_gpos_event_t *ev) {
+    ev->timestamp_us = dmsg->timestamp;
+    ev->lat_deg = ulog_parser_get_double(dmsg, cache->gpos_lat_offset);
+    ev->lon_deg = ulog_parser_get_double(dmsg, cache->gpos_lon_offset);
+    ev->alt_m   = ulog_parser_get_float (dmsg, cache->gpos_alt_offset);
+    ev->_pad    = 0.0f;
+}
 
-    double lat = ref_lat + (double)x / meters_per_deg_lat;
-    double lon = ref_lon + (double)y / meters_per_deg_lon;
-    float alt = ref_alt - z;  // NED z is down, alt is up
+static void decode_lpos(const ulog_data_msg_t *dmsg,
+                         const ulog_field_cache_t *cache,
+                         ulog_lpos_event_t *ev) {
+    ev->timestamp_us = dmsg->timestamp;
+    ev->x  = ulog_parser_get_float(dmsg, cache->lpos_x_offset);
+    ev->y  = ulog_parser_get_float(dmsg, cache->lpos_y_offset);
+    ev->z  = ulog_parser_get_float(dmsg, cache->lpos_z_offset);
+    ev->vx = ulog_parser_get_float(dmsg, cache->lpos_vx_offset);
+    ev->vy = ulog_parser_get_float(dmsg, cache->lpos_vy_offset);
+    ev->vz = ulog_parser_get_float(dmsg, cache->lpos_vz_offset);
+}
 
-    *lat_e7 = (int32_t)(lat * 1e7);
-    *lon_e7 = (int32_t)(lon * 1e7);
-    *alt_mm = (int32_t)(alt * 1000.0f);
+static void decode_aspd(const ulog_data_msg_t *dmsg,
+                         const ulog_field_cache_t *cache,
+                         ulog_aspd_event_t *ev) {
+    ev->timestamp_us = dmsg->timestamp;
+    float ias = ulog_parser_get_float(dmsg, cache->aspd_ias_offset);
+    float tas = ulog_parser_get_float(dmsg, cache->aspd_tas_offset);
+    ev->ias_cms = (uint16_t)(ias * 100.0f);
+    ev->tas_cms = (uint16_t)(tas * 100.0f);
+    ev->_pad    = 0;
+}
+
+static void decode_vstatus(const ulog_data_msg_t *dmsg,
+                            const ulog_field_cache_t *cache,
+                            ulog_vstatus_event_t *ev) {
+    ev->timestamp_us = dmsg->timestamp;
+    uint8_t px4_type = ulog_parser_get_uint8(dmsg, cache->vstatus_type_offset);
+    uint8_t is_vtol  = (cache->vstatus_is_vtol_offset >= 0) &&
+                       ulog_parser_get_uint8(dmsg, cache->vstatus_is_vtol_offset);
+    ev->is_vtol = is_vtol;
+
+    // PX4 vehicle_type enum → MAVLink MAV_TYPE, matching the inline mapping
+    // that used to live in process_message.
+    if (is_vtol) {
+        ev->vehicle_type = 22; // MAV_TYPE_VTOL_FIXEDROTOR
+    } else {
+        switch (px4_type) {
+            case 1:  ev->vehicle_type = 2;  break; // ROTARY_WING → QUADROTOR
+            case 2:  ev->vehicle_type = 1;  break; // FIXED_WING  → FIXED_WING
+            case 3:  ev->vehicle_type = 10; break; // ROVER       → GROUND_ROVER
+            default: ev->vehicle_type = 2;  break;
+        }
+    }
+
+    ev->nav_state = (cache->vstatus_nav_state_offset >= 0)
+        ? ulog_parser_get_uint8(dmsg, cache->vstatus_nav_state_offset)
+        : 0;
+    memset(ev->_pad, 0, sizeof(ev->_pad));
+}
+
+static void decode_home(const ulog_data_msg_t *dmsg,
+                         const ulog_field_cache_t *cache,
+                         ulog_home_event_t *ev) {
+    ev->timestamp_us = dmsg->timestamp;
+    ev->lat_deg = (cache->home_lat_offset >= 0)
+        ? ulog_parser_get_double(dmsg, cache->home_lat_offset) : 0.0;
+    ev->lon_deg = (cache->home_lon_offset >= 0)
+        ? ulog_parser_get_double(dmsg, cache->home_lon_offset) : 0.0;
+    ev->alt_m = (cache->home_alt_offset >= 0)
+        ? ulog_parser_get_float(dmsg, cache->home_alt_offset) : 0.0f;
+    ev->valid_hpos = (cache->home_valid_hpos_offset >= 0)
+        ? ulog_parser_get_uint8(dmsg, cache->home_valid_hpos_offset) : 0;
+    memset(ev->_pad, 0, sizeof(ev->_pad));
 }
 
 // ---------------------------------------------------------------------------
@@ -82,178 +133,65 @@ static void process_message(ulog_replay_ctx_t *ctx, const ulog_data_msg_t *dmsg)
     if (ctx->first_pos_set)
         ctx->state.valid = true;
 
-    // home_position topic — authoritative home (Tier 1)
-    // Skip if pre-scan rejected this log's home (no GPOS data to confirm it)
-    if (sub_idx == ctx->sub_home_pos && ctx->sub_home_pos >= 0 && !ctx->home_rejected) {
-        double lat = 0, lon = 0;
-        float alt = 0;
-        if (ctx->cache.home_lat_offset >= 0)
-            lat = ulog_parser_get_double(dmsg, ctx->cache.home_lat_offset);
-        if (ctx->cache.home_lon_offset >= 0)
-            lon = ulog_parser_get_double(dmsg, ctx->cache.home_lon_offset);
-        if (ctx->cache.home_alt_offset >= 0)
-            alt = ulog_parser_get_float(dmsg, ctx->cache.home_alt_offset);
-        if (lat != 0.0 || lon != 0.0) {
-            ctx->home.lat = (int32_t)(lat * 1e7);
-            ctx->home.lon = (int32_t)(lon * 1e7);
-            ctx->home.alt = (int32_t)(alt * 1000.0f);
-            ctx->home.valid = true;
-            ctx->home_from_topic = true;
-        }
+    // home_position topic — authoritative home (Tier 1).
+    // Skip if pre-scan rejected this log's home (no GPOS data to confirm it).
+    if (sub_idx == ctx->sub_home_pos && ctx->sub_home_pos >= 0) {
+        ulog_home_event_t ev;
+        decode_home(dmsg, &ctx->cache, &ev);
+        ulog_apply_home(ctx, &ev);
     }
 
     if (sub_idx == ctx->sub_attitude) {
-        // float[4] q — NED quaternion (w,x,y,z) — direct copy
-        int off = ctx->cache.att_q_offset;
-        ctx->state.quaternion[0] = ulog_parser_get_float(dmsg, off + 0);
-        ctx->state.quaternion[1] = ulog_parser_get_float(dmsg, off + 4);
-        ctx->state.quaternion[2] = ulog_parser_get_float(dmsg, off + 8);
-        ctx->state.quaternion[3] = ulog_parser_get_float(dmsg, off + 12);
+        ulog_att_event_t ev;
+        decode_attitude(dmsg, &ctx->cache, &ev);
+        ulog_apply_attitude(ctx, &ev);
     }
     else if (ctx->sub_global_pos >= 0 && sub_idx == ctx->sub_global_pos) {
-        // lat/lon: double (degrees) -> int32_t (degE7)
-        // alt: float (meters) -> int32_t (mm)
-        double lat = ulog_parser_get_double(dmsg, ctx->cache.gpos_lat_offset);
-        double lon = ulog_parser_get_double(dmsg, ctx->cache.gpos_lon_offset);
-        float alt = ulog_parser_get_float(dmsg, ctx->cache.gpos_alt_offset);
-
-        ctx->state.lat = (int32_t)(lat * 1e7);
-        ctx->state.lon = (int32_t)(lon * 1e7);
-        ctx->state.alt = (int32_t)(alt * 1000.0f);
-
-        // Derive velocity from consecutive GPOS samples (GPOS has no velocity fields)
-        if (ctx->prev_gpos_usec > 0 && dmsg->timestamp > ctx->prev_gpos_usec) {
-            double dt_gpos = (double)(dmsg->timestamp - ctx->prev_gpos_usec) / 1e6;
-            if (dt_gpos > 0.01 && dt_gpos < 5.0) {
-                double meters_per_deg_lat = 111132.92;
-                double meters_per_deg_lon = 111132.92 * cos(lat * DEG_TO_RAD);
-                if (meters_per_deg_lon < 1.0) meters_per_deg_lon = 1.0;
-                ctx->gpos_vx = (float)((lat - ctx->prev_lat_deg) * meters_per_deg_lat / dt_gpos);
-                ctx->gpos_vy = (float)((lon - ctx->prev_lon_deg) * meters_per_deg_lon / dt_gpos);
-                ctx->gpos_vz = (float)(-(alt - ctx->prev_alt_m) / dt_gpos); // alt up, z down
-            }
-        }
-        ctx->prev_lat_deg = lat;
-        ctx->prev_lon_deg = lon;
-        ctx->prev_alt_m = alt;
-        ctx->prev_gpos_usec = dmsg->timestamp;
-
-        ctx->has_global_pos = true;
-
-        // Store for dead-reckoning interpolation
-        ctx->last_lat_deg = lat;
-        ctx->last_lon_deg = lon;
-        ctx->last_alt_m = alt;
-        ctx->last_pos_usec = dmsg->timestamp;
-
-        if (!ctx->first_pos_set) {
-            if (!ctx->home_from_topic) {
-                ctx->home.lat = ctx->state.lat;
-                ctx->home.lon = ctx->state.lon;
-                ctx->home.alt = ctx->state.alt;
-                ctx->home.valid = true;
-            }
-            ctx->first_pos_set = true;
-            ctx->state.valid = true;
-        }
+        ulog_gpos_event_t ev;
+        decode_gpos(dmsg, &ctx->cache, &ev);
+        ulog_apply_gpos(ctx, &ev);
     }
     else if (sub_idx == ctx->sub_local_pos) {
-        // vx/vy/vz: float (m/s NED) -> int16_t (cm/s)
-        float vx = ulog_parser_get_float(dmsg, ctx->cache.lpos_vx_offset);
-        float vy = ulog_parser_get_float(dmsg, ctx->cache.lpos_vy_offset);
-        float vz = ulog_parser_get_float(dmsg, ctx->cache.lpos_vz_offset);
-        ctx->state.vx = (int16_t)(vx * 100.0f);
-        ctx->state.vy = (int16_t)(vy * 100.0f);
-        ctx->state.vz = (int16_t)(vz * 100.0f);
-
-        // Store velocity and local position for dead-reckoning
-        ctx->last_vx = vx;
-        ctx->last_vy = vy;
-        ctx->last_vz = vz;
-
-        float x = ulog_parser_get_float(dmsg, ctx->cache.lpos_x_offset);
-        float y = ulog_parser_get_float(dmsg, ctx->cache.lpos_y_offset);
-        float z = ulog_parser_get_float(dmsg, ctx->cache.lpos_z_offset);
-        ctx->last_x = x;
-        ctx->last_y = y;
-        ctx->last_z = z;
-
-        if (!ctx->has_global_pos) {
-            ctx->last_pos_usec = dmsg->timestamp;
-
-            // Try to get reference point from local position if not yet set
-            if (!ctx->ref_set && ctx->cache.lpos_xy_global_offset >= 0) {
-                uint8_t xy_global = ulog_parser_get_uint8(dmsg, ctx->cache.lpos_xy_global_offset);
-                if (xy_global) {
-                    double rlat = ulog_parser_get_double(dmsg, ctx->cache.lpos_ref_lat_offset);
-                    double rlon = ulog_parser_get_double(dmsg, ctx->cache.lpos_ref_lon_offset);
-                    // Sanity check: reject garbage reference coordinates
-                    if (rlat < -90.0 || rlat > 90.0 || rlon < -180.0 || rlon > 180.0) {
-                        if (!ctx->ref_rejected) {
-                            printf("  Warning: LPOS ref out of range (lat=%.1f, lon=%.1f), ignoring\n", rlat, rlon);
-                            ctx->ref_rejected = true;
-                        }
-                    } else {
-                        ctx->ref_lat = rlat;
-                        ctx->ref_lon = rlon;
-                        if (ctx->cache.lpos_z_global_offset >= 0 &&
-                            ulog_parser_get_uint8(dmsg, ctx->cache.lpos_z_global_offset)) {
-                            ctx->ref_alt = ulog_parser_get_float(dmsg, ctx->cache.lpos_ref_alt_offset);
-                        }
-                        ctx->ref_set = true;
+        // LPOS reference-frame capture has to happen with raw parser bytes
+        // in hand (xy_global / ref_lat / ref_lon / ref_alt aren't fields on
+        // the compact lpos event struct). Done here, before apply_lpos,
+        // which reads ctx->ref_* as already-settled state.
+        if (!ctx->has_global_pos && !ctx->ref_set &&
+            ctx->cache.lpos_xy_global_offset >= 0) {
+            uint8_t xy_global = ulog_parser_get_uint8(dmsg, ctx->cache.lpos_xy_global_offset);
+            if (xy_global) {
+                double rlat = ulog_parser_get_double(dmsg, ctx->cache.lpos_ref_lat_offset);
+                double rlon = ulog_parser_get_double(dmsg, ctx->cache.lpos_ref_lon_offset);
+                if (rlat < -90.0 || rlat > 90.0 || rlon < -180.0 || rlon > 180.0) {
+                    if (!ctx->ref_rejected) {
+                        printf("  Warning: LPOS ref out of range (lat=%.1f, lon=%.1f), ignoring\n", rlat, rlon);
+                        ctx->ref_rejected = true;
                     }
-                }
-            }
-
-            // Require horizontal position (x/y or reference frame) to produce
-            // a meaningful global position. z-only (baro) without a reference
-            // can't give valid lat/lon and would mix incompatible altitudes.
-            bool has_pos = (x != 0.0f || y != 0.0f) || ctx->ref_set;
-
-            if (has_pos) {
-                local_to_global(ctx->ref_lat, ctx->ref_lon, ctx->ref_alt,
-                                x, y, z,
-                                &ctx->state.lat, &ctx->state.lon, &ctx->state.alt);
-
-                if (!ctx->first_pos_set) {
-                    if (!ctx->home_from_topic) {
-                        ctx->home.lat = ctx->state.lat;
-                        ctx->home.lon = ctx->state.lon;
-                        ctx->home.alt = ctx->state.alt;
-                        ctx->home.valid = true;
+                } else {
+                    ctx->ref_lat = rlat;
+                    ctx->ref_lon = rlon;
+                    if (ctx->cache.lpos_z_global_offset >= 0 &&
+                        ulog_parser_get_uint8(dmsg, ctx->cache.lpos_z_global_offset)) {
+                        ctx->ref_alt = ulog_parser_get_float(dmsg, ctx->cache.lpos_ref_alt_offset);
                     }
-                    ctx->first_pos_set = true;
-                    ctx->state.valid = true;
+                    ctx->ref_set = true;
                 }
             }
         }
+
+        ulog_lpos_event_t ev;
+        decode_lpos(dmsg, &ctx->cache, &ev);
+        ulog_apply_lpos(ctx, &ev);
     }
     else if (ctx->sub_airspeed >= 0 && sub_idx == ctx->sub_airspeed) {
-        // float (m/s) -> uint16_t (cm/s)
-        float ias = ulog_parser_get_float(dmsg, ctx->cache.aspd_ias_offset);
-        float tas = ulog_parser_get_float(dmsg, ctx->cache.aspd_tas_offset);
-        ctx->state.ind_airspeed = (uint16_t)(ias * 100.0f);
-        ctx->state.true_airspeed = (uint16_t)(tas * 100.0f);
+        ulog_aspd_event_t ev;
+        decode_aspd(dmsg, &ctx->cache, &ev);
+        ulog_apply_aspd(ctx, &ev);
     }
     else if (ctx->sub_vehicle_status >= 0 && sub_idx == ctx->sub_vehicle_status) {
-        // PX4 vehicle_type enum → MAVLink MAV_TYPE
-        uint8_t px4_type = ulog_parser_get_uint8(dmsg, ctx->cache.vstatus_type_offset);
-        bool is_vtol = ctx->cache.vstatus_is_vtol_offset >= 0 &&
-                       ulog_parser_get_uint8(dmsg, ctx->cache.vstatus_is_vtol_offset);
-        if (is_vtol) {
-            ctx->vehicle_type = 22; // MAV_TYPE_VTOL_FIXEDROTOR
-        } else {
-            switch (px4_type) {
-                case 1: ctx->vehicle_type = 2;  break; // ROTARY_WING → MAV_TYPE_QUADROTOR
-                case 2: ctx->vehicle_type = 1;  break; // FIXED_WING  → MAV_TYPE_FIXED_WING
-                case 3: ctx->vehicle_type = 10; break; // ROVER       → MAV_TYPE_GROUND_ROVER
-                default: ctx->vehicle_type = 2; break;
-            }
-        }
-        // Track current nav_state for HUD display
-        if (ctx->cache.vstatus_nav_state_offset >= 0) {
-            ctx->current_nav_state = ulog_parser_get_uint8(dmsg, ctx->cache.vstatus_nav_state_offset);
-        }
+        ulog_vstatus_event_t ev;
+        decode_vstatus(dmsg, &ctx->cache, &ev);
+        ulog_apply_vstatus(ctx, &ev);
     }
 }
 
@@ -584,7 +522,7 @@ bool ulog_replay_advance(ulog_replay_ctx_t *ctx, float dt, float speed, bool loo
             }
 
             double meters_per_deg_lat = 111132.92;
-            double meters_per_deg_lon = 111132.92 * cos(ctx->last_lat_deg * DEG_TO_RAD);
+            double meters_per_deg_lon = 111132.92 * cos(ctx->last_lat_deg * ULOG_DEG_TO_RAD);
             if (meters_per_deg_lon < 1.0) meters_per_deg_lon = 1.0;
 
             double lat = ctx->last_lat_deg + (double)(vx * dt_pos) / meters_per_deg_lat;
@@ -600,9 +538,9 @@ bool ulog_replay_advance(ulog_replay_ctx_t *ctx, float dt, float speed, bool loo
             float y = ctx->last_y + ctx->last_vy * dt_pos;
             float z = ctx->last_z + ctx->last_vz * dt_pos;
 
-            local_to_global(ctx->ref_lat, ctx->ref_lon, ctx->ref_alt,
-                            x, y, z,
-                            &ctx->state.lat, &ctx->state.lon, &ctx->state.alt);
+            ulog_local_to_global(ctx->ref_lat, ctx->ref_lon, ctx->ref_alt,
+                                  x, y, z,
+                                  &ctx->state.lat, &ctx->state.lon, &ctx->state.alt);
         }
     }
 
@@ -671,7 +609,7 @@ void ulog_replay_seek(ulog_replay_ctx_t *ctx, float target_s) {
             }
 
             double meters_per_deg_lat = 111132.92;
-            double meters_per_deg_lon = 111132.92 * cos(ctx->last_lat_deg * DEG_TO_RAD);
+            double meters_per_deg_lon = 111132.92 * cos(ctx->last_lat_deg * ULOG_DEG_TO_RAD);
             if (meters_per_deg_lon < 1.0) meters_per_deg_lon = 1.0;
 
             double lat = ctx->last_lat_deg + (double)(vx * dt_pos) / meters_per_deg_lat;
@@ -686,9 +624,9 @@ void ulog_replay_seek(ulog_replay_ctx_t *ctx, float target_s) {
             float y = ctx->last_y + ctx->last_vy * dt_pos;
             float z = ctx->last_z + ctx->last_vz * dt_pos;
 
-            local_to_global(ctx->ref_lat, ctx->ref_lon, ctx->ref_alt,
-                            x, y, z,
-                            &ctx->state.lat, &ctx->state.lon, &ctx->state.alt);
+            ulog_local_to_global(ctx->ref_lat, ctx->ref_lon, ctx->ref_alt,
+                                  x, y, z,
+                                  &ctx->state.lat, &ctx->state.lon, &ctx->state.alt);
         }
     }
 }

@@ -65,9 +65,14 @@ typedef struct {
 // Prevents runtime process_message from re-validating home during playback.
 
 typedef struct {
+#ifndef __EMSCRIPTEN__
+    // Parser-backed decode state. Native reads the ULog live during replay
+    // and uses these fields to find subscriptions + resolve field offsets.
+    // On WASM the timeline is pre-extracted, so this machinery is dead
+    // weight (~1.3 MB/drone from the formats[256] array) and is excluded
+    // from the build. The shared apply helpers never touch these fields.
     ulog_parser_t parser;
 
-    // Subscription indices (-1 if topic not found in log)
     int sub_attitude;
     int sub_global_pos;
     int sub_local_pos;
@@ -76,6 +81,7 @@ typedef struct {
     int sub_home_pos;
 
     ulog_field_cache_t cache;
+#endif
 
     // Current output state
     hil_state_t state;
@@ -128,6 +134,27 @@ typedef struct {
 
     // STATUSTEXT messages (populated during playback)
     statustext_ring_t statustext;
+
+#ifdef __EMSCRIPTEN__
+    // WASM-only: pre-extracted event arrays + per-type cursors. The WASM
+    // replay path walks the ULog once at init time, populates these arrays,
+    // and releases the raw file bytes. Playback then iterates cursors over
+    // the flat arrays instead of re-reading the file. Lives inside the
+    // native struct under an ifdef so native sizeof is unchanged and the
+    // shared apply helpers can accept a single ctx type on both targets.
+    //
+    // The ulog_timeline type and its append/find helpers are defined in
+    // src/ulog_events.h + src/wasm/ulog_timeline.h. We hold it as an
+    // opaque pointer here so ulog_replay.h doesn't have to pull in either.
+    void *timeline;
+    int att_cursor;
+    int lpos_cursor;
+    int gpos_cursor;
+    int aspd_cursor;
+    int vstatus_cursor;
+    int home_cursor;
+    int statustext_cursor;
+#endif
 } ulog_replay_ctx_t;
 
 // Initialize replay context, parse file, build index. Returns 0 on success.

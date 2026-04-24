@@ -12,6 +12,7 @@ set(MAVLINK_DIR ${CMAKE_SOURCE_DIR}/lib/c_library_v2)
 add_library(hawkeye-core STATIC
     src/ulog_parser.c
     src/ulog_replay.c
+    src/ulog_replay_apply.c
     src/data_source_ulog.c
 )
 target_include_directories(hawkeye-core PUBLIC src/)

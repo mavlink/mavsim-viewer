@@ -1,0 +1,4 @@
+build/
+*.wasm
+*.data
+*.js.map

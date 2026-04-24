@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Hawkeye WASM — dev harness</title>
+<style>
+    * { box-sizing: border-box; }
+    /* Hide the native scrollbar entirely — we draw our own rail below. */
+    html {
+        overflow-y: scroll;
+        scrollbar-width: none;
+    }
+    html::-webkit-scrollbar { width: 0; height: 0; }
+    body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #0a0c10;
+        color: #e0e4ec;
+        padding-right: 26px; /* 10px rail + 8px right inset + 8px gap to canvas */
+    }
+    /* Custom always-visible scroll rail. Empty outlined box when static;
+       a thumb inside fills in while scrolling. */
+    .scroll-rail {
+        position: fixed;
+        top: 8px;
+        right: 8px;
+        bottom: 8px;
+        width: 10px;
+        border: 1px solid #23272f;
+        border-radius: 4px;
+        pointer-events: none;
+        z-index: 100;
+    }
+    .scroll-rail .thumb {
+        position: absolute;
+        left: 1px;
+        right: 1px;
+        background: #2a2f3a;
+        border-radius: 3px;
+    }
+    main {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        padding: 16px;
+    }
+    canvas {
+        display: block;
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        background: #000;
+        border: 1px solid #2a2f3a;
+        border-radius: 4px;
+        outline: none;
+    }
+    .controls {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+    .card {
+        background: #13161d;
+        border: 1px solid #23272f;
+        border-radius: 4px;
+        padding: 12px;
+    }
+    .card h2 {
+        margin: 0 0 8px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        color: #9aa3b2;
+    }
+    input[type=file] { font-size: 11px; }
+    .log {
+        font-family: ui-monospace, Menlo, Consolas, monospace;
+        font-size: 11px;
+        color: #8a93a5;
+        max-height: 200px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+    }
+</style>
+</head>
+<body>
+
+<div class="scroll-rail" id="scroll-rail"><div class="thumb" id="scroll-thumb"></div></div>
+
+<main>
+    <canvas id="hawkeye-canvas" tabindex="0"></canvas>
+
+    <div class="controls">
+        <div class="card">
+            <h2>ULog</h2>
+            <input type="file" id="ulog-input" accept=".ulg" multiple />
+        </div>
+
+        <div class="card">
+            <h2>Log</h2>
+            <div class="log" id="log"></div>
+        </div>
+    </div>
+</main>
+
+<script>
+// ------------------------------------------------------------------
+// Dev harness glue. Not shipping code.
+// ------------------------------------------------------------------
+
+// Custom scroll-rail thumb. Always-visible outlined rail with a thumb
+// that's always filled, positioned to reflect current scroll offset.
+(function() {
+    const rail = document.getElementById('scroll-rail');
+    const thumb = document.getElementById('scroll-thumb');
+    function update() {
+        const vh = window.innerHeight;
+        const ch = Math.max(document.documentElement.scrollHeight, vh);
+        const railH = rail.clientHeight;
+        const ratio = vh / ch;
+        const thumbH = Math.max(24, Math.floor(railH * ratio));
+        const maxScroll = ch - vh;
+        const scrollY = window.scrollY || 0;
+        const thumbTop = maxScroll > 0
+            ? Math.floor((railH - thumbH) * (scrollY / maxScroll))
+            : 0;
+        thumb.style.height = thumbH + 'px';
+        thumb.style.top = thumbTop + 'px';
+    }
+    window.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    new ResizeObserver(update).observe(document.body);
+    update();
+})();
+
+const logEl = document.getElementById('log');
+function log(s) {
+    console.log(s);
+    const line = document.createElement('div');
+    line.textContent = s;
+    logEl.appendChild(line);
+    logEl.scrollTop = logEl.scrollHeight;
+}
+
+const canvas = document.getElementById('hawkeye-canvas');
+
+// Space is bound to play/pause in the replay. Block the browser default
+// (page scroll) when the canvas has focus so it doesn't also scroll the
+// harness. preventDefault doesn't stop the event from reaching raylib's
+// window listener, so the replay still sees the keydown.
+window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space' && document.activeElement === canvas) {
+        e.preventDefault();
+    }
+}, { passive: false });
+
+function computeCanvasSize() {
+    // main has 16px padding each side (32 total); body reserves 26px on
+    // the right for the scroll rail + gap. Actual canvas width must
+    // subtract both or emscripten will set the canvas wider than its
+    // parent and visually crowd the rail.
+    const availW = Math.max(320, window.innerWidth - 32 - 26);
+    return { w: availW, h: Math.floor(availW * 9 / 16) };
+}
+
+const Module = {
+    canvas: canvas,
+    keyboardListeningElement: window,
+    print: (s) => log(s),
+    printErr: (s) => log('[err] ' + s),
+};
+
+let hawkeye_init = null;
+let hawkeye_load_ulog_bytes = null;
+let hawkeye_resize = null;
+let hawkeye_destroy = null;
+let hawkeye_get_duration = null;
+let logDuration = 0;
+
+import('./hawkeye.js').then(mod => {
+    return mod.default(Module);
+}).then(instance => {
+    log('hawkeye.js loaded');
+    hawkeye_init = instance.cwrap('hawkeye_init', 'number', ['string','number','number']);
+    hawkeye_load_ulog_bytes = instance.cwrap('hawkeye_load_ulog_bytes', 'number', ['number','number']);
+    hawkeye_resize = instance.cwrap('hawkeye_resize', null, ['number','number']);
+    hawkeye_destroy = instance.cwrap('hawkeye_destroy', null, []);
+    hawkeye_get_duration = instance.cwrap('hawkeye_get_duration', 'number', []);
+
+    const { w: cssW, h: cssH } = computeCanvasSize();
+    const rc = hawkeye_init('#hawkeye-canvas', cssW, cssH);
+    log('hawkeye_init → ' + rc + ' (' + cssW + 'x' + cssH + ')');
+
+    window._hawkeye = { instance, heapSet: (bytes) => {
+        const ptr = instance._malloc(bytes.length);
+        instance.HEAPU8.set(bytes, ptr);
+        return ptr;
+    }};
+
+    let resizeTimer = null;
+    window.addEventListener('resize', () => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => {
+            if (!hawkeye_resize) return;
+            const { w, h } = computeCanvasSize();
+            hawkeye_resize(w, h);
+        }, 120);
+    });
+}).catch(err => {
+    log('load failed: ' + err.message);
+});
+
+function fmtTime(s) {
+    if (!isFinite(s) || s < 0) s = 0;
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return m + ':' + (sec < 10 ? '0' : '') + sec;
+}
+
+document.getElementById('ulog-input').addEventListener('change', async (ev) => {
+    const files = Array.from(ev.target.files);
+    if (files.length === 0) return;
+
+    const h = window._hawkeye;
+    if (!h) return;
+
+    log('reading ' + files.length + ' file(s)...');
+
+    const fileData = [];
+    for (const file of files) {
+        log('  ' + file.name + ' (' + file.size + ' bytes)');
+        const ab = await file.arrayBuffer();
+        fileData.push(new Uint8Array(ab));
+    }
+
+    if (files.length === 1) {
+        const ptr = h.heapSet(fileData[0]);
+        const rc = hawkeye_load_ulog_bytes(ptr, fileData[0].length);
+        log('hawkeye_load_ulog_bytes → ' + rc);
+        h.instance._free(ptr);
+    } else {
+        try {
+            const count = fileData.length;
+            const begin = h.instance.cwrap('hawkeye_begin_multi_load', 'number', ['number']);
+            const stage = h.instance.cwrap('hawkeye_stage_ulog', 'number', ['number', 'number', 'number']);
+            const finalize = h.instance.cwrap('hawkeye_finalize_multi_load', 'number', ['number']);
+
+            let rc = begin(count);
+            if (rc !== 0) throw new Error('begin_multi_load failed: ' + rc);
+
+            for (let i = 0; i < count; i++) {
+                log('  staging file ' + i + ' (' + fileData[i].length + ' bytes)...');
+                const ptr = h.heapSet(fileData[i]);
+                if (ptr === 0) throw new Error('malloc failed for file ' + i);
+                rc = stage(i, ptr, fileData[i].length);
+                h.instance._free(ptr);
+                if (rc !== 0) throw new Error('stage_ulog failed for file ' + i);
+            }
+
+            rc = finalize(0);
+            log('multi-load (' + count + ' files) → ' + rc);
+        } catch (e) {
+            log('multi-load FAILED: ' + e.message);
+            console.error(e);
+        }
+    }
+
+    canvas.focus();
+
+    if (hawkeye_get_duration) {
+        logDuration = hawkeye_get_duration();
+        log('duration: ' + fmtTime(logDuration));
+    }
+});
+</script>
+
+</body>
+</html>

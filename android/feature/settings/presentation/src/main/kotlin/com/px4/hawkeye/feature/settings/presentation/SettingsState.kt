@@ -12,4 +12,5 @@ data class SettingsState(
     // overwriting the persisted port. Seeded from the saved value, updated on each keystroke.
     val portInput: String = DEFAULT_LIVE_PORT.toString(),
     val portError: UiText? = null,
+    val crashReportingEnabled: Boolean = true,
 )

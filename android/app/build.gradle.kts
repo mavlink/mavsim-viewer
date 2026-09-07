@@ -1,4 +1,9 @@
+import com.google.firebase.crashlytics.buildtools.gradle.CrashlyticsExtension
+
 plugins {
+    // Must stay first: the Crashlytics plugin applied below refuses to load unless
+    // com.android.application is already on the project, and this convention plugin is
+    // what applies it.
     id("hawkeye.android.application")
 }
 
@@ -20,6 +25,18 @@ val hawkeyeVersionCode: Int = com.px4.hawkeye.buildlogic.hawkeyeVersionCode(hawk
 // empty string, and that case has to stay on the unsigned path.
 val uploadKeystorePath: String? = providers.environmentVariable("HAWKEYE_UPLOAD_KEYSTORE")
     .orNull?.takeIf { it.isNotBlank() }
+
+// Crashlytics activates only when google-services.json is present. CI decodes it from a
+// repository secret; local checkouts and forks have none and build with Firebase dormant,
+// exactly like the unsigned-release path above. The google-services plugin fails the build
+// outright when the file is missing, so it has to be applied conditionally rather than
+// declared in the plugins block. Both plugins are on the classpath via `apply false` in
+// android/build.gradle.kts.
+val firebaseEnabled: Boolean = file("google-services.json").exists()
+if (firebaseEnabled) {
+    apply(plugin = "com.google.gms.google-services")
+    apply(plugin = "com.google.firebase.crashlytics")
+}
 
 android {
     namespace = "com.px4.hawkeye.android"
@@ -89,6 +106,17 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // Upload libhawkeye.so's DWARF to Crashlytics so native crashes in the
+            // renderer resolve to a function and line instead of a hex address. AGP builds
+            // release native code as RelWithDebInfo (-O2 -g) and the unstripped objects
+            // survive in merged_native_libs, so the symbols already exist; this only sends
+            // them. Debug is left at the default (off) — uploading on every local build
+            // would cost minutes and tell us nothing.
+            if (firebaseEnabled) {
+                configure<CrashlyticsExtension> {
+                    nativeSymbolUploadEnabled = true
+                }
+            }
         }
     }
 
@@ -121,6 +149,13 @@ dependencies {
 
     implementation(libs.koin.android)
     implementation(libs.koin.androidx.compose)
+
+    // Unconditional on purpose: :app references these types, so making them conditional
+    // would break compilation for forks. Without google-services.json the SDK simply never
+    // initializes and AppModule falls back to CrashReporter.None.
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.crashlytics)
+    implementation(libs.firebase.crashlytics.ndk)
 
     implementation(libs.androidx.navigation3.runtime)
     implementation(libs.androidx.navigation3.ui)

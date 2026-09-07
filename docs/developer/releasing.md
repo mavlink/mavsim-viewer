@@ -121,15 +121,23 @@ Google Play requires both a privacy policy URL and a completed Data safety form 
 Neither can be scripted; they are filled in by hand in the Play Console.
 
 - The privacy policy URL is <https://px4.github.io/Hawkeye/privacy>, published from [`docs/privacy.md`](../privacy.md).
-- The Data safety form should declare **no data collected and no data shared**.
+- The Data safety form declares three data types, all *collected*, none *shared*, and all marked **optional** because crash reporting can be turned off in Settings:
+  - **Crash logs** and **Diagnostics**, under *App info and performance*.
+  - **Device or other IDs**, because Crashlytics sends a Crashlytics installation UUID and a Firebase installation ID with each report. This one is easy to miss: it comes from the SDK rather than from anything Hawkeye asks for, and Firebase's own [Play data disclosure](https://firebase.google.com/docs/android/play-data-disclosure) is the authority on what has to be declared.
+  - Every type is answered *not processed ephemerally* (Google retains reports for 90 days) with purpose **Analytics**, whose Play definition covers diagnosing and fixing crashes. Security practices declare data encrypted in transit; data deletion is declared as not offered, since reports key to an anonymous install ID that no user can identify as theirs.
 
 That declaration holds because of what the app actually does, and it is worth knowing why rather than taking it on faith.
 Google defines collection as transmitting data off the device, and explicitly exempts data that is only processed locally.
-Hawkeye's flight logs, log library, and settings never leave the device: there is no Hawkeye server, no analytics, and no crash reporting, and Android backup is disabled so the platform does not copy them either.
+Hawkeye's flight logs, log library, and settings never leave the device: there is no Hawkeye server and no analytics, and Android backup is disabled so the platform does not copy them either.
 Live telemetry travels only between the app and the vehicle or simulator the user connected to.
+The single outbound path is Firebase Crashlytics, which sends a crash trace, device state, and an installation identifier when the app fails. It carries nothing from a flight log, which is why the location categories stay unchecked.
 
 The form and the policy have to agree, since a mismatch is a common cause of listing rejection.
-Anything that changes the answer, in particular adding an analytics, crash-reporting, or advertising dependency, or re-enabling `android:allowBackup`, means updating `docs/privacy.md` and the Data safety form together.
+Anything that changes the answer, in particular adding an analytics or advertising dependency, widening what Crashlytics reports, or re-enabling `android:allowBackup`, means updating `docs/privacy.md` and the Data safety form together.
+
+Crashlytics also needs two repository secrets, and a release built without them is not broken, just unreported: `FIREBASE_GOOGLE_SERVICES_JSON` (base64 of `google-services.json`) and `FIREBASE_SERVICE_ACCOUNT_JSON` (a service account key for the Firebase project, holding `roles/firebasecrashlytics.admin`; the Gradle upload task reads it through `GOOGLE_APPLICATION_CREDENTIALS`).
+The two are gated independently. Without `FIREBASE_GOOGLE_SERVICES_JSON` the build ships with crash reporting dormant, exactly as a fork's CI does. Without `FIREBASE_SERVICE_ACCOUNT_JSON` the build still reports crashes, but the symbol upload is skipped and native stack traces arrive as raw addresses.
+The symbol upload runs before the APK is published, so a failure there stops the release rather than shipping a build whose native crashes cannot be read.
 
 ## Checking a release build before tagging
 

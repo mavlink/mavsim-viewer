@@ -116,6 +116,8 @@ fun ReplayScreen(state: ReplayState, onAction: (ReplayAction) -> Unit) { /* rend
 
 Every data source / repository returns `Result<T, E>` where `E` is a typed error (`ReplayError`, `DataError.Local`, etc.). Never throw exceptions for expected failures — catch them at the layer that owns the cause and return `Result.Error(...)`.
 
+Failures that reach the `UNKNOWN` branch of an error mapper — and only those — are reported through `CrashReporter` (`core:domain`), injected into the data class that owns the mapping. Expected outcomes the user already sees, such as `NOT_FOUND` or `DISK_FULL`, are never reported; a dashboard full of full disks hides the defects worth fixing. `CrashReporter.None` is the dormant implementation used by forks and tests, and it is deliberately not a constructor default, so a dropped injection fails to compile instead of silently going quiet.
+
 User-facing strings that come from resources are wrapped in `UiText` so the ViewModel can carry them without holding a `Context`. Each feature defines a `<FeatureError>.toUiText()` extension in its presentation module — `ReplayError.toUiText()` lives next to `ReplayViewModel`.
 
 ### Dependency injection (Koin)

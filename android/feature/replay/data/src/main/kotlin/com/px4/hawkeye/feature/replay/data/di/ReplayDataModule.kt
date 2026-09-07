@@ -19,7 +19,9 @@ val replayDataModule = module {
         ).build()
     }
     single { get<ReplayDatabase>().libraryDao() }
-    single { LibraryFileStore(androidContext().filesDir) }
+    single { LibraryFileStore(androidContext().filesDir, crashReporter = get()) }
     single<ReplayFileManager> { AndroidReplayFileManager(androidContext().contentResolver, get()) }
-    single<ReplayLibraryRepository> { RoomReplayLibraryRepository(get(), get()) }
+    single<ReplayLibraryRepository> {
+        RoomReplayLibraryRepository(dao = get(), fileManager = get(), crashReporter = get())
+    }
 }

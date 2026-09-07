@@ -9,11 +9,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -106,6 +108,25 @@ fun SettingsScreen(
         )
 
         Text(
+            text = stringResource(R.string.settings_diagnostics_header),
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(
+                top = HawkeyeDimens.itemSpacing,
+                bottom = HawkeyeDimens.titleSpacing,
+            ),
+        )
+        ToggleRow(
+            label = stringResource(R.string.settings_crash_reporting_label),
+            checked = state.crashReportingEnabled,
+            onCheckedChange = { onAction(SettingsAction.OnCrashReportingToggled(it)) },
+        )
+        Text(
+            text = stringResource(R.string.settings_crash_reporting_description),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        Text(
             text = stringResource(R.string.settings_about_header),
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.padding(
@@ -163,6 +184,37 @@ private fun OptionRow(
         Text(
             text = label,
             modifier = Modifier.padding(start = HawkeyeDimens.inlineSpacing),
+        )
+    }
+}
+
+@Composable
+private fun ToggleRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            // Toggling from anywhere on the row, with the Switch itself inert, so the
+            // control and its label are one target and one accessibility node — the same
+            // arrangement OptionRow uses for its radio rows.
+            .toggleable(
+                value = checked,
+                onValueChange = onCheckedChange,
+                role = Role.Switch,
+            )
+            .padding(vertical = HawkeyeDimens.rowVerticalPadding),
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.weight(1f),
+        )
+        Switch(
+            checked = checked,
+            onCheckedChange = null,
         )
     }
 }

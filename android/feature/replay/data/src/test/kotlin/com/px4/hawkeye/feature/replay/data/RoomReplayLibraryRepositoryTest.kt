@@ -2,6 +2,8 @@ package com.px4.hawkeye.feature.replay.data
 
 import assertk.assertThat
 import assertk.assertions.containsExactly
+import assertk.assertions.hasSize
+import assertk.assertions.isEmpty
 import assertk.assertions.isEqualTo
 import assertk.assertions.isNotNull
 import assertk.assertions.isNull
@@ -22,15 +24,18 @@ class RoomReplayLibraryRepositoryTest {
     private val dispatcher = UnconfinedTestDispatcher()
     private lateinit var dao: FakeReplayLibraryDao
     private lateinit var files: FakeReplayFileManager
+    private lateinit var crashReporter: RecordingCrashReporter
 
     @BeforeEach fun setUp() {
         dao = FakeReplayLibraryDao()
         files = FakeReplayFileManager()
+        crashReporter = RecordingCrashReporter()
     }
 
     private fun repository() = RoomReplayLibraryRepository(
         dao = dao,
         fileManager = files,
+        crashReporter = crashReporter,
         ioDispatcher = dispatcher,
         clock = { 1_000L },
         idGenerator = { "fixed-id" },
@@ -58,6 +63,9 @@ class RoomReplayLibraryRepositoryTest {
 
         assertThat(result).isEqualTo(Result.Error(DataError.Local.DISK_FULL))
         assertThat(dao.getById("fixed-id")).isNull()
+        // A full disk is an expected outcome the user already sees. Reporting it would
+        // bury the failures worth acting on.
+        assertThat(crashReporter.recorded).isEmpty()
     }
 
     @Test
@@ -68,6 +76,18 @@ class RoomReplayLibraryRepositoryTest {
 
         assertThat(result).isEqualTo(Result.Error(DataError.Local.UNKNOWN))
         assertThat(files.deletedFileNames).containsExactly("fixed-id.ulg")
+    }
+
+    @Test
+    fun `an unclassified DAO failure is reported with its origin`() = runTest {
+        val boom = RuntimeException("db locked")
+        dao.insertShouldThrow = boom
+
+        repository().import("content://doc")
+
+        assertThat(crashReporter.recorded).hasSize(1)
+        assertThat(crashReporter.recorded.single().first).isEqualTo(boom)
+        assertThat(crashReporter.recorded.single().second).isEqualTo("replay-library-db")
     }
 
     @Test

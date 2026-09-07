@@ -9,6 +9,9 @@ build-tests/
 # Android
 *.jks
 *.keystore
+# Firebase config for the Dronecode project. CI injects it from a repository secret;
+# it is deliberately absent from the tree so forks build with Crashlytics dormant.
+android/app/google-services.json
 android/local.properties
 android/.gradle/
 android/app/build/

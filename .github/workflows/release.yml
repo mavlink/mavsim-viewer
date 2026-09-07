@@ -321,6 +321,8 @@ jobs:
     env:
       HAS_UPLOAD_KEYSTORE: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 != '' }}
       HAS_PLAY_SERVICE_ACCOUNT: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON != '' }}
+      HAS_FIREBASE_CONFIG: ${{ secrets.FIREBASE_GOOGLE_SERVICES_JSON != '' }}
+      HAS_FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON != '' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -343,6 +345,15 @@ jobs:
         run: |
           printf '%s' "$UPLOAD_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/upload-keystore.jks"
           echo "HAWKEYE_UPLOAD_KEYSTORE=$RUNNER_TEMP/upload-keystore.jks" >> "$GITHUB_ENV"
+
+      # Unlike the keystore, this has to land inside the tree: the google-services plugin
+      # reads app/google-services.json and nothing else. It is gitignored, and a fork
+      # without the secret skips this step and ships with Crashlytics dormant.
+      - name: Decode Firebase config
+        if: env.HAS_FIREBASE_CONFIG == 'true'
+        env:
+          FIREBASE_CONFIG_B64: ${{ secrets.FIREBASE_GOOGLE_SERVICES_JSON }}
+        run: printf '%s' "$FIREBASE_CONFIG_B64" | base64 -d > android/app/google-services.json
 
       - name: Build release APK and AAB
         working-directory: android
@@ -375,6 +386,29 @@ jobs:
           else
             android/scripts/verify-release-bundle.sh android/app/build/outputs/bundle/release/app-release.aab
           fi
+
+      # Without this, a native crash in the renderer arrives as raw hex addresses. The
+      # unstripped libhawkeye.so only exists in this job's build tree, so the symbols have
+      # to be sent from here, and before the APK is published rather than after, so a
+      # failure stops the release instead of shipping an unsymbolicated one. The service
+      # account is scoped to this step, the only one that consumes it.
+      - name: Upload native symbols to Crashlytics
+        # Both secrets, not just the config: this step runs between verifying the AAB and
+        # publishing the APK, so failing here on a missing service account would strand a
+        # tag half-released. Absent either secret the release simply ships unsymbolicated.
+        if: env.HAS_FIREBASE_CONFIG == 'true' && env.HAS_FIREBASE_SERVICE_ACCOUNT == 'true'
+        working-directory: android
+        env:
+          VERSION: ${{ needs.source-tarball.outputs.version }}
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          set -euo pipefail
+          # Trap rather than a trailing rm, so the key is shredded even when the upload
+          # fails and the shell exits early.
+          trap 'rm -f "$RUNNER_TEMP/firebase-sa.json"' EXIT
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/firebase-sa.json"
+          GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-sa.json" \
+            ./gradlew uploadCrashlyticsSymbolFileRelease -PhawkeyeVersionName="$VERSION"
 
       - name: Upload APK to release
         run: gh release upload "${{ github.ref_name }}" "${{ steps.apk.outputs.file }}"

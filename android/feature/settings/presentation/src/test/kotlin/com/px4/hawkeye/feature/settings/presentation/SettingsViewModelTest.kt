@@ -3,8 +3,10 @@ package com.px4.hawkeye.feature.settings.presentation
 import app.cash.turbine.test
 import assertk.assertThat
 import assertk.assertions.isEqualTo
+import assertk.assertions.isFalse
 import assertk.assertions.isNotNull
 import assertk.assertions.isNull
+import assertk.assertions.isTrue
 import com.px4.hawkeye.core.domain.DEFAULT_LIVE_PORT
 import com.px4.hawkeye.feature.settings.domain.DistanceUnit
 import com.px4.hawkeye.feature.settings.domain.ThemeMode
@@ -85,6 +87,17 @@ class SettingsViewModelTest {
             assertThat(expectMostRecentItem().portError).isNotNull()
         }
         assertThat(repo.settings.value.listenPort).isEqualTo(DEFAULT_LIVE_PORT)
+    }
+
+    @Test
+    fun `crash reporting defaults on and opting out persists`() = runTest {
+        val vm = SettingsViewModel(repo)
+        vm.state.test {
+            assertThat(awaitItem().crashReportingEnabled).isTrue()
+            vm.onAction(SettingsAction.OnCrashReportingToggled(false))
+            assertThat(awaitItem().crashReportingEnabled).isFalse()
+        }
+        assertThat(repo.settings.value.crashReportingEnabled).isFalse()
     }
 
     @Test

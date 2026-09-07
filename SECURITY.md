@@ -47,6 +47,6 @@ Hawkeye visualizes and analyzes flight data. It sends no flight or arming comman
 
 Generally out of scope: issues that require an attacker to already control the device, and the absence of authentication in the MAVLink protocol itself, which is a property of the protocol rather than a defect in Hawkeye.
 
-Hawkeye bundles no analytics and no crash reporting, and sends no data to the Hawkeye project or the Dronecode Foundation. Its network traffic goes only to the vehicle or simulator you connect it to.
+Hawkeye bundles no analytics. The Android app reports crashes to Firebase Crashlytics, in a Firebase project held by the Dronecode Foundation, and a report carries the failure, device state, and an installation identifier but nothing from a flight log; it can be turned off in Settings, and the desktop and browser builds have no crash reporting at all. See the [privacy policy](https://px4.github.io/Hawkeye/privacy) for what a report contains. Apart from that, Hawkeye's network traffic goes only to the vehicle or simulator you connect it to.
 
 For bugs that are not security issues, open an issue on [PX4/Hawkeye](https://github.com/PX4/Hawkeye/issues).

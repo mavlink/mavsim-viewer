@@ -1,5 +1,6 @@
 package com.px4.hawkeye.feature.replay.data
 
+import com.px4.hawkeye.core.domain.CrashReporter
 import com.px4.hawkeye.core.domain.DataError
 import com.px4.hawkeye.core.domain.EmptyResult
 import com.px4.hawkeye.core.domain.Result
@@ -19,6 +20,7 @@ import java.io.InputStream
  */
 class LibraryFileStore(
     filesDir: File,
+    private val crashReporter: CrashReporter,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     private val libraryDir = File(filesDir, "library")
@@ -107,10 +109,17 @@ class LibraryFileStore(
             DataError.Local.DISK_FULL
         e is IOException && e.message?.contains("space", ignoreCase = true) == true ->
             DataError.Local.DISK_FULL
-        else -> DataError.Local.UNKNOWN
+        // Only the unclassified branch is reported: a missing file and a full disk are
+        // expected outcomes the user already sees.
+        else -> {
+            crashReporter.recordException(e, ORIGIN)
+            DataError.Local.UNKNOWN
+        }
     }
 
     private companion object {
+        const val ORIGIN = "replay-library-files"
+
         /** Extra swarm payloads (and their tmp files) from a previous multi-drone session. */
         val SWARM_FILE_PATTERN = Regex("""swarm_\d+\.ulg(\.tmp)?""")
     }

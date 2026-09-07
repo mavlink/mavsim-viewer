@@ -12,4 +12,7 @@ class FakeSettingsRepository : SettingsRepository {
     override suspend fun setThemeMode(mode: ThemeMode) { state.value = state.value.copy(themeMode = mode) }
     override suspend fun setDistanceUnit(unit: DistanceUnit) { state.value = state.value.copy(distanceUnit = unit) }
     override suspend fun setListenPort(port: Int) { state.value = state.value.copy(listenPort = port) }
+    override suspend fun setCrashReportingEnabled(enabled: Boolean) {
+        state.value = state.value.copy(crashReportingEnabled = enabled)
+    }
 }

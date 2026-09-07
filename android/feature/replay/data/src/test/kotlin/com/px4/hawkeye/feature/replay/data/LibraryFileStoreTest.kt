@@ -4,6 +4,9 @@ import assertk.assertThat
 import assertk.assertions.isEqualTo
 import assertk.assertions.isFalse
 import assertk.assertions.isTrue
+import assertk.assertions.hasSize
+import assertk.assertions.isEmpty
+import com.px4.hawkeye.core.domain.CrashReporter
 import com.px4.hawkeye.core.domain.DataError
 import com.px4.hawkeye.core.domain.Result
 import org.junit.jupiter.api.Test
@@ -13,7 +16,11 @@ import java.io.File
 
 class LibraryFileStoreTest {
 
-    private fun store(dir: File, now: Long = 1_000L) = LibraryFileStore(dir, clock = { now })
+    private fun store(
+        dir: File,
+        now: Long = 1_000L,
+        crashReporter: CrashReporter = CrashReporter.None,
+    ) = LibraryFileStore(dir, crashReporter, clock = { now })
 
     @Test
     fun `write copies bytes into the library and returns the size`(@TempDir dir: File) {
@@ -114,7 +121,7 @@ class LibraryFileStoreTest {
         store.write(ByteArrayInputStream("alpha".toByteArray()), "a.ulg")
         store.stage("a.ulg")
 
-        val later = LibraryFileStore(dir, clock = { 9_999L })
+        val later = store(dir, now = 9_999L)
         val result = later.stage(listOf("a.ulg", "ghost.ulg"))
 
         assertThat(result).isEqualTo(Result.Error(DataError.Local.NOT_FOUND))
@@ -135,7 +142,7 @@ class LibraryFileStoreTest {
         store.write(ByteArrayInputStream("good".toByteArray()), "good.ulg")
         File(File(dir, "library"), "broken.ulg").mkdirs()
 
-        val later = LibraryFileStore(dir, clock = { 9_999L })
+        val later = store(dir, now = 9_999L)
         val result = later.stage(listOf("good.ulg", "broken.ulg"))
 
         assertThat(result is Result.Error).isTrue()
@@ -164,5 +171,30 @@ class LibraryFileStoreTest {
         store.delete("a.ulg")
 
         assertThat(file.exists()).isFalse()
+    }
+
+    @Test
+    fun `an unclassified failure is reported`(@TempDir dir: File) {
+        val reporter = RecordingCrashReporter()
+        // A directory where the payload belongs makes renameTo fail with a plain IOException,
+        // which classify() cannot attribute — exactly the case worth reporting.
+        File(File(dir, "library"), "abc.ulg").mkdirs()
+
+        val result = store(dir, crashReporter = reporter)
+            .write(ByteArrayInputStream("x".toByteArray()), "abc.ulg")
+
+        assertThat(result).isEqualTo(Result.Error(DataError.Local.UNKNOWN))
+        assertThat(reporter.recorded).hasSize(1)
+        assertThat(reporter.recorded.single().second).isEqualTo("replay-library-files")
+    }
+
+    @Test
+    fun `a missing file is an expected failure and is not reported`(@TempDir dir: File) {
+        val reporter = RecordingCrashReporter()
+
+        val result = store(dir, crashReporter = reporter).stage("nope.ulg")
+
+        assertThat(result).isEqualTo(Result.Error(DataError.Local.NOT_FOUND))
+        assertThat(reporter.recorded).isEmpty()
     }
 }

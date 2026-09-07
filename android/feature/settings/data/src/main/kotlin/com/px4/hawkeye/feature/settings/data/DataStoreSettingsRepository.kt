@@ -1,6 +1,7 @@
 package com.px4.hawkeye.feature.settings.data
 
 import android.content.Context
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -17,6 +18,7 @@ private val Context.dataStore by preferencesDataStore(name = "hawkeye_settings")
 private val THEME = stringPreferencesKey("theme_mode")
 private val UNIT = stringPreferencesKey("distance_unit")
 private val LISTEN_PORT = intPreferencesKey("listen_port")
+private val CRASH_REPORTING = booleanPreferencesKey("crash_reporting_enabled")
 
 internal fun parseThemeMode(name: String?): ThemeMode =
     ThemeMode.entries.firstOrNull { it.name == name } ?: ThemeMode.SYSTEM
@@ -31,6 +33,8 @@ class DataStoreSettingsRepository(private val context: Context) : SettingsReposi
             themeMode = parseThemeMode(prefs[THEME]),
             distanceUnit = parseDistanceUnit(prefs[UNIT]),
             listenPort = prefs[LISTEN_PORT] ?: DEFAULT_LIVE_PORT,
+            // Absent means the user has never touched the switch, which is consent on.
+            crashReportingEnabled = prefs[CRASH_REPORTING] ?: true,
         )
     }
 
@@ -44,5 +48,9 @@ class DataStoreSettingsRepository(private val context: Context) : SettingsReposi
 
     override suspend fun setListenPort(port: Int) {
         context.dataStore.edit { it[LISTEN_PORT] = port }
+    }
+
+    override suspend fun setCrashReportingEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[CRASH_REPORTING] = enabled }
     }
 }

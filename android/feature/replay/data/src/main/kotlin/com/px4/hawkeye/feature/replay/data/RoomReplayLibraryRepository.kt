@@ -1,6 +1,7 @@
 package com.px4.hawkeye.feature.replay.data
 
 import android.database.sqlite.SQLiteFullException
+import com.px4.hawkeye.core.domain.CrashReporter
 import com.px4.hawkeye.core.domain.DataError
 import com.px4.hawkeye.core.domain.EmptyResult
 import com.px4.hawkeye.core.domain.Result
@@ -22,6 +23,7 @@ import java.util.UUID
 class RoomReplayLibraryRepository(
     private val dao: ReplayLibraryDao,
     private val fileManager: ReplayFileManager,
+    private val crashReporter: CrashReporter,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val clock: () -> Long = System::currentTimeMillis,
     private val idGenerator: () -> String = { UUID.randomUUID().toString() },
@@ -100,8 +102,17 @@ class RoomReplayLibraryRepository(
             }.getOrElse { Result.Error(it.toLocalError()) }
         }
 
+    // Only the unclassified branch is reported. A full disk is an expected outcome the
+    // user already sees; reporting it would bury the defects worth finding.
     private fun Throwable.toLocalError(): DataError.Local = when (this) {
         is SQLiteFullException -> DataError.Local.DISK_FULL
-        else -> DataError.Local.UNKNOWN
+        else -> {
+            crashReporter.recordException(this, ORIGIN)
+            DataError.Local.UNKNOWN
+        }
+    }
+
+    private companion object {
+        const val ORIGIN = "replay-library-db"
     }
 }

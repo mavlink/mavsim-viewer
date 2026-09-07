@@ -7,4 +7,5 @@ sealed interface SettingsAction {
     data class OnThemeModeSelected(val mode: ThemeMode) : SettingsAction
     data class OnDistanceUnitSelected(val unit: DistanceUnit) : SettingsAction
     data class OnListenPortChanged(val raw: String) : SettingsAction
+    data class OnCrashReportingToggled(val enabled: Boolean) : SettingsAction
 }

@@ -77,6 +77,7 @@ jobs:
     # material lands in any step's environment.
     env:
       HAS_UPLOAD_KEYSTORE: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 != '' }}
+      HAS_FIREBASE_CONFIG: ${{ secrets.FIREBASE_GOOGLE_SERVICES_JSON != '' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -99,6 +100,17 @@ jobs:
         run: |
           printf '%s' "$UPLOAD_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/upload-keystore.jks"
           echo "HAWKEYE_UPLOAD_KEYSTORE=$RUNNER_TEMP/upload-keystore.jks" >> "$GITHUB_ENV"
+
+      # Unlike the keystore, this has to land inside the tree: the google-services plugin
+      # reads app/google-services.json and nothing else. It is gitignored, and the step is
+      # skipped on forks, which then build with Crashlytics dormant. This job does not
+      # upload symbols — only a real release does — but it does exercise the Firebase
+      # plugin path so a tag is never the first time it runs.
+      - name: Decode Firebase config
+        if: env.HAS_FIREBASE_CONFIG == 'true'
+        env:
+          FIREBASE_CONFIG_B64: ${{ secrets.FIREBASE_GOOGLE_SERVICES_JSON }}
+        run: printf '%s' "$FIREBASE_CONFIG_B64" | base64 -d > android/app/google-services.json
 
       - name: Build release APK and AAB
         working-directory: android

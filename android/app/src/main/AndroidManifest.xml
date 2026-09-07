@@ -24,6 +24,17 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.HawkeyeAndroid">
 
+        <!--
+            Crash reporting is on by default, and Settings offers a switch to turn it off.
+            The runtime override Crashlytics persists takes precedence over this value, so
+            a user who opts out stays opted out across updates and across both processes.
+            Changing this default means updating docs/privacy.md and the Play Data safety
+            declaration to match.
+        -->
+        <meta-data
+            android:name="firebase_crashlytics_collection_enabled"
+            android:value="true" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true">

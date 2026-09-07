@@ -28,6 +28,7 @@ class SettingsViewModel(private val repository: SettingsRepository) : ViewModel(
                         // Only reseed the field from persistence while it holds a valid value,
                         // so an in-progress invalid edit isn't clobbered by the saved port.
                         portInput = if (it.portError == null) s.listenPort.toString() else it.portInput,
+                        crashReportingEnabled = s.crashReportingEnabled,
                     )
                 }
             }
@@ -41,6 +42,8 @@ class SettingsViewModel(private val repository: SettingsRepository) : ViewModel(
             is SettingsAction.OnDistanceUnitSelected ->
                 viewModelScope.launch { repository.setDistanceUnit(action.unit) }
             is SettingsAction.OnListenPortChanged -> onListenPortChanged(action.raw)
+            is SettingsAction.OnCrashReportingToggled ->
+                viewModelScope.launch { repository.setCrashReportingEnabled(action.enabled) }
         }
     }
 

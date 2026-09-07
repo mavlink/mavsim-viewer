@@ -11,6 +11,9 @@
     <string name="settings_listen_port_label">MAVLink listen port</string>
     <string name="settings_port_error_number">Enter a number.</string>
     <string name="settings_port_error_range">Enter a port between 1024 and 65535.</string>
+    <string name="settings_diagnostics_header">Diagnostics</string>
+    <string name="settings_crash_reporting_label">Send crash reports</string>
+    <string name="settings_crash_reporting_description">Sends a report when Hawkeye crashes or hits an unexpected error, so it can be fixed. A report contains the failure itself, your device model, and your Android version. Your flight logs, their location data, and the vehicles you connect to are never included.</string>
     <string name="settings_about_header">About</string>
     <string name="settings_about_label">Version, official builds, and licenses</string>
 </resources>
